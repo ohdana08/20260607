@@ -1,4 +1,4 @@
-import { getLlm } from "@/lib/llm/provider";
+import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
 import { isValidCode } from "@/lib/plan/access";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
@@ -25,10 +25,6 @@ function systemFor(programTitle: string): string {
 }
 
 export async function POST(req: Request) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return Response.json({ error: "AI 키가 설정되지 않았어요." }, { status: 503 });
-  }
-
   let body: unknown;
   try {
     body = await req.json();
@@ -36,10 +32,11 @@ export async function POST(req: Request) {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
 
-  const { messages, code, programTitle } = (body ?? {}) as {
+  const { messages, code, programTitle, provider: rawProvider } = (body ?? {}) as {
     messages?: ChatMsg[];
     code?: string;
     programTitle?: string;
+    provider?: unknown;
   };
 
   if (!isValidCode(code)) {
@@ -47,6 +44,19 @@ export async function POST(req: Request) {
   }
   const rl = await checkRateLimit(req, "planChat");
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
+
+  const provider = parseProvider(rawProvider);
+  if (!isProviderConfigured(provider)) {
+    return Response.json(
+      {
+        error:
+          provider === "openai"
+            ? "ChatGPT(OpenAI) 키가 아직 설정되지 않았어요."
+            : "AI 키가 아직 설정되지 않았어요.",
+      },
+      { status: 503 },
+    );
+  }
   if (!Array.isArray(messages)) {
     return Response.json({ error: "대화 내용이 필요해요." }, { status: 400 });
   }
@@ -57,7 +67,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "먼저 답변을 입력해 주세요." }, { status: 400 });
   }
 
-  const llm = getLlm("claude");
+  const llm = getLlm(provider, "fast");
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {

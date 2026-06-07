@@ -1,5 +1,5 @@
 import { fetchOpenPrograms } from "@/lib/data/kstartup";
-import { getLlm } from "@/lib/llm/provider";
+import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
 import type { Program, RankedPick, Recommendation } from "@/lib/match/types";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
@@ -38,10 +38,6 @@ function programForPrompt(p: Program) {
 }
 
 export async function POST(req: Request) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return Response.json({ error: "AI 키가 아직 설정되지 않았어요." }, { status: 503 });
-  }
-
   const rl = await checkRateLimit(req, "match");
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
 
@@ -50,6 +46,19 @@ export async function POST(req: Request) {
     body = await req.json();
   } catch {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
+  }
+
+  const provider = parseProvider((body as { provider?: unknown })?.provider);
+  if (!isProviderConfigured(provider)) {
+    return Response.json(
+      {
+        error:
+          provider === "openai"
+            ? "ChatGPT(OpenAI) 키가 아직 설정되지 않았어요."
+            : "AI 키가 아직 설정되지 않았어요.",
+      },
+      { status: 503 },
+    );
   }
 
   const messages = (body as { messages?: ChatMsg[] })?.messages;
@@ -62,7 +71,7 @@ export async function POST(req: Request) {
     .map((m) => `${m.role === "user" ? "사용자" : "상담사"}: ${m.content}`)
     .join("\n");
 
-  const llm = getLlm("claude");
+  const llm = getLlm(provider, "fast");
   let picks: RankedPick[] = [];
   try {
     picks = await llm.json<RankedPick[]>({

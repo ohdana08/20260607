@@ -32,6 +32,7 @@ export default function Chat() {
   const [recs, setRecs] = useState<Recommendation[] | null>(null);
   const [usingSample, setUsingSample] = useState(false);
 
+  const [provider, setProvider] = useState<"claude" | "openai">("claude");
   const [mode, setMode] = useState<Mode>("intake");
   const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
   const [code, setCode] = useState<string>("");
@@ -64,8 +65,8 @@ export default function Chat() {
     const endpoint = mode === "plan" ? "/api/plan/chat" : "/api/chat";
     const payload =
       mode === "plan"
-        ? { messages: history, code, programTitle: selectedProgram?.title }
-        : { messages: history };
+        ? { messages: history, code, programTitle: selectedProgram?.title, provider }
+        : { messages: history, provider };
 
     try {
       const res = await fetch(endpoint, {
@@ -109,7 +110,7 @@ export default function Chat() {
       const res = await fetch("/api/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ messages, provider }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -172,6 +173,7 @@ export default function Chat() {
             code,
             programTitle: selectedProgram.title,
             section: { heading: sec.heading, guide: sec.guide },
+            provider,
           }),
         });
         if (res.status === 429) {
@@ -234,10 +236,36 @@ export default function Chat() {
   return (
     <main className="flex flex-1 flex-col bg-white">
       <header className="border-b border-zinc-100 px-5 py-4">
-        <h1 className="text-base font-semibold">정부지원사업 사업계획서 도우미</h1>
-        <p className="mt-0.5 text-xs text-zinc-500">
-          편하게 대화하듯 답해 주세요. 나에게 맞는 지원사업을 찾아 드릴게요.
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h1 className="text-base font-semibold">정부지원사업 사업계획서 도우미</h1>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              편하게 대화하듯 답해 주세요. 나에게 맞는 지원사업을 찾아 드릴게요.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-zinc-100 p-0.5 text-xs">
+            <button
+              onClick={() => setProvider("claude")}
+              className={
+                provider === "claude"
+                  ? "rounded-full bg-white px-2.5 py-1 font-semibold text-zinc-900 shadow-sm"
+                  : "px-2.5 py-1 text-zinc-500"
+              }
+            >
+              Claude
+            </button>
+            <button
+              onClick={() => setProvider("openai")}
+              className={
+                provider === "openai"
+                  ? "rounded-full bg-white px-2.5 py-1 font-semibold text-zinc-900 shadow-sm"
+                  : "px-2.5 py-1 text-zinc-500"
+              }
+            >
+              ChatGPT
+            </button>
+          </div>
+        </div>
       </header>
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-5">

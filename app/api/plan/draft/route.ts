@@ -1,4 +1,4 @@
-import { createAnthropicClient } from "@/lib/llm/anthropic";
+import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
 import { isValidCode } from "@/lib/plan/access";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
@@ -7,14 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// 항목 하나씩 생성(클라이언트가 항목 목록을 순회). 품질 위해 Opus 사용.
-const opus = createAnthropicClient("claude-opus-4-8");
-
 export async function POST(req: Request) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return Response.json({ error: "AI 키가 설정되지 않았어요." }, { status: 503 });
-  }
-
   let body: unknown;
   try {
     body = await req.json();
@@ -22,11 +15,12 @@ export async function POST(req: Request) {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
 
-  const { messages, code, programTitle, section } = (body ?? {}) as {
+  const { messages, code, programTitle, section, provider: rawProvider } = (body ?? {}) as {
     messages?: ChatMsg[];
     code?: string;
     programTitle?: string;
     section?: { heading?: string; guide?: string };
+    provider?: unknown;
   };
 
   if (!isValidCode(code)) {
@@ -37,6 +31,20 @@ export async function POST(req: Request) {
   if (!Array.isArray(messages) || !section?.heading) {
     return Response.json({ error: "필요한 정보가 부족해요." }, { status: 400 });
   }
+
+  const provider = parseProvider(rawProvider);
+  if (!isProviderConfigured(provider)) {
+    return Response.json(
+      {
+        error:
+          provider === "openai"
+            ? "ChatGPT(OpenAI) 키가 아직 설정되지 않았어요."
+            : "AI 키가 아직 설정되지 않았어요.",
+      },
+      { status: 503 },
+    );
+  }
+  const llm = getLlm(provider, "quality");
 
   const conversation = messages
     .filter((m) => m.role === "user" || m.role === "assistant")
@@ -59,7 +67,7 @@ export async function POST(req: Request) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        for await (const chunk of opus.streamText({
+        for await (const chunk of llm.streamText({
           system,
           messages: [{ role: "user", content: userPrompt }],
           maxTokens: 1200,

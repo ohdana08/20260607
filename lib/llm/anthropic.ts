@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ChatMsg, JsonOptions, LlmClient, StreamTextOptions } from "./provider";
+import { extractJson } from "./json";
 
 // Cheap model for the conversational intake + matching (Phase 2). The final
 // business-plan draft (Phase 3) will use claude-opus-4-8.
@@ -17,20 +18,6 @@ function toApiMessages(messages: ChatMsg[]): Anthropic.MessageParam[] {
     role: m.role === "assistant" ? "assistant" : "user",
     content: m.content,
   }));
-}
-
-// Pull a JSON value out of a model reply, tolerant of code fences / prose.
-function extractJson<T>(text: string): T {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidate = fenced ? fenced[1] : text;
-  const start = candidate.search(/[[{]/);
-  if (start === -1) throw new Error("no JSON found in model reply");
-  // Find the matching last bracket of the same kind.
-  const open = candidate[start];
-  const close = open === "[" ? "]" : "}";
-  const end = candidate.lastIndexOf(close);
-  if (end <= start) throw new Error("malformed JSON in model reply");
-  return JSON.parse(candidate.slice(start, end + 1)) as T;
 }
 
 export function createAnthropicClient(model: string = INTAKE_MODEL): LlmClient {
