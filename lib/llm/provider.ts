@@ -9,6 +9,8 @@
 // /claude-api skill for current Opus 4.8 params (e.g. adaptive thinking,
 // output_config.effort; prefills and budget_tokens are unsupported).
 
+import { createAnthropicClient } from "./anthropic";
+
 export type Provider = "claude" | "openai";
 
 export interface ChatMsg {
@@ -40,8 +42,9 @@ export interface LlmClient {
 
 /**
  * Resolve an LlmClient for the chosen provider.
- * Implemented in Phase 2 once the vendor clients exist.
+ * Claude is wired up now; OpenAI lands in a later phase.
  */
-export function getLlm(_provider: Provider): LlmClient {
-  throw new Error("getLlm: provider clients are implemented in Phase 2");
+export function getLlm(provider: Provider): LlmClient {
+  if (provider === "claude") return createAnthropicClient();
+  throw new Error(`getLlm: provider "${provider}" is not implemented yet`);
 }
