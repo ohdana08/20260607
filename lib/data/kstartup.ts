@@ -151,7 +151,7 @@ export async function fetchOpenPrograms(): Promise<{
   usingSample: boolean;
   debug: { hasKey: boolean; error: string | null };
 }> {
-  const key = process.env.KSTARTUP_KEY;
+  const key = process.env.KSTARTUP_KEY?.trim();
   let error: string | null = null;
   if (key) {
     try {
@@ -165,5 +165,10 @@ export async function fetchOpenPrograms(): Promise<{
       console.error("[kstartup] real fetch failed, falling back to sample", err);
     }
   }
-  return { programs: SAMPLE_PROGRAMS, usingSample: true, debug: { hasKey: Boolean(key), error } };
+  const rawLen = process.env.KSTARTUP_KEY?.length ?? 0;
+  return {
+    programs: SAMPLE_PROGRAMS,
+    usingSample: true,
+    debug: { hasKey: Boolean(key), error: error ? `${error} (keyLen=${rawLen})` : `keyLen=${rawLen}` },
+  };
 }
