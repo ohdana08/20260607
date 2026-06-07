@@ -146,15 +146,24 @@ async function fetchKstartupPrograms(key: string): Promise<Program[] | null> {
   return programs.length > 0 ? programs : null;
 }
 
-export async function fetchOpenPrograms(): Promise<{ programs: Program[]; usingSample: boolean }> {
+export async function fetchOpenPrograms(): Promise<{
+  programs: Program[];
+  usingSample: boolean;
+  debug: { hasKey: boolean; error: string | null };
+}> {
   const key = process.env.KSTARTUP_KEY;
+  let error: string | null = null;
   if (key) {
     try {
       const real = await fetchKstartupPrograms(key);
-      if (real && real.length > 0) return { programs: real, usingSample: false };
+      if (real && real.length > 0) {
+        return { programs: real, usingSample: false, debug: { hasKey: true, error: null } };
+      }
+      error = "fetch returned no open programs";
     } catch (err) {
+      error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
       console.error("[kstartup] real fetch failed, falling back to sample", err);
     }
   }
-  return { programs: SAMPLE_PROGRAMS, usingSample: true };
+  return { programs: SAMPLE_PROGRAMS, usingSample: true, debug: { hasKey: Boolean(key), error } };
 }
