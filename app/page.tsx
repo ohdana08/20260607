@@ -4,7 +4,7 @@ export default function Home() {
   return (
     <main className="flex flex-1 flex-col items-center justify-center px-6 py-20">
       <div className="w-full max-w-2xl text-center">
-        <p className="mb-3 text-sm font-medium text-emerald-600">
+        <p className="mb-3 text-sm font-medium text-blue-600">
           예비창업자를 위한 정부지원사업 도우미
         </p>
         <h1 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
@@ -22,7 +22,7 @@ export default function Home() {
         <div className="mt-8 flex justify-center">
           <Link
             href="/embed"
-            className="inline-flex h-12 items-center justify-center rounded-full bg-emerald-600 px-7 text-base font-semibold text-white transition-colors hover:bg-emerald-700"
+            className="inline-flex h-12 items-center justify-center rounded-full bg-blue-600 px-7 text-base font-semibold text-white transition-colors hover:bg-blue-700"
           >
             시작하기
           </Link>
