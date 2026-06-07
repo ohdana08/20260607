@@ -53,7 +53,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "대화 내용이 필요해요." }, { status: 400 });
   }
 
-  const { programs, usingSample, debug } = await fetchOpenPrograms();
+  const { programs, usingSample } = await fetchOpenPrograms();
   const conversation = messages
     .map((m) => `${m.role === "user" ? "사용자" : "상담사"}: ${m.content}`)
     .join("\n");
@@ -95,5 +95,5 @@ export async function POST(req: Request) {
     .filter((r): r is Recommendation => r !== null)
     .slice(0, 5);
 
-  return Response.json({ recommendations, usingSample, _debug: debug });
+  return Response.json({ recommendations, usingSample });
 }
