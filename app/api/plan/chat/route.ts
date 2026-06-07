@@ -1,6 +1,7 @@
 import { getLlm } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
 import { isValidCode } from "@/lib/plan/access";
+import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,6 +45,8 @@ export async function POST(req: Request) {
   if (!isValidCode(code)) {
     return Response.json({ error: "이용권 코드가 필요해요." }, { status: 402 });
   }
+  const rl = await checkRateLimit(req, "planChat");
+  if (!rl.ok) return tooManyRequests(rl.retryAfter);
   if (!Array.isArray(messages)) {
     return Response.json({ error: "대화 내용이 필요해요." }, { status: 400 });
   }

@@ -73,6 +73,14 @@ export default function Chat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if (res.status === 429) {
+        replaceLast("잠시 너무 많이 사용했어요. 잠깐 쉬었다가 다시 해주세요 🙏");
+        return;
+      }
+      if (res.status === 402) {
+        replaceLast("이 기능은 이용권이 필요해요.");
+        return;
+      }
       if (!res.ok || !res.body) {
         replaceLast("죄송해요, 답변을 가져오지 못했어요. 다시 시도해 주세요.");
         return;
@@ -166,6 +174,11 @@ export default function Chat() {
             section: { heading: sec.heading, guide: sec.guide },
           }),
         });
+        if (res.status === 429) {
+          sections[sections.length - 1].content = "(잠시 너무 많이 사용했어요. 잠깐 후 다시 시도해 주세요.)";
+          setDraft({ title, sections: [...sections] });
+          break;
+        }
         if (!res.ok || !res.body) {
           sections[sections.length - 1].content = "(이 항목 작성에 실패했어요.)";
           setDraft({ title, sections: [...sections] });

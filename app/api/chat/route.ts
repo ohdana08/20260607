@@ -1,5 +1,6 @@
 import { getLlm } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
+import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,6 +42,9 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
+
+  const rl = await checkRateLimit(req, "chat");
+  if (!rl.ok) return tooManyRequests(rl.retryAfter);
 
   let body: unknown;
   try {

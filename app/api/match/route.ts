@@ -2,6 +2,7 @@ import { fetchOpenPrograms } from "@/lib/data/kstartup";
 import { getLlm } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
 import type { Program, RankedPick, Recommendation } from "@/lib/match/types";
+import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +41,9 @@ export async function POST(req: Request) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json({ error: "AI 키가 아직 설정되지 않았어요." }, { status: 503 });
   }
+
+  const rl = await checkRateLimit(req, "match");
+  if (!rl.ok) return tooManyRequests(rl.retryAfter);
 
   let body: unknown;
   try {
