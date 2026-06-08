@@ -18,6 +18,13 @@ interface Draft {
   title: string;
   sections: DraftSection[];
 }
+interface Chart {
+  key: string;
+  title: string;
+  png: string;
+  width: number;
+  height: number;
+}
 
 const GREETING =
   "안녕하세요! 먼저 가볍게 여쭤볼게요. 혹시 이미 운영 중인 사업이 있으세요, 아니면 아직 준비 중(예비창업)이세요?";
@@ -38,6 +45,7 @@ export default function Chat() {
   const [code, setCode] = useState<string>("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [drafting, setDrafting] = useState(false);
+  const [charts, setCharts] = useState<Chart[] | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const hasUserReplied = messages.some((m) => m.role === "user");
@@ -157,6 +165,7 @@ export default function Chat() {
   async function generateDraft() {
     if (!selectedProgram || !code || drafting) return;
     setDrafting(true);
+    setCharts(null);
     const title = `${selectedProgram.title} 사업계획서`;
     const sections: DraftSection[] = [];
     setDraft({ title, sections: [] });
@@ -201,6 +210,22 @@ export default function Chat() {
         setDraft({ title, sections: [...sections] });
       }
     }
+
+    // 도식 자료 생성 (TAM/SAM/SOM·고객여정맵·퍼널·수익모델)
+    try {
+      const res = await fetch("/api/plan/visuals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages, code, programTitle: selectedProgram.title, provider }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.charts) && data.charts.length > 0) setCharts(data.charts);
+      }
+    } catch {
+      /* 도식 실패해도 초안은 유지 */
+    }
+
     setDrafting(false);
   }
 
@@ -209,7 +234,7 @@ export default function Chat() {
     const res = await fetch("/api/plan/docx", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, title: draft.title, sections: draft.sections }),
+      body: JSON.stringify({ code, title: draft.title, sections: draft.sections, charts: charts ?? [] }),
     });
     if (!res.ok) {
       alert("다운로드에 실패했어요. 다시 시도해 주세요.");
@@ -304,7 +329,14 @@ export default function Chat() {
           />
         )}
 
-        {draft && <DraftView draft={draft} drafting={drafting} onDownload={downloadDocx} />}
+        {draft && (
+          <DraftView
+            draft={draft}
+            drafting={drafting}
+            charts={charts}
+            onDownload={downloadDocx}
+          />
+        )}
       </div>
 
       {mode !== "paywall" && (
@@ -495,10 +527,12 @@ function Paywall({
 function DraftView({
   draft,
   drafting,
+  charts,
   onDownload,
 }: {
   draft: Draft;
   drafting: boolean;
+  charts: Chart[] | null;
   onDownload: () => void;
 }) {
   return (
@@ -514,12 +548,36 @@ function DraftView({
           </div>
         ))}
       </div>
+
+      {drafting && (
+        <p className="mt-3 text-xs text-zinc-400">초안과 도식을 만드는 중이에요…</p>
+      )}
+
+      {charts && charts.length > 0 && (
+        <div className="mt-4 border-t border-zinc-100 pt-3">
+          <div className="text-sm font-semibold text-zinc-800">📊 포함된 도식</div>
+          <div className="mt-2 space-y-3">
+            {charts.map((c) => (
+              <div key={c.key}>
+                <div className="mb-1 text-xs font-medium text-zinc-500">{c.title}</div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`data:image/png;base64,${c.png}`}
+                  alt={c.title}
+                  className="w-full rounded-lg border border-zinc-100"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <button
         onClick={onDownload}
         disabled={drafting}
         className="mt-4 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
       >
-        {drafting ? "작성이 끝나면 다운로드할 수 있어요…" : "⬇️ Word(.docx)로 다운로드"}
+        {drafting ? "작성이 끝나면 다운로드할 수 있어요…" : "⬇️ Word(.docx)로 다운로드 (도식 포함)"}
       </button>
     </div>
   );

@@ -1,4 +1,4 @@
-import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
+import { Document, HeadingLevel, ImageRun, Packer, Paragraph, TextRun } from "docx";
 import { isValidCode } from "@/lib/plan/access";
 
 export const runtime = "nodejs";
@@ -9,6 +9,12 @@ interface Section {
   heading: string;
   content: string;
 }
+interface Chart {
+  title: string;
+  png: string; // base64
+  width: number;
+  height: number;
+}
 
 export async function POST(req: Request) {
   let body: unknown;
@@ -18,10 +24,11 @@ export async function POST(req: Request) {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
 
-  const { code, title, sections } = (body ?? {}) as {
+  const { code, title, sections, charts } = (body ?? {}) as {
     code?: string;
     title?: string;
     sections?: Section[];
+    charts?: Chart[];
   };
 
   if (!isValidCode(code)) {
@@ -56,6 +63,42 @@ export async function POST(req: Request) {
           children: [new TextRun(p)],
         }),
       );
+    }
+  }
+
+  // 도식 이미지 (있으면 본문 뒤에 첨부)
+  if (Array.isArray(charts) && charts.length > 0) {
+    children.push(
+      new Paragraph({
+        heading: HeadingLevel.HEADING_1,
+        spacing: { before: 300, after: 120 },
+        children: [new TextRun({ text: "[붙임] 도식 자료", bold: true })],
+      }),
+    );
+    const MAX_W = 480;
+    for (const c of charts) {
+      try {
+        const w = Math.min(MAX_W, c.width || MAX_W);
+        const h = Math.round((w / (c.width || MAX_W)) * (c.height || 300));
+        children.push(
+          new Paragraph({
+            spacing: { before: 180, after: 60 },
+            children: [new TextRun({ text: c.title, bold: true })],
+          }),
+          new Paragraph({
+            spacing: { after: 120 },
+            children: [
+              new ImageRun({
+                type: "png",
+                data: Buffer.from(c.png, "base64"),
+                transformation: { width: w, height: h },
+              }),
+            ],
+          }),
+        );
+      } catch (err) {
+        console.error("[docx] image embed failed", c.title, err);
+      }
     }
   }
 
