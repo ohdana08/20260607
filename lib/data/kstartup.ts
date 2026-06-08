@@ -1,71 +1,5 @@
 import type { Program } from "@/lib/match/types";
 
-// ── 샘플 데이터 (키 승인 전 데모용) ─────────────────────────────────────────
-// data.go.kr K-Startup 키(KSTARTUP_KEY)가 승인되어 환경변수에 들어오면
-// fetchKstartupPrograms()가 실제 공고를 가져오고, 아래 샘플은 폴백으로만 쓰임.
-const SAMPLE_PROGRAMS: Program[] = [
-  {
-    id: "sample-preliminary",
-    title: "예비창업패키지",
-    summary: "예비창업자의 사업화를 돕는 대표 지원사업. 사업화 자금과 멘토링 제공.",
-    target: "예비창업자(사업자등록 전), 만 39세 이하 우대",
-    supportField: "사업화 자금",
-    region: "전국",
-    applyEnd: null,
-    url: "https://www.k-startup.go.kr",
-    formUrl: "https://www.k-startup.go.kr",
-    source: "sample",
-  },
-  {
-    id: "sample-youth-academy",
-    title: "청년창업사관학교",
-    summary: "만 39세 이하 청년 창업자 대상 사업화·공간·교육 종합 지원.",
-    target: "예비창업자 또는 창업 3년 이내, 만 39세 이하",
-    supportField: "사업화 자금·공간·교육",
-    region: "전국",
-    applyEnd: null,
-    url: "https://www.k-startup.go.kr",
-    formUrl: null,
-    source: "sample",
-  },
-  {
-    id: "sample-local-creator",
-    title: "로컬크리에이터 활성화 지원사업",
-    summary: "지역 자원·콘텐츠를 활용한 창업 아이템을 가진 창업자 지원.",
-    target: "지역 기반 예비/초기 창업자",
-    supportField: "사업화 자금",
-    region: "전국(지역별)",
-    applyEnd: null,
-    url: "https://www.k-startup.go.kr",
-    formUrl: null,
-    source: "sample",
-  },
-  {
-    id: "sample-content-creator",
-    title: "1인 미디어·콘텐츠 창작자 지원",
-    summary: "콘텐츠·교육·온라인 기반 1인 창업자의 제작·마케팅·사업화 지원.",
-    target: "콘텐츠/온라인 분야 예비·초기 창업자",
-    supportField: "사업화·마케팅",
-    region: "전국",
-    applyEnd: null,
-    url: "https://www.k-startup.go.kr",
-    formUrl: null,
-    source: "sample",
-  },
-  {
-    id: "sample-early",
-    title: "초기창업패키지",
-    summary: "창업 3년 이내 초기 창업기업의 시장 안착과 성장을 위한 사업화 지원.",
-    target: "창업 3년 이내 초기창업자",
-    supportField: "사업화 자금",
-    region: "전국",
-    applyEnd: null,
-    url: "https://www.k-startup.go.kr",
-    formUrl: null,
-    source: "sample",
-  },
-];
-
 // ── 실제 K-Startup API (data.go.kr 게이트웨이) ──────────────────────────────
 // 엔드포인트·필드명은 실제 응답으로 검증 완료.
 const KSTARTUP_ENDPOINT =
@@ -146,29 +80,9 @@ async function fetchKstartupPrograms(key: string): Promise<Program[] | null> {
   return programs.length > 0 ? programs : null;
 }
 
-export async function fetchOpenPrograms(): Promise<{
-  programs: Program[];
-  usingSample: boolean;
-  debug: { hasKey: boolean; error: string | null };
-}> {
+// 모집중인 K-Startup 공고. 키 없으면 [], 호출 실패 시 throw(상위 aggregator가 처리).
+export async function fetchKstartupOpen(): Promise<Program[]> {
   const key = process.env.KSTARTUP_KEY?.trim();
-  let error: string | null = null;
-  if (key) {
-    try {
-      const real = await fetchKstartupPrograms(key);
-      if (real && real.length > 0) {
-        return { programs: real, usingSample: false, debug: { hasKey: true, error: null } };
-      }
-      error = "fetch returned no open programs";
-    } catch (err) {
-      error = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-      console.error("[kstartup] real fetch failed, falling back to sample", err);
-    }
-  }
-  const rawLen = process.env.KSTARTUP_KEY?.length ?? 0;
-  return {
-    programs: SAMPLE_PROGRAMS,
-    usingSample: true,
-    debug: { hasKey: Boolean(key), error: error ? `${error} (keyLen=${rawLen})` : `keyLen=${rawLen}` },
-  };
+  if (!key) return [];
+  return (await fetchKstartupPrograms(key)) ?? [];
 }

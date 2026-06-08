@@ -1,4 +1,4 @@
-import { fetchOpenPrograms } from "@/lib/data/kstartup";
+import { fetchOpenPrograms } from "@/lib/data/programs";
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
 import type { Program, RankedPick, Recommendation } from "@/lib/match/types";
