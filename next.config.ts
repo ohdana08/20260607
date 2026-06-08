@@ -8,6 +8,9 @@ const EMBED_CSP = `frame-ancestors 'self' ${HOMEPAGE_ORIGIN};`;
 const DEFAULT_CSP = "frame-ancestors 'none';";
 
 const nextConfig: NextConfig = {
+  // Native module: keep external so its prebuilt .node binary is traced into
+  // the serverless function (otherwise SVG→PNG fails at runtime on Vercel).
+  serverExternalPackages: ["@resvg/resvg-js"],
   async headers() {
     return [
       {
