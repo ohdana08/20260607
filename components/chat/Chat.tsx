@@ -499,6 +499,10 @@ function Recommendations({
   return (
     <div className="space-y-3">
       <div className="text-sm font-semibold text-zinc-700">이런 지원사업이 잘 맞을 것 같아요 👇</div>
+      <div className="rounded-xl bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">
+        마음에 드는 사업의 <b>「사업계획서 쓰기」</b> 버튼을 누르면, 그 사업에 맞춰 AI가
+        사업계획서를 처음부터 끝까지 함께 써드려요. (공고 원문은 참고용이에요)
+      </div>
       {recs.map((r) => (
         <div key={r.program.id} className="rounded-2xl border border-zinc-200 p-4">
           <div className="flex items-start justify-between gap-2">
@@ -518,22 +522,20 @@ function Recommendations({
             <span className="rounded bg-zinc-100 px-1.5 py-0.5">{r.program.supportField}</span>
             <span className="rounded bg-zinc-100 px-1.5 py-0.5">{r.program.region}</span>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs font-semibold">
-            <a
-              href={r.program.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-700 hover:underline"
-            >
-              공고 보러가기 →
-            </a>
-            <button
-              onClick={() => onChoose(r.program)}
-              className="rounded-full bg-blue-600 px-3 py-1.5 text-white hover:bg-blue-700"
-            >
-              📝 이 사업으로 사업계획서 쓰기
-            </button>
-          </div>
+          <button
+            onClick={() => onChoose(r.program)}
+            className="mt-3 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            📝 이 사업으로 사업계획서 쓰기
+          </button>
+          <a
+            href={r.program.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 block text-center text-xs text-zinc-500 hover:underline"
+          >
+            공고 원문 보기 ↗
+          </a>
         </div>
       ))}
       {usingSample && (
