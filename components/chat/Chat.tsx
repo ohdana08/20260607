@@ -48,7 +48,7 @@ export default function Chat() {
   const [charts, setCharts] = useState<Chart[] | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const hasUserReplied = messages.some((m) => m.role === "user");
+  const userTurns = messages.filter((m) => m.role === "user").length;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -341,7 +341,7 @@ export default function Chat() {
 
       {mode !== "paywall" && (
         <>
-          {mode === "intake" && hasUserReplied && (
+          {mode === "intake" && userTurns >= 2 && (
             <div className="border-t border-zinc-100 px-4 pt-3">
               <button
                 onClick={recommend}
