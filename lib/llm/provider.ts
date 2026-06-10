@@ -15,9 +15,15 @@ import { createOpenAIClient } from "./openai";
 export type Provider = "claude" | "openai";
 export type Tier = "fast" | "quality";
 
+export interface ChatImage {
+  mediaType: string; // "image/png" | "image/jpeg" | "image/webp" | "image/gif"
+  data: string; // base64 (no data: prefix)
+}
+
 export interface ChatMsg {
   role: "user" | "assistant" | "system";
   content: string;
+  images?: ChatImage[];
 }
 
 export interface StreamTextOptions {

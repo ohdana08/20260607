@@ -5,9 +5,14 @@ import type { Recommendation, Program } from "@/lib/match/types";
 import { PLAN_SECTIONS } from "@/lib/plan/sections";
 
 type Role = "user" | "assistant";
+interface ChatImage {
+  mediaType: string;
+  data: string; // base64 (no prefix)
+}
 interface Msg {
   role: Role;
   content: string;
+  images?: ChatImage[];
 }
 type Mode = "intake" | "paywall" | "plan";
 interface DraftSection {
@@ -34,6 +39,7 @@ const PAYMENT_URL = "https://pf.kakao.com/_xbrxjxkxj/chat"; // BCC 카카오 채
 export default function Chat() {
   const [messages, setMessages] = useState<Msg[]>([{ role: "assistant", content: GREETING }]);
   const [input, setInput] = useState("");
+  const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
   const [busy, setBusy] = useState(false);
   const [recommending, setRecommending] = useState(false);
   const [recs, setRecs] = useState<Recommendation[] | null>(null);
@@ -62,12 +68,45 @@ export default function Chat() {
     });
   }
 
+  // 추천/작성/도식 호출엔 이미지를 빼고 텍스트만 보냄(비용·토큰 절약).
+  function stripImages(ms: Msg[]) {
+    return ms.map(({ role, content }) => ({ role, content }));
+  }
+
+  async function handleFiles(files: FileList | null) {
+    if (!files) return;
+    const next: ChatImage[] = [];
+    for (const f of Array.from(files).slice(0, 3)) {
+      if (!f.type.startsWith("image/")) {
+        alert("지금은 이미지 파일만 첨부할 수 있어요.");
+        continue;
+      }
+      if (f.size > 4 * 1024 * 1024) {
+        alert(`${f.name}: 이미지는 4MB 이하만 가능해요.`);
+        continue;
+      }
+      const data = await new Promise<string>((res) => {
+        const r = new FileReader();
+        r.onload = () => res(String(r.result).split(",")[1] ?? "");
+        r.readAsDataURL(f);
+      });
+      if (data) next.push({ mediaType: f.type, data });
+    }
+    setPendingImages((p) => [...p, ...next].slice(0, 3));
+  }
+
   async function send() {
     const text = input.trim();
-    if (!text || busy || mode === "paywall") return;
-    const history = [...messages, { role: "user" as const, content: text }];
+    if ((!text && pendingImages.length === 0) || busy || mode === "paywall") return;
+    const userMsg: Msg = {
+      role: "user",
+      content: text,
+      ...(pendingImages.length > 0 ? { images: pendingImages } : {}),
+    };
+    const history = [...messages, userMsg];
     setMessages([...history, { role: "assistant", content: "" }]);
     setInput("");
+    setPendingImages([]);
     setBusy(true);
 
     const endpoint = mode === "plan" ? "/api/plan/chat" : "/api/chat";
@@ -118,7 +157,7 @@ export default function Chat() {
       const res = await fetch("/api/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages, provider }),
+        body: JSON.stringify({ messages: stripImages(messages), provider }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -178,7 +217,7 @@ export default function Chat() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            messages,
+            messages: stripImages(messages),
             code,
             programTitle: selectedProgram.title,
             section: { heading: sec.heading, guide: sec.guide },
@@ -216,7 +255,12 @@ export default function Chat() {
       const res = await fetch("/api/plan/visuals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages, code, programTitle: selectedProgram.title, provider }),
+        body: JSON.stringify({
+          messages: stripImages(messages),
+          code,
+          programTitle: selectedProgram.title,
+          provider,
+        }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -303,6 +347,19 @@ export default function Chat() {
                 : "mr-auto max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-zinc-100 px-4 py-3 text-sm leading-6 text-zinc-900"
             }
           >
+            {m.images && m.images.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {m.images.map((im, k) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={k}
+                    src={`data:${im.mediaType};base64,${im.data}`}
+                    alt="첨부 이미지"
+                    className="h-20 w-20 rounded-lg object-cover"
+                  />
+                ))}
+              </div>
+            )}
             {m.content || (busy ? "…" : "")}
           </div>
         ))}
@@ -365,18 +422,52 @@ export default function Chat() {
           )}
 
           <div className="border-t border-zinc-100 p-4">
+            {pendingImages.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {pendingImages.map((im, k) => (
+                  <div key={k} className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`data:${im.mediaType};base64,${im.data}`}
+                      alt="첨부"
+                      className="h-16 w-16 rounded-lg object-cover"
+                    />
+                    <button
+                      onClick={() => setPendingImages((p) => p.filter((_, i) => i !== k))}
+                      className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-800 text-xs text-white"
+                      aria-label="첨부 제거"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="flex items-end gap-2">
+              <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border border-zinc-200 text-lg text-zinc-500 hover:bg-zinc-50">
+                📎
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    handleFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
                 rows={1}
-                placeholder="여기에 답을 입력하세요…"
+                placeholder="여기에 답을 입력하세요… (📎로 사진 첨부)"
                 className="max-h-32 flex-1 resize-none rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
               />
               <button
                 onClick={send}
-                disabled={busy || !input.trim()}
+                disabled={busy || (!input.trim() && pendingImages.length === 0)}
                 className="shrink-0 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 보내기

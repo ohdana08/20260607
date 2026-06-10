@@ -14,10 +14,24 @@ function client(): Anthropic {
 }
 
 function toApiMessages(messages: ChatMsg[]): Anthropic.MessageParam[] {
-  return messages.map((m) => ({
-    role: m.role === "assistant" ? "assistant" : "user",
-    content: m.content,
-  }));
+  return messages.map((m) => {
+    const role = m.role === "assistant" ? "assistant" : "user";
+    if (m.images && m.images.length > 0) {
+      const content: Anthropic.ContentBlockParam[] = [
+        ...m.images.map((im) => ({
+          type: "image" as const,
+          source: {
+            type: "base64" as const,
+            media_type: im.mediaType as "image/png" | "image/jpeg" | "image/webp" | "image/gif",
+            data: im.data,
+          },
+        })),
+        { type: "text" as const, text: m.content || "(이미지 참고)" },
+      ];
+      return { role, content };
+    }
+    return { role, content: m.content };
+  });
 }
 
 export function createAnthropicClient(model: string = INTAKE_MODEL): LlmClient {

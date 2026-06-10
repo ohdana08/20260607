@@ -8,13 +8,32 @@ function client(): OpenAI {
   return singleton;
 }
 
-type OAIMsg = { role: "system" | "user" | "assistant"; content: string };
+type OAIMsg = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
-function toMessages(system: string | undefined, msgs: { role: string; content: string }[]): OAIMsg[] {
+function toMessages(
+  system: string | undefined,
+  msgs: { role: string; content: string; images?: { mediaType: string; data: string }[] }[],
+): OAIMsg[] {
   const out: OAIMsg[] = [];
   if (system) out.push({ role: "system", content: system });
   for (const m of msgs) {
-    out.push({ role: m.role === "assistant" ? "assistant" : "user", content: m.content });
+    const role = m.role === "assistant" ? "assistant" : "user";
+    if (role === "user" && m.images && m.images.length > 0) {
+      out.push({
+        role: "user",
+        content: [
+          ...m.images.map((im) => ({
+            type: "image_url" as const,
+            image_url: { url: `data:${im.mediaType};base64,${im.data}` },
+          })),
+          { type: "text" as const, text: m.content || "(이미지 참고)" },
+        ],
+      });
+    } else if (role === "assistant") {
+      out.push({ role: "assistant", content: m.content });
+    } else {
+      out.push({ role: "user", content: m.content });
+    }
   }
   return out;
 }
