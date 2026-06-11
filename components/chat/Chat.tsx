@@ -27,7 +27,7 @@ interface Msg {
   files?: ChatFile[];
   docs?: ChatDoc[];
 }
-type Mode = "intake" | "paywall" | "plan";
+type Mode = "intake" | "fitcheck" | "paywall" | "plan";
 interface DraftSection {
   heading: string;
   content: string;
@@ -115,6 +115,7 @@ export default function Chat() {
   const readyToRecommend =
     messages.some((m) => m.role === "assistant" && m.content.includes(READY_MARK)) ||
     userTurns >= 6;
+  const programStage = mode === "fitcheck" || mode === "plan";
 
   function startTour() {
     const d = driver({
@@ -372,11 +373,18 @@ export default function Chat() {
     setPendingDocs([]);
     setBusy(true);
 
-    const endpoint = mode === "plan" ? "/api/plan/chat" : "/api/chat";
+    const endpoint =
+      mode === "plan"
+        ? "/api/plan/chat"
+        : mode === "fitcheck"
+          ? "/api/plan/fitcheck"
+          : "/api/chat";
     const payload =
       mode === "plan"
         ? { messages: foldDocs(history), code, program: selectedProgram, provider }
-        : { messages: foldDocs(history), provider };
+        : mode === "fitcheck"
+          ? { messages: foldDocs(history), program: selectedProgram, provider }
+          : { messages: foldDocs(history), provider };
 
     try {
       const res = await fetch(endpoint, {
@@ -454,31 +462,45 @@ export default function Chat() {
   const recommend = () => fetchRecs(false);
   const recommendMore = () => fetchRecs(true);
 
-  function chooseProgram(p: Program) {
-    setSelectedProgram(p);
-    if (code) enterPlanMode(p);
-    else setMode("paywall");
-  }
-
-  function enterPlanMode(p: Program) {
-    setMode("plan");
-    setDraft(null);
-    setCharts(null);
-    setMessages((m) => {
-      setPlanStartIdx(m.length); // 여기 이후의 사용자 답변이 2차 대화
-      return [
-        ...m,
-        {
-          role: "assistant",
-          content: `✅ 이용권이 확인됐어요! 지금부터 '${p.title}' 사업계획서를 함께 써볼게요. 📝\n\n가장 정확하게 도와드리려면, 먼저 아래 두 가지를 📎로 **첨부**해 주세요:\n\n1️⃣ 이 사업의 **공고문** (방금 '공고 원문 보기'에서 받은 것)\n2️⃣ **사업계획서 양식** 파일 (다운로드 받으셨다면)\n\n📷 캡처(사진)로 올려주셔도 돼요! 제가 그 양식을 꼼꼼히 읽고, **요구하는 항목·순서 그대로** 심사위원 관점에서 하나씩 코칭하며 써드릴게요.\n\n(혹시 지금 파일이 없으면 "없어요" 라고 답해 주세요 — 일반적인 사업계획서 흐름으로 바로 시작할게요!)`,
-        },
-      ];
-    });
-    // 아래 입력창으로 시선·커서 유도
+  function focusInput() {
     setTimeout(() => {
       inputRef.current?.focus();
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
     }, 350);
+  }
+
+  // ① (무료) 공고문/양식 첨부 → 내 사업과 맞는지 확인
+  function chooseProgram(p: Program) {
+    setSelectedProgram(p);
+    setMode("fitcheck");
+    setDraft(null);
+    setCharts(null);
+    setMessages((m) => {
+      setPlanStartIdx(m.length); // 이 사업 단계의 시작점
+      return [
+        ...m,
+        {
+          role: "assistant",
+          content: `'${p.title}'를 고르셨네요! 👍\n\n바로 결제하지 마시고, **먼저 이 사업이 사장님 사업과 잘 맞는지 무료로 확인**해드릴게요.\n\n📎로 아래를 올려주세요:\n1️⃣ 이 사업의 **공고문** (방금 '공고 원문 보기'에서 받은 것)\n2️⃣ **사업계획서 양식** 파일\n\n📷 사진·PDF·워드 다 돼요! 제가 꼼꼼히 읽고 **사장님 아이템과 맞는지 / 자격(업력·지역·나이)이 되는지** 솔직하게 알려드릴게요.\n\n(파일이 없으면 사장님 사업을 한두 줄로 말씀해 주셔도 돼요!)`,
+        },
+      ];
+    });
+    focusInput();
+  }
+
+  // ③ (결제 후) 본격 작성 시작 — 앞서 올린 문서/대화를 그대로 이어서
+  function enterPlanMode(p: Program) {
+    setMode("plan");
+    setDraft(null);
+    setCharts(null);
+    setMessages((m) => [
+      ...m,
+      {
+        role: "assistant",
+        content: `✅ 결제가 확인됐어요! 이제 '${p.title}' 사업계획서를 본격적으로 써드릴게요. 📝\n앞에서 보여주신 공고문·양식과 사업 내용을 바탕으로, 양식이 요구하는 항목 순서대로 하나씩 채워볼게요.\n\n이어서 답해 주세요 👇`,
+      },
+    ]);
+    focusInput();
   }
 
   async function verifyCode(entered: string): Promise<{ ok: boolean; reason?: string }> {
@@ -655,6 +677,12 @@ export default function Chat() {
         </div>
       </header>
 
+      {mode === "fitcheck" && (
+        <div className="border-b border-amber-100 bg-amber-50 px-5 py-2.5 text-xs font-semibold text-amber-800">
+          🔎 무료 적합도 확인 · <span className="text-amber-900">{selectedProgram?.title}</span> — 공고문·양식을
+          올리면 내 사업과 맞는지 알려드려요 (결제 전이에요)
+        </div>
+      )}
       {mode === "plan" && (
         <div className="border-b border-blue-100 bg-blue-50 px-5 py-2.5 text-xs font-semibold text-blue-800">
           ✅ 이용권 확인 완료 · <span className="text-blue-900">{selectedProgram?.title}</span> 사업계획서
@@ -710,14 +738,14 @@ export default function Chat() {
       {mode === "paywall" && selectedProgram && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setMode("intake")}
+          onClick={() => setMode("fitcheck")}
         >
           <div
             className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <button
-              onClick={() => setMode("intake")}
+              onClick={() => setMode("fitcheck")}
               aria-label="닫기"
               className="absolute right-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
             >
@@ -729,7 +757,7 @@ export default function Chat() {
                 setCode(c);
                 enterPlanMode(selectedProgram);
               }}
-              onCancel={() => setMode("intake")}
+              onCancel={() => setMode("fitcheck")}
               verifyCode={verifyCode}
             />
           </div>
@@ -737,8 +765,8 @@ export default function Chat() {
       )}
 
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
-        {/* 1단계: 인테이크 대화 (+추천) — 작성 단계에서도 위에 그대로 보임 */}
-        {(mode === "plan" ? messages.slice(0, planStartIdx) : messages).map((m, i) => (
+        {/* 1단계: 인테이크 대화 (+추천) — 사업 선택 후에도 위에 그대로 보임 */}
+        {(programStage ? messages.slice(0, planStartIdx) : messages).map((m, i) => (
           <Bubble key={i} m={m} busy={busy} />
         ))}
 
@@ -758,18 +786,18 @@ export default function Chat() {
           />
         )}
 
-        {/* 2단계: 사업계획서 작성 — 구분선으로 명확히 분리 */}
-        {mode === "plan" && (
+        {/* 2단계: 선택한 사업 (적합도 확인 → 작성) — 구분선으로 명확히 분리 */}
+        {programStage && (
           <>
             <div className="flex items-center gap-2 py-1">
               <div className="h-px flex-1 bg-blue-200" />
               <span className="shrink-0 rounded-full bg-blue-600 px-3 py-1 text-[11px] font-bold text-white">
-                ✍️ 여기서부터 사업계획서 작성
+                {mode === "fitcheck" ? "🔎 여기서부터 적합도 확인 (무료)" : "✍️ 여기서부터 사업계획서 작성"}
               </span>
               <div className="h-px flex-1 bg-blue-200" />
             </div>
             {messages.slice(planStartIdx).map((m, i) => (
-              <Bubble key={`plan-${i}`} m={m} busy={busy} />
+              <Bubble key={`stage-${i}`} m={m} busy={busy} />
             ))}
           </>
         )}
@@ -802,6 +830,19 @@ export default function Chat() {
                   나에게 안 맞는 사업이 추천되지 않도록, 위 질문(지역·업력·나이 등)에 답해 주세요.
                 </p>
               )}
+            </div>
+          )}
+          {mode === "fitcheck" && (
+            <div className="border-t border-zinc-100 px-4 pt-3">
+              <button
+                onClick={() => setMode("paywall")}
+                className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+              >
+                ✍️ 이 사업으로 사업계획서 쓰기 · {PRICE}
+              </button>
+              <p className="mt-1.5 text-center text-[11px] text-zinc-400">
+                위에서 맞는지 먼저 확인하세요. 작성을 시작할 때만 결제하면 돼요.
+              </p>
             </div>
           )}
           {mode === "plan" && (
