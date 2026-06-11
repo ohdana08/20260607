@@ -469,6 +469,37 @@ export default function Chat() {
     }, 350);
   }
 
+  // 추천을 거치지 않고, 사용자가 가진 공고문/양식으로 바로 시작 (무료 확인 → 결제 → 작성)
+  function startDirect() {
+    const custom: Program = {
+      id: `custom:${genId()}`,
+      title: "직접 올린 공고문·양식",
+      summary: "",
+      target: "",
+      supportField: "",
+      region: "",
+      applyEnd: null,
+      url: "",
+      formUrl: null,
+      source: "sample",
+    };
+    setSelectedProgram(custom);
+    setMode("fitcheck");
+    setDraft(null);
+    setCharts(null);
+    setMessages((m) => {
+      setPlanStartIdx(m.length);
+      return [
+        ...m,
+        {
+          role: "assistant",
+          content: `좋아요! 이미 쓰고 싶은 사업이 있으시군요. 👍\n\n📎로 **그 사업의 공고문**과 **사업계획서 양식**을 올려주세요. (사진·PDF·워드 OK)\n\n제가 먼저 **무료로** 내용을 읽고, 사장님 사업과 맞는지·어떤 항목을 써야 하는지 알려드릴게요. 작성은 마음에 드실 때 결제하시면 돼요!\n\n(공고문이 없으면, 어떤 사업에 낼 건지 말씀해 주셔도 돼요.)`,
+        },
+      ];
+    });
+    focusInput();
+  }
+
   // ① (무료) 공고문/양식 첨부 → 내 사업과 맞는지 확인
   function chooseProgram(p: Program) {
     setSelectedProgram(p);
@@ -830,6 +861,16 @@ export default function Chat() {
                   나에게 안 맞는 사업이 추천되지 않도록, 위 질문(지역·업력·나이 등)에 답해 주세요.
                 </p>
               )}
+            </div>
+          )}
+          {mode === "intake" && !recs && (
+            <div className="px-4 pt-2">
+              <button
+                onClick={startDirect}
+                className="w-full rounded-xl border border-zinc-200 py-2 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-50"
+              >
+                📄 이미 정한 공고문·양식이 있어요 → 바로 작성하기
+              </button>
             </div>
           )}
           {mode === "fitcheck" && (
