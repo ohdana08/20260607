@@ -654,7 +654,8 @@ export default function Chat() {
       )}
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-5">
-        {messages.map((m, i) => (
+        {/* 작성(plan) 단계에선 이전 대화는 숨기고, 작성 대화만 깨끗하게 보여줌 */}
+        {(mode === "plan" ? messages.slice(planStartIdx) : messages).map((m, i) => (
           <div
             key={i}
             className={
