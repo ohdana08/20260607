@@ -39,6 +39,34 @@ const BANK = { name: "부산은행", account: "101-2090-179-808", holder: "비�
 // 도구 유입 고객이 카톡에 보낼 메시지(표식 [사업계획서] 포함 → 사장님 자동응답 키워드로 구분).
 const PAY_MSG = "[사업계획서] 이용권 입금했어요! 입금자명: ";
 
+// ── 대화 기록(이 브라우저에 저장) ──
+const LS_KEY = "govplan_convos_v1";
+interface SavedConvo {
+  id: string;
+  title: string;
+  updatedAt: number;
+  messages: { role: Role; content: string }[];
+}
+function loadConvos(): SavedConvo[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const arr = JSON.parse(localStorage.getItem(LS_KEY) || "[]");
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+function persistConvos(list: SavedConvo[]) {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(list));
+  } catch {
+    /* 용량 초과 등은 무시 */
+  }
+}
+function genId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export default function Chat() {
   const [messages, setMessages] = useState<Msg[]>([{ role: "assistant", content: GREETING }]);
   const [input, setInput] = useState("");
@@ -56,8 +84,73 @@ export default function Chat() {
   const [drafting, setDrafting] = useState(false);
   const [charts, setCharts] = useState<Chart[] | null>(null);
 
+  const [convoId, setConvoId] = useState<string>("");
+  const [convos, setConvos] = useState<SavedConvo[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const userTurns = messages.filter((m) => m.role === "user").length;
+
+  // 첫 진입: 저장된 대화 불러오기 + 새 대화 id 발급
+  useEffect(() => {
+    setConvos(loadConvos());
+    setConvoId(genId());
+  }, []);
+
+  // 대화가 바뀔 때마다 이 브라우저에 자동 저장(이미지 제외, 사용자 발화 있을 때만)
+  useEffect(() => {
+    if (!convoId) return;
+    const firstUser = messages.find((m) => m.role === "user");
+    if (!firstUser) return;
+    const title = firstUser.content.trim().slice(0, 30) || "새 대화";
+    const stripped = messages.map((m) => ({ role: m.role, content: m.content }));
+    setConvos((prev) => {
+      const others = prev.filter((c) => c.id !== convoId);
+      const next = [{ id: convoId, title, updatedAt: Date.now(), messages: stripped }, ...others].slice(0, 50);
+      persistConvos(next);
+      return next;
+    });
+  }, [messages, convoId]);
+
+  function newChat() {
+    setMessages([{ role: "assistant", content: GREETING }]);
+    setRecs(null);
+    setDraft(null);
+    setCharts(null);
+    setSelectedProgram(null);
+    setCode("");
+    setMode("intake");
+    setPendingImages([]);
+    setInput("");
+    setConvoId(genId());
+    setHistoryOpen(false);
+  }
+
+  function loadChat(c: SavedConvo) {
+    setMessages(
+      c.messages.length > 0
+        ? c.messages.map((m) => ({ role: m.role, content: m.content }))
+        : [{ role: "assistant", content: GREETING }],
+    );
+    setRecs(null);
+    setDraft(null);
+    setCharts(null);
+    setSelectedProgram(null);
+    setMode("intake");
+    setPendingImages([]);
+    setInput("");
+    setConvoId(c.id);
+    setHistoryOpen(false);
+  }
+
+  function deleteChat(id: string) {
+    setConvos((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      persistConvos(next);
+      return next;
+    });
+    if (id === convoId) newChat();
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -306,14 +399,23 @@ export default function Chat() {
   }
 
   return (
-    <main className="flex flex-1 flex-col bg-white">
+    <main className="relative flex flex-1 flex-col bg-white">
       <header className="border-b border-zinc-100 px-5 py-4">
         <div className="flex items-start justify-between gap-2">
-          <div>
-            <h1 className="text-base font-semibold">정부지원사업 사업계획서 도우미</h1>
-            <p className="mt-0.5 text-xs text-zinc-500">
-              편하게 대화하듯 답해 주세요. 나에게 맞는 지원사업을 찾아 드릴게요.
-            </p>
+          <div className="flex items-start gap-2">
+            <button
+              onClick={() => setHistoryOpen(true)}
+              title="내 대화 기록"
+              className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100"
+            >
+              🕘
+            </button>
+            <div>
+              <h1 className="text-base font-semibold">정부지원사업 사업계획서 도우미</h1>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                편하게 대화하듯 답해 주세요. 나에게 맞는 지원사업을 찾아 드릴게요.
+              </p>
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-zinc-100 p-0.5 text-xs">
             <button
@@ -339,6 +441,51 @@ export default function Chat() {
           </div>
         </div>
       </header>
+
+      {historyOpen && (
+        <div className="absolute inset-0 z-30 flex">
+          <div className="flex-1 bg-black/20" onClick={() => setHistoryOpen(false)} />
+          <div className="flex w-64 max-w-[80%] flex-col bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-100 px-3 py-3">
+              <span className="text-sm font-semibold">내 대화 기록</span>
+              <button onClick={() => setHistoryOpen(false)} className="text-zinc-400 hover:text-zinc-700">
+                ✕
+              </button>
+            </div>
+            <button
+              onClick={newChat}
+              className="m-2 rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              ＋ 새 대화 시작
+            </button>
+            <div className="flex-1 overflow-y-auto">
+              {convos.length === 0 && (
+                <p className="px-3 py-4 text-xs text-zinc-400">저장된 대화가 아직 없어요.</p>
+              )}
+              {convos.map((c) => (
+                <div
+                  key={c.id}
+                  className={`flex items-center gap-1 px-2 ${c.id === convoId ? "bg-blue-50" : ""}`}
+                >
+                  <button
+                    onClick={() => loadChat(c)}
+                    className="flex-1 truncate py-2.5 text-left text-sm text-zinc-700"
+                  >
+                    {c.title}
+                  </button>
+                  <button
+                    onClick={() => deleteChat(c.id)}
+                    title="삭제"
+                    className="shrink-0 px-1 text-zinc-300 hover:text-red-500"
+                  >
+                    🗑
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-5">
         {messages.map((m, i) => (
