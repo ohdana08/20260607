@@ -20,6 +20,21 @@ interface ChatDoc {
   name: string;
   text: string; // 워드 등에서 뽑아낸 글자 (전송 시 content에 합쳐짐)
 }
+interface Lead {
+  id: string;
+  name: string;
+  contact: string;
+}
+interface SavedProgram {
+  id: string;
+  title: string;
+  applyEnd: string | null;
+  url: string;
+  supportField: string;
+  region: string;
+  savedAt: number;
+}
+const LEAD_KEY = "gp_lead_v1";
 interface Msg {
   role: Role;
   content: string;
@@ -103,6 +118,16 @@ export default function Chat() {
   const [planStartIdx, setPlanStartIdx] = useState(0); // 2차 대화 시작 지점
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState("");
+  // 회원(리드) + 관심사업 캘린더
+  const [lead, setLead] = useState<Lead | null>(null);
+  const [saved, setSaved] = useState<SavedProgram[]>([]);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [signupOpen, setSignupOpen] = useState(false);
+  const [pendingSave, setPendingSave] = useState<Program | null>(null);
+  const [signupName, setSignupName] = useState("");
+  const [signupContact, setSignupContact] = useState("");
+  const [signupBusy, setSignupBusy] = useState(false);
+  const savedIds = new Set(saved.map((s) => s.id));
 
   const [convoId, setConvoId] = useState<string>("");
   const [convos, setConvos] = useState<SavedConvo[]>([]);
@@ -347,6 +372,117 @@ export default function Chat() {
     if (imgs.length) setPendingImages((p) => [...p, ...imgs].slice(0, 3));
     if (pdfs.length) setPendingFiles((p) => [...p, ...pdfs].slice(0, 3));
     if (wordDocs.length) setPendingDocs((p) => [...p, ...wordDocs].slice(0, 3));
+  }
+
+  // 회원 정보(이 브라우저) 불러오기 + 관심사업 목록
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LEAD_KEY);
+      if (raw) {
+        const l = JSON.parse(raw) as Lead;
+        if (l?.id) {
+          setLead(l);
+          refreshSaved(l.id);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function refreshSaved(leadId: string) {
+    try {
+      const res = await fetch(`/api/calendar/list?leadId=${encodeURIComponent(leadId)}`);
+      const d = await res.json();
+      setSaved(Array.isArray(d.saved) ? d.saved : []);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function doSave(leadId: string, p: Program) {
+    try {
+      await fetch("/api/calendar/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadId,
+          program: {
+            id: p.id,
+            title: p.title,
+            applyEnd: p.applyEnd,
+            url: p.url,
+            supportField: p.supportField,
+            region: p.region,
+          },
+        }),
+      });
+      refreshSaved(leadId);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // 관심(캘린더 저장) — 회원 아니면 가입 먼저
+  function saveInterest(p: Program) {
+    if (savedIds.has(p.id)) return;
+    if (!lead) {
+      setPendingSave(p);
+      setSignupOpen(true);
+      return;
+    }
+    doSave(lead.id, p);
+  }
+
+  async function submitSignup() {
+    if (!signupName.trim() || !signupContact.trim() || signupBusy) return;
+    setSignupBusy(true);
+    try {
+      const res = await fetch("/api/lead/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: signupName, contact: signupContact }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        alert(d?.error ?? "가입에 실패했어요.");
+        return;
+      }
+      const l = d.lead as Lead;
+      setLead(l);
+      try {
+        localStorage.setItem(LEAD_KEY, JSON.stringify(l));
+      } catch {
+        /* ignore */
+      }
+      setSignupOpen(false);
+      setSignupName("");
+      setSignupContact("");
+      if (pendingSave) {
+        await doSave(l.id, pendingSave);
+        setPendingSave(null);
+        setCalendarOpen(true);
+      }
+    } catch {
+      alert("연결에 문제가 생겼어요. 다시 시도해 주세요.");
+    } finally {
+      setSignupBusy(false);
+    }
+  }
+
+  async function removeSaved(programId: string) {
+    if (!lead) return;
+    setSaved((prev) => prev.filter((s) => s.id !== programId));
+    try {
+      await fetch("/api/calendar/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId: lead.id, programId }),
+      });
+    } catch {
+      /* ignore */
+    }
   }
 
   // 보낸 메시지 '제자리 수정' — 내용만 고치고 나머지 대화는 그대로 둔다
@@ -704,6 +840,18 @@ export default function Chat() {
             >
               🕘
             </button>
+            <button
+              onClick={() => setCalendarOpen(true)}
+              title="내 관심사업 캘린더"
+              className="relative mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100"
+            >
+              📅
+              {saved.length > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[9px] font-bold text-white">
+                  {saved.length}
+                </span>
+              )}
+            </button>
             <div>
               <h1 className="text-base font-semibold">정부지원사업 사업계획서 도우미</h1>
               <p className="mt-0.5 text-xs text-zinc-500">
@@ -835,6 +983,121 @@ export default function Chat() {
         </div>
       )}
 
+      {/* 가입(간단 정보) 모달 — 관심사업 저장 시 */}
+      {signupOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setSignupOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-bold text-zinc-900">📅 관심사업을 캘린더에 저장</h3>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">
+              간단한 정보만 남기면, 관심 있는 사업의 <b>마감일을 캘린더로 모아</b> 알려드려요. 비밀번호 없어요!
+            </p>
+            <div className="mt-4 space-y-2">
+              <input
+                value={signupName}
+                onChange={(e) => setSignupName(e.target.value)}
+                placeholder="이름 (예: 홍길동)"
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              />
+              <input
+                value={signupContact}
+                onChange={(e) => setSignupContact(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && submitSignup()}
+                placeholder="이메일 또는 전화번호"
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              />
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setSignupOpen(false)}
+                className="flex-1 rounded-xl border border-zinc-200 py-2.5 text-sm font-medium text-zinc-500 hover:bg-zinc-50"
+              >
+                취소
+              </button>
+              <button
+                onClick={submitSignup}
+                disabled={signupBusy || !signupName.trim() || !signupContact.trim()}
+                className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {signupBusy ? "저장 중…" : "저장하고 캘린더 담기"}
+              </button>
+            </div>
+            <p className="mt-2 text-center text-[10px] text-zinc-400">
+              입력하신 정보는 마감 알림·맞춤 안내에만 사용돼요.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 내 관심사업 캘린더 (드로어) */}
+      {calendarOpen && (
+        <div className="absolute inset-0 z-40 flex">
+          <div className="flex-1 bg-black/20" onClick={() => setCalendarOpen(false)} />
+          <div className="flex w-80 max-w-[85%] flex-col bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-100 px-3 py-3">
+              <span className="text-sm font-semibold">
+                📅 내 관심사업{lead ? ` · ${lead.name}님` : ""}
+              </span>
+              <button onClick={() => setCalendarOpen(false)} className="text-zinc-400 hover:text-zinc-700">
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 space-y-2 overflow-y-auto p-3">
+              {!lead && (
+                <p className="px-1 py-4 text-xs leading-5 text-zinc-400">
+                  아직 시작 전이에요. 추천 카드에서 <b>「📅 관심」</b>을 누르면, 간단 정보 입력 후 마감일을 모아드려요.
+                </p>
+              )}
+              {lead && saved.length === 0 && (
+                <p className="px-1 py-4 text-xs leading-5 text-zinc-400">
+                  저장한 사업이 아직 없어요. 추천에서 <b>「📅 관심」</b>을 눌러 담아보세요!
+                </p>
+              )}
+              {saved.map((s) => {
+                const dl = deadlineLabel(s.applyEnd);
+                return (
+                  <div key={s.id} className="rounded-xl border border-zinc-200 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-xs font-bold leading-5 text-zinc-800">{s.title}</span>
+                      <button
+                        onClick={() => removeSaved(s.id)}
+                        title="삭제"
+                        className="shrink-0 text-zinc-300 hover:text-red-500"
+                      >
+                        🗑
+                      </button>
+                    </div>
+                    <div
+                      className={`mt-1 text-[11px] ${dl.urgent ? "font-semibold text-red-600" : "text-zinc-500"}`}
+                    >
+                      📅 {dl.text}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-zinc-400">
+                      {[s.supportField, s.region].filter(Boolean).join(" · ")}
+                    </div>
+                    {s.url && (
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 inline-block text-[11px] text-blue-600 hover:underline"
+                      >
+                        공고 원문 ↗
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
         {/* 1단계: 인테이크 대화 (+추천) — 사업 선택 후에도 위에 그대로 보임 */}
         {(programStage ? messages.slice(0, planStartIdx) : messages).map((m, i) =>
@@ -864,6 +1127,8 @@ export default function Chat() {
             onChoose={chooseProgram}
             onMore={recommendMore}
             loadingMore={recommending}
+            onSaveInterest={saveInterest}
+            savedIds={savedIds}
           />
         )}
 
@@ -1190,12 +1455,16 @@ function Recommendations({
   onChoose,
   onMore,
   loadingMore,
+  onSaveInterest,
+  savedIds,
 }: {
   recs: Recommendation[];
   usingSample: boolean;
   onChoose: (p: Program) => void;
   onMore: () => void;
   loadingMore: boolean;
+  onSaveInterest: (p: Program) => void;
+  savedIds: Set<string>;
 }) {
   if (recs.length === 0) {
     return (
@@ -1267,14 +1536,24 @@ function Recommendations({
           >
             📝 이 사업으로 사업계획서 쓰기
           </button>
-          <a
-            href={r.program.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2 block text-center text-xs text-zinc-500 hover:underline"
-          >
-            공고 원문 보기 ↗
-          </a>
+          <div className="mt-2 flex items-center justify-center gap-3">
+            <button
+              onClick={() => onSaveInterest(r.program)}
+              disabled={savedIds.has(r.program.id)}
+              className="text-xs font-medium text-blue-600 hover:underline disabled:text-zinc-400 disabled:no-underline"
+            >
+              {savedIds.has(r.program.id) ? "📅 캘린더에 담음 ✓" : "📅 관심 — 마감일 캘린더에 저장"}
+            </button>
+            <span className="text-zinc-300">·</span>
+            <a
+              href={r.program.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-zinc-500 hover:underline"
+            >
+              공고 원문 ↗
+            </a>
+          </div>
         </div>
       ))}
       <button
