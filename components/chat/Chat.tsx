@@ -16,11 +16,16 @@ interface ChatFile {
   data: string; // base64 (no prefix)
   name: string;
 }
+interface ChatDoc {
+  name: string;
+  text: string; // 워드 등에서 뽑아낸 글자 (전송 시 content에 합쳐짐)
+}
 interface Msg {
   role: Role;
   content: string;
   images?: ChatImage[];
   files?: ChatFile[];
+  docs?: ChatDoc[];
 }
 type Mode = "intake" | "paywall" | "plan";
 interface DraftSection {
@@ -82,6 +87,7 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatFile[]>([]);
+  const [pendingDocs, setPendingDocs] = useState<ChatDoc[]>([]);
   const [busy, setBusy] = useState(false);
   const [recommending, setRecommending] = useState(false);
   const [recs, setRecs] = useState<Recommendation[] | null>(null);
@@ -266,6 +272,19 @@ export default function Chat() {
     return ms.map(({ role, content }) => ({ role, content }));
   }
 
+  // 워드에서 뽑은 글자를 전송 직전 content에 합쳐줌 (화면엔 칩으로만 표시)
+  function foldDocs(ms: Msg[]): Msg[] {
+    return ms.map((m) => {
+      if (!m.docs || m.docs.length === 0) return m;
+      const note = m.docs
+        .map((d) => `\n\n[첨부한 문서 "${d.name}"의 내용]\n${d.text}`)
+        .join("");
+      const { docs: _drop, ...rest } = m;
+      void _drop;
+      return { ...rest, content: (m.content || "") + note };
+    });
+  }
+
   function readBase64(f: File): Promise<string> {
     return new Promise((res) => {
       const r = new FileReader();
@@ -277,33 +296,63 @@ export default function Chat() {
   async function handleFiles(files: FileList | null) {
     if (!files) return;
     const imgs: ChatImage[] = [];
-    const docs: ChatFile[] = [];
+    const pdfs: ChatFile[] = [];
+    const wordDocs: ChatDoc[] = [];
     for (const f of Array.from(files).slice(0, 3)) {
+      const lower = f.name.toLowerCase();
       const isImage = f.type.startsWith("image/");
-      const isPdf = f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
-      if (!isImage && !isPdf) {
+      const isPdf = f.type === "application/pdf" || lower.endsWith(".pdf");
+      const isWord = lower.endsWith(".docx");
+      const isHwp = lower.endsWith(".hwp") || lower.endsWith(".hwpx");
+      if (isHwp) {
         alert(
-          `${f.name}: 사진(JPG/PNG) 또는 PDF만 첨부할 수 있어요.\n(한글/워드 파일은 'PDF로 저장' 하거나 캡처해서 올려주세요.)`,
+          `${f.name}: 한글(HWP) 파일은 아직 바로 못 읽어요.\n한글에서 '파일 → PDF로 저장(또는 인쇄→PDF)' 한 뒤 그 PDF를 올려주세요. (또는 화면 캡처)`,
         );
         continue;
       }
+      if (!isImage && !isPdf && !isWord) {
+        alert(`${f.name}: 사진(JPG/PNG), PDF, 워드(.docx)만 첨부할 수 있어요.`);
+        continue;
+      }
       if (f.size > 3 * 1024 * 1024) {
-        alert(`${f.name}: 파일은 3MB 이하만 가능해요. (PDF가 크면 필요한 페이지만 캡처해서 사진으로 올려주세요.)`);
+        alert(`${f.name}: 파일은 3MB 이하만 가능해요. (크면 필요한 페이지만 캡처해서 사진으로 올려주세요.)`);
+        continue;
+      }
+      if (isWord) {
+        // 워드는 브라우저에서 글자만 뽑아 텍스트로 전송 (용량·API 제약 회피)
+        try {
+          const mod = await import("mammoth/mammoth.browser");
+          const extractRawText = mod.extractRawText ?? mod.default?.extractRawText;
+          const arrayBuffer = await f.arrayBuffer();
+          const { value } = await extractRawText({ arrayBuffer });
+          const text = (value || "").trim();
+          if (!text) {
+            alert(`${f.name}: 워드에서 글자를 읽지 못했어요. PDF로 저장해서 올려주세요.`);
+            continue;
+          }
+          wordDocs.push({ name: f.name, text });
+        } catch {
+          alert(`${f.name}: 워드를 읽는 중 문제가 생겼어요. PDF로 저장해서 올려주세요.`);
+        }
         continue;
       }
       const data = await readBase64(f);
       if (!data) continue;
       if (isImage) imgs.push({ mediaType: f.type, data });
-      else docs.push({ mediaType: "application/pdf", data, name: f.name });
+      else pdfs.push({ mediaType: "application/pdf", data, name: f.name });
     }
     if (imgs.length) setPendingImages((p) => [...p, ...imgs].slice(0, 3));
-    if (docs.length) setPendingFiles((p) => [...p, ...docs].slice(0, 3));
+    if (pdfs.length) setPendingFiles((p) => [...p, ...pdfs].slice(0, 3));
+    if (wordDocs.length) setPendingDocs((p) => [...p, ...wordDocs].slice(0, 3));
   }
 
   async function send() {
     const text = input.trim();
     if (
-      (!text && pendingImages.length === 0 && pendingFiles.length === 0) ||
+      (!text &&
+        pendingImages.length === 0 &&
+        pendingFiles.length === 0 &&
+        pendingDocs.length === 0) ||
       busy ||
       mode === "paywall"
     )
@@ -313,19 +362,21 @@ export default function Chat() {
       content: text,
       ...(pendingImages.length > 0 ? { images: pendingImages } : {}),
       ...(pendingFiles.length > 0 ? { files: pendingFiles } : {}),
+      ...(pendingDocs.length > 0 ? { docs: pendingDocs } : {}),
     };
     const history = [...messages, userMsg];
     setMessages([...history, { role: "assistant", content: "" }]);
     setInput("");
     setPendingImages([]);
     setPendingFiles([]);
+    setPendingDocs([]);
     setBusy(true);
 
     const endpoint = mode === "plan" ? "/api/plan/chat" : "/api/chat";
     const payload =
       mode === "plan"
-        ? { messages: history, code, program: selectedProgram, provider }
-        : { messages: history, provider };
+        ? { messages: foldDocs(history), code, program: selectedProgram, provider }
+        : { messages: foldDocs(history), provider };
 
     try {
       const res = await fetch(endpoint, {
@@ -775,7 +826,7 @@ export default function Chat() {
           )}
 
           <div className="border-t border-zinc-100 p-4">
-            {(pendingImages.length > 0 || pendingFiles.length > 0) && (
+            {(pendingImages.length > 0 || pendingFiles.length > 0 || pendingDocs.length > 0) && (
               <div className="mb-2 flex flex-wrap gap-2">
                 {pendingImages.map((im, k) => (
                   <div key={`img-${k}`} className="relative">
@@ -810,6 +861,22 @@ export default function Chat() {
                     </button>
                   </div>
                 ))}
+                {pendingDocs.map((d, k) => (
+                  <div
+                    key={`doc-${k}`}
+                    className="relative flex max-w-[200px] items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-xs text-zinc-700"
+                  >
+                    <span>📝</span>
+                    <span className="truncate">{d.name}</span>
+                    <button
+                      onClick={() => setPendingDocs((p) => p.filter((_, i) => i !== k))}
+                      className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-800 text-xs text-white"
+                      aria-label="첨부 제거"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
             <div className="flex items-end gap-2">
@@ -817,7 +884,7 @@ export default function Chat() {
                 📎
                 <input
                   type="file"
-                  accept="image/*,application/pdf,.pdf"
+                  accept="image/*,application/pdf,.pdf,.docx"
                   multiple
                   className="hidden"
                   onChange={(e) => {
@@ -833,7 +900,7 @@ export default function Chat() {
                 onKeyDown={onKeyDown}
                 rows={1}
                 data-tour="input"
-                placeholder="여기에 답을 입력하세요… (📎로 사진·PDF 첨부)"
+                placeholder="여기에 답을 입력하세요… (📎로 사진·PDF·워드 첨부)"
                 className="max-h-32 flex-1 resize-none rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
               />
               <button
@@ -877,14 +944,22 @@ function Bubble({ m, busy }: { m: Msg; busy: boolean }) {
           ))}
         </div>
       )}
-      {m.files && m.files.length > 0 && (
+      {((m.files && m.files.length > 0) || (m.docs && m.docs.length > 0)) && (
         <div className="mb-2 flex flex-wrap gap-1.5">
-          {m.files.map((f, k) => (
+          {(m.files ?? []).map((f, k) => (
             <span
-              key={k}
+              key={`f${k}`}
               className="flex max-w-[200px] items-center gap-1 rounded-lg bg-black/10 px-2 py-1 text-xs"
             >
               📄 <span className="truncate">{f.name}</span>
+            </span>
+          ))}
+          {(m.docs ?? []).map((d, k) => (
+            <span
+              key={`d${k}`}
+              className="flex max-w-[200px] items-center gap-1 rounded-lg bg-black/10 px-2 py-1 text-xs"
+            >
+              📝 <span className="truncate">{d.name}</span>
             </span>
           ))}
         </div>
