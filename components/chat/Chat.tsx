@@ -389,7 +389,7 @@ export default function Chat() {
           refreshSaved(l.id);
         }
       }
-      const v = localStorage.getItem(VIEWED_KEY);
+      const v = sessionStorage.getItem(VIEWED_KEY);
       if (v) setViewed(JSON.parse(v));
     } catch {
       /* ignore */
@@ -419,7 +419,7 @@ export default function Chat() {
         },
       ];
       try {
-        localStorage.setItem(VIEWED_KEY, JSON.stringify(next));
+        sessionStorage.setItem(VIEWED_KEY, JSON.stringify(next));
       } catch {
         /* ignore */
       }
@@ -494,7 +494,7 @@ export default function Chat() {
       }
       setViewed([]);
       try {
-        localStorage.removeItem(VIEWED_KEY);
+        sessionStorage.removeItem(VIEWED_KEY);
       } catch {
         /* ignore */
       }
@@ -514,7 +514,7 @@ export default function Chat() {
       setViewed((prev) => {
         const next = prev.filter((s) => s.id !== programId);
         try {
-          localStorage.setItem(VIEWED_KEY, JSON.stringify(next));
+          sessionStorage.setItem(VIEWED_KEY, JSON.stringify(next));
         } catch {
           /* ignore */
         }
