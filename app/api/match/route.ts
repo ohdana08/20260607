@@ -88,7 +88,11 @@ export async function POST(req: Request) {
 
   const fetched = await fetchOpenPrograms();
   const usingSample = fetched.usingSample;
-  const programs = fetched.programs.filter((p) => !excludeSet.has(p.id));
+  // 이미 추천한 것 제외 + '교육생/수강생 모집' 같은 분명한 교육·참가자 모집은 아예 후보에서 제거
+  const TRAINEE = /(교육생|수강생|참가자|참여자|수강|교육과정)\s*모집/;
+  const programs = fetched.programs.filter(
+    (p) => !excludeSet.has(p.id) && !TRAINEE.test(p.title),
+  );
   if (programs.length === 0) {
     return Response.json({ recommendations: [], usingSample, exhausted: true });
   }
@@ -100,7 +104,7 @@ export async function POST(req: Request) {
   // "더 추천받기"(excludeIds 있음)일 땐 폭넓게 — 완벽하지 않아도 관련 있는 것까지.
   const moreNote =
     excludeIds.length > 0
-      ? "\n\n[중요] 사용자가 앞선 추천이 마음에 안 들어 '다른 사업을 더' 보고 싶어해요. 그래서 이번엔 폭을 넓혀, 완벽히 딱 맞지 않아도 조금이라도 도움이 될 만한 사업까지 포함해 최대 5개 골라주세요. (단, 수강생/참가자 모집·행사는 여전히 제외)"
+      ? "\n\n[중요] 사용자가 '다른 사업을 더' 보고 싶어해요. 사용자 사업과 관련 있는 지원사업을 최대 5개 더 골라주세요. 완벽히 딱 맞지 않아도 도움될 만하면 포함하세요. 단, 교육생·수강생·참가자 모집/강좌/행사/세미나, 그리고 사용자 사업과 무관한 공고는 절대 포함하지 마세요."
       : "";
   const llm = getLlm(provider, "fast");
   let picks: RankedPick[] = [];
