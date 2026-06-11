@@ -615,14 +615,17 @@ function Paywall({
 
       {/* 2단계: 카톡으로 알리기 (표식 메시지 복사 → 붙여넣기) */}
       <div className="mt-2 rounded-xl border border-zinc-200 bg-white p-3">
-        <div className="text-xs font-semibold text-zinc-500">② 입금 후 카카오톡으로 알리기</div>
-        <div className="mt-1.5 flex items-center justify-between gap-2">
+        <div className="text-xs font-semibold text-zinc-500">② 입금 후, 카카오톡으로 알려주세요</div>
+        <p className="mt-1 text-[11px] leading-4 text-zinc-500">
+          아래 메시지를 <b>복사</b>해서 카톡에 <b>붙여넣고</b>, 성함만 바꿔 보내면 돼요. (자동으로 입력되진 않아요)
+        </p>
+        <div className="mt-1.5 flex items-center justify-between gap-2 rounded-lg bg-zinc-50 px-2 py-1.5">
           <code className="truncate text-xs text-zinc-700">{PAY_MSG}홍길동</code>
           <button
             onClick={copyMessage}
-            className="shrink-0 rounded-lg bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-200"
+            className="shrink-0 rounded-lg bg-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-300"
           >
-            메시지 복사
+            1. 메시지 복사
           </button>
         </div>
         <a
@@ -631,7 +634,7 @@ function Paywall({
           rel="noopener noreferrer"
           className="mt-2 block rounded-xl bg-[#FEE500] py-2.5 text-center text-sm font-bold text-[#181600] hover:brightness-95"
         >
-          카카오톡 열기 → 붙여넣고 성함 적어 보내기
+          2. 카카오톡 열기 → 붙여넣기(꾹 눌러) → 보내기
         </a>
       </div>
 
