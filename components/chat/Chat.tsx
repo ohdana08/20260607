@@ -521,8 +521,21 @@ export default function Chat() {
       )}
 
       {mode === "paywall" && selectedProgram && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[92%] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl">
+        <div
+          className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setMode("intake")}
+        >
+          <div
+            className="relative max-h-[92%] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setMode("intake")}
+              aria-label="닫기"
+              className="absolute right-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
+            >
+              ✕
+            </button>
             <Paywall
               program={selectedProgram}
               onUnlock={(c) => {
