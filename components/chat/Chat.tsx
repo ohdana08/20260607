@@ -469,6 +469,23 @@ export default function Chat() {
     }, 350);
   }
 
+  // 적합도 확인에서 "이건 말고 맞는 사업 찾아줘" → 추천 흐름으로 전환
+  function switchToFind() {
+    setMode("intake");
+    setSelectedProgram(null);
+    setRecs(null);
+    setDraft(null);
+    setCharts(null);
+    setMessages((m) => [
+      ...m,
+      {
+        role: "assistant",
+        content: `네! 그럼 사장님께 맞는 지원사업을 찾아드릴게요. 🔎\n\n간단히 알려주세요:\n① 어떤 사업을 하세요(또는 준비 중)?\n② 어느 지역이세요?\n③ 나이대는요?\n④ 사업 시작한 지 얼마나 됐나요? (예비 / ○년차)\n⑤ 가장 필요한 도움은요? (자금 · 공간 · 판로 · 멘토링)\n\n(이미 위에서 말씀하신 게 있으면 빼고 답하셔도 돼요!)`,
+      },
+    ]);
+    focusInput();
+  }
+
   // 추천을 거치지 않고, 사용자가 가진 공고문/양식으로 바로 시작 (무료 확인 → 결제 → 작성)
   function startDirect() {
     const custom: Program = {
@@ -881,8 +898,14 @@ export default function Chat() {
               >
                 ✍️ 이 사업으로 사업계획서 쓰기 · {PRICE}
               </button>
+              <button
+                onClick={switchToFind}
+                className="mt-2 w-full rounded-xl border border-zinc-200 py-2 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-50"
+              >
+                🔄 이 사업 말고, 나에게 맞는 지원사업 찾아줘
+              </button>
               <p className="mt-1.5 text-center text-[11px] text-zinc-400">
-                위에서 맞는지 먼저 확인하세요. 작성을 시작할 때만 결제하면 돼요.
+                맞는지 먼저 확인하세요. 작성을 시작할 때만 결제하면 돼요.
               </p>
             </div>
           )}
