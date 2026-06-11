@@ -97,6 +97,11 @@ export async function POST(req: Request) {
     .map((m) => `${m.role === "user" ? "사용자" : "상담사"}: ${m.content}`)
     .join("\n");
 
+  // "더 추천받기"(excludeIds 있음)일 땐 폭넓게 — 완벽하지 않아도 관련 있는 것까지.
+  const moreNote =
+    excludeIds.length > 0
+      ? "\n\n[중요] 사용자가 앞선 추천이 마음에 안 들어 '다른 사업을 더' 보고 싶어해요. 그래서 이번엔 폭을 넓혀, 완벽히 딱 맞지 않아도 조금이라도 도움이 될 만한 사업까지 포함해 최대 5개 골라주세요. (단, 수강생/참가자 모집·행사는 여전히 제외)"
+      : "";
   const llm = getLlm(provider, "fast");
   let picks: RankedPick[] = [];
   try {
@@ -105,7 +110,7 @@ export async function POST(req: Request) {
       messages: [
         {
           role: "user",
-          content: `[대화]\n${conversation}\n\n[지원사업 목록]\n${JSON.stringify(
+          content: `[대화]\n${conversation}${moreNote}\n\n[지원사업 목록]\n${JSON.stringify(
             programs.map(programForPrompt),
             null,
             2,
