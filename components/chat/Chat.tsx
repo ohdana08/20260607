@@ -654,31 +654,9 @@ export default function Chat() {
       )}
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-5">
-        {/* 작성(plan) 단계에선 이전 대화는 숨기고, 작성 대화만 깨끗하게 보여줌 */}
-        {(mode === "plan" ? messages.slice(planStartIdx) : messages).map((m, i) => (
-          <div
-            key={i}
-            className={
-              m.role === "user"
-                ? "ml-auto max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-blue-600 px-4 py-3 text-sm leading-6 text-white"
-                : "mr-auto max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-zinc-100 px-4 py-3 text-sm leading-6 text-zinc-900"
-            }
-          >
-            {m.images && m.images.length > 0 && (
-              <div className="mb-2 flex flex-wrap gap-1.5">
-                {m.images.map((im, k) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={k}
-                    src={`data:${im.mediaType};base64,${im.data}`}
-                    alt="첨부 이미지"
-                    className="h-20 w-20 rounded-lg object-cover"
-                  />
-                ))}
-              </div>
-            )}
-            {m.content || (busy ? "…" : "")}
-          </div>
+        {/* 1단계: 인테이크 대화 (+추천) — 작성 단계에서도 위에 그대로 보임 */}
+        {(mode === "plan" ? messages.slice(0, planStartIdx) : messages).map((m, i) => (
+          <Bubble key={i} m={m} busy={busy} />
         ))}
 
         {recommending && (
@@ -687,7 +665,7 @@ export default function Chat() {
           </div>
         )}
 
-        {recs && mode !== "plan" && (
+        {recs && (
           <Recommendations
             recs={recs}
             usingSample={usingSample}
@@ -695,6 +673,22 @@ export default function Chat() {
             onMore={recommendMore}
             loadingMore={recommending}
           />
+        )}
+
+        {/* 2단계: 사업계획서 작성 — 구분선으로 명확히 분리 */}
+        {mode === "plan" && (
+          <>
+            <div className="flex items-center gap-2 py-1">
+              <div className="h-px flex-1 bg-blue-200" />
+              <span className="shrink-0 rounded-full bg-blue-600 px-3 py-1 text-[11px] font-bold text-white">
+                ✍️ 여기서부터 사업계획서 작성
+              </span>
+              <div className="h-px flex-1 bg-blue-200" />
+            </div>
+            {messages.slice(planStartIdx).map((m, i) => (
+              <Bubble key={`plan-${i}`} m={m} busy={busy} />
+            ))}
+          </>
         )}
 
         {draft && (
@@ -800,6 +794,33 @@ export default function Chat() {
         </>
       )}
     </main>
+  );
+}
+
+function Bubble({ m, busy }: { m: Msg; busy: boolean }) {
+  return (
+    <div
+      className={
+        m.role === "user"
+          ? "ml-auto max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-blue-600 px-4 py-3 text-sm leading-6 text-white"
+          : "mr-auto max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-zinc-100 px-4 py-3 text-sm leading-6 text-zinc-900"
+      }
+    >
+      {m.images && m.images.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {m.images.map((im, k) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={k}
+              src={`data:${im.mediaType};base64,${im.data}`}
+              alt="첨부 이미지"
+              className="h-20 w-20 rounded-lg object-cover"
+            />
+          ))}
+        </div>
+      )}
+      {m.content || (busy ? "…" : "")}
+    </div>
   );
 }
 
