@@ -36,6 +36,7 @@ interface Chart {
 const GREETING =
   "안녕하세요! 먼저 가볍게 여쭤볼게요. 혹시 이미 운영 중인 사업이 있으세요, 아니면 아직 준비 중(예비창업)이세요?";
 const PLAN_MIN_TURNS = 5; // 2차 대화를 최소 이만큼 한 뒤에야 초안 작성 가능
+const READY_MARK = "[추천준비완료]"; // 인테이크 완료 신호(사용자에겐 숨김)
 const PRICE = "29,900원";
 const PAYMENT_URL = "https://pf.kakao.com/_xbrxjxkxj/chat"; // BCC 카카오 채널
 const BANK = { name: "부산은행", account: "101-2090-179-808", holder: "비즈니스커리어컨설팅" };
@@ -96,6 +97,11 @@ export default function Chat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const userTurns = messages.filter((m) => m.role === "user").length;
   const planUserTurns = messages.slice(planStartIdx).filter((m) => m.role === "user").length;
+  // 인테이크에서 핵심 정보(운영상태·업력·지역·나이·업종·필요한 도움)를 다 들으면 AI가 신호를 보냄.
+  // 신호를 못 받아도 충분히 대화(6턴)하면 잠기지 않게 풀어줌(안전장치).
+  const readyToRecommend =
+    messages.some((m) => m.role === "assistant" && m.content.includes(READY_MARK)) ||
+    userTurns >= 6;
 
   function startTour() {
     const d = driver({
@@ -707,11 +713,18 @@ export default function Chat() {
             <div className="border-t border-zinc-100 px-4 pt-3">
               <button
                 onClick={recommend}
-                disabled={recommending || busy}
+                disabled={recommending || busy || !readyToRecommend}
                 className="w-full rounded-xl bg-blue-50 py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-50"
               >
-                ✨ 이 내용으로 지원사업 추천받기
+                {readyToRecommend
+                  ? "✨ 이 내용으로 지원사업 추천받기"
+                  : "✨ 추천받기 — 몇 가지만 더 답해 주세요"}
               </button>
+              {!readyToRecommend && (
+                <p className="mt-1.5 text-center text-[11px] text-zinc-400">
+                  나에게 안 맞는 사업이 추천되지 않도록, 위 질문(지역·업력·나이 등)에 답해 주세요.
+                </p>
+              )}
             </div>
           )}
           {mode === "plan" && (
@@ -819,7 +832,7 @@ function Bubble({ m, busy }: { m: Msg; busy: boolean }) {
           ))}
         </div>
       )}
-      {m.content || (busy ? "…" : "")}
+      {m.content.replace(READY_MARK, "").trimEnd() || (busy ? "…" : "")}
     </div>
   );
 }
