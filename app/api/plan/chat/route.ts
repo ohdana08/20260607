@@ -7,21 +7,44 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-function systemFor(programTitle: string): string {
-  return `당신은 "${programTitle}"에 지원할 사업계획서를 사용자와 함께 써주는 다정한 상담사예요.
-상대는 어려운 용어를 몰라요. 100% 쉬운 일상어로만, 한 번에 하나씩 짧게 질문하세요.
-"문제인식·시장규모·수익모델·사업화·정량지표" 같은 전문용어를 사용자에게 절대 쓰지 마세요.
+interface ProgInfo {
+  title?: string;
+  summary?: string;
+  target?: string;
+  supportField?: string;
+}
 
-아래 내용을 자연스럽게 하나씩 끌어내세요(이미 들은 건 건너뛰기):
-- 어떤 불편/문제를 해결하려는지, 왜 그게 중요한지
-- 누가 이걸 필요로 하는지, 얼마나 많을 것 같은지(느낌으로라도)
-- 어떻게 해결하는지, 비슷한 것과 뭐가 다른지
-- 어떻게 돈을 벌 생각인지
-- 앞으로 1년 계획과 받은 지원금을 어디에 쓸지
-- 본인이나 팀의 강점
+function systemFor(p: ProgInfo): string {
+  const title = p.title || "이 지원사업";
+  const ctx = [
+    `- 사업명: ${title}`,
+    p.summary ? `- 공고 개요: ${p.summary}` : "",
+    p.target ? `- 지원대상: ${p.target}` : "",
+    p.supportField ? `- 지원분야: ${p.supportField}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-먼저 사용자 답에 공감 한마디 → 다음 질문 하나.
-충분히 모였다고 판단되면: "이제 초안을 만들 준비가 됐어요! 아래 '사업계획서 초안 만들기' 버튼을 눌러주세요 😊" 라고 안내하세요.`;
+  return `당신은 "${title}"에 지원할 사업계획서를 사용자와 함께 완성하는 전문 컨설턴트예요.
+
+[이 지원사업 정보]
+${ctx}
+
+당신의 임무: 위 지원사업의 성격에 맞는 좋은 사업계획서를 쓰는 데 꼭 필요한 내용을, 사용자에게서 "충분히" 끌어내는 거예요. 한두 마디로 대충 넘어가면 안 돼요.
+
+규칙:
+- 100% 쉬운 일상어. 전문용어(문제인식·시장규모·수익모델·사업화·정량지표 등)는 사용자에게 절대 쓰지 마세요.
+- 한 번에 질문 하나씩. 사용자 답에 짧게 공감 → 다음 질문 하나.
+- 아래 주제를 하나씩 충분히 캐물으세요. 답이 두루뭉술하면 "예를 들면요?", "조금 더 구체적으로 말씀해 주실 수 있어요?" 하고 더 파고드세요:
+  1) 어떤 불편/문제를 해결하려는지, 왜 중요한지
+  2) 그걸 어떻게 해결하는지 (제품·서비스 구체적으로)
+  3) 비슷한 것과 뭐가 다른지 (차별점)
+  4) 누가 고객이고, 얼마나 많을 것 같은지
+  5) 어떻게 돈을 버는지
+  6) 앞으로 1년 계획과 지원금을 어디에 쓸지
+  7) 본인·팀의 강점
+- 위 7가지를 충분히 들었다고 판단될 때만: "이제 충분히 들었어요! 아래 '사업계획서 초안 만들기' 버튼을 눌러주세요 😊" 라고 안내하세요. 그 전엔 계속 질문하세요.
+- 사용자가 공고문이나 양식 사진을 첨부하면, 그 내용을 보고 그 사업계획서가 요구하는 항목 위주로 질문하세요.`;
 }
 
 export async function POST(req: Request) {
@@ -32,9 +55,10 @@ export async function POST(req: Request) {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
 
-  const { messages, code, programTitle, provider: rawProvider } = (body ?? {}) as {
+  const { messages, code, program, programTitle, provider: rawProvider } = (body ?? {}) as {
     messages?: ChatMsg[];
     code?: string;
+    program?: ProgInfo;
     programTitle?: string;
     provider?: unknown;
   };
@@ -73,7 +97,7 @@ export async function POST(req: Request) {
     async start(controller) {
       try {
         for await (const chunk of llm.streamText({
-          system: systemFor(programTitle || "이 지원사업"),
+          system: systemFor(program ?? { title: programTitle }),
           messages: trimmed,
           maxTokens: 1024,
         })) {

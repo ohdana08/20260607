@@ -33,6 +33,7 @@ interface Chart {
 
 const GREETING =
   "안녕하세요! 먼저 가볍게 여쭤볼게요. 혹시 이미 운영 중인 사업이 있으세요, 아니면 아직 준비 중(예비창업)이세요?";
+const PLAN_MIN_TURNS = 5; // 2차 대화를 최소 이만큼 한 뒤에야 초안 작성 가능
 const PRICE = "29,900원";
 const PAYMENT_URL = "https://pf.kakao.com/_xbrxjxkxj/chat"; // BCC 카카오 채널
 const BANK = { name: "부산은행", account: "101-2090-179-808", holder: "비즈니스커리어컨설팅" };
@@ -83,6 +84,7 @@ export default function Chat() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [drafting, setDrafting] = useState(false);
   const [charts, setCharts] = useState<Chart[] | null>(null);
+  const [planStartIdx, setPlanStartIdx] = useState(0); // 2차 대화 시작 지점
 
   const [convoId, setConvoId] = useState<string>("");
   const [convos, setConvos] = useState<SavedConvo[]>([]);
@@ -90,6 +92,7 @@ export default function Chat() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const userTurns = messages.filter((m) => m.role === "user").length;
+  const planUserTurns = messages.slice(planStartIdx).filter((m) => m.role === "user").length;
 
   // 첫 진입: 저장된 대화 불러오기 + 가장 최근 대화를 화면에 이어서 보여줌
   // (새로고침해도 대화가 사라지지 않게)
@@ -216,7 +219,7 @@ export default function Chat() {
     const endpoint = mode === "plan" ? "/api/plan/chat" : "/api/chat";
     const payload =
       mode === "plan"
-        ? { messages: history, code, programTitle: selectedProgram?.title, provider }
+        ? { messages: history, code, program: selectedProgram, provider }
         : { messages: history, provider };
 
     try {
@@ -286,13 +289,17 @@ export default function Chat() {
   function enterPlanMode(p: Program) {
     setMode("plan");
     setDraft(null);
-    setMessages((m) => [
-      ...m,
-      {
-        role: "assistant",
-        content: `좋아요! '${p.title}'에 맞춰 사업계획서를 같이 써볼게요. 📝\n먼저, 어떤 점이 불편하거나 아쉬워서 이걸 만들고 싶으셨어요?`,
-      },
-    ]);
+    setCharts(null);
+    setMessages((m) => {
+      setPlanStartIdx(m.length); // 여기 이후의 사용자 답변이 2차 대화
+      return [
+        ...m,
+        {
+          role: "assistant",
+          content: `좋아요! '${p.title}'에 맞춰 사업계획서를 같이 써볼게요. 📝\n좋은 계획서를 쓰려면 몇 가지 여쭤볼게요. 천천히 답해 주시면 제가 글로 정리해 드려요.\n(혹시 공고문이나 양식 사진이 있으면 📎로 첨부해 주셔도 좋아요!)\n\n먼저, 어떤 점이 불편하거나 아쉬워서 이걸 만들고 싶으셨어요?`,
+        },
+      ];
+    });
   }
 
   async function verifyCode(entered: string) {
@@ -323,7 +330,7 @@ export default function Chat() {
           body: JSON.stringify({
             messages: stripImages(messages),
             code,
-            programTitle: selectedProgram.title,
+            program: selectedProgram,
             section: { heading: sec.heading, guide: sec.guide },
             provider,
           }),
@@ -575,11 +582,20 @@ export default function Chat() {
             <div className="border-t border-zinc-100 px-4 pt-3">
               <button
                 onClick={generateDraft}
-                disabled={drafting || busy}
+                disabled={drafting || busy || planUserTurns < PLAN_MIN_TURNS}
                 className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
               >
-                {drafting ? "초안을 작성하는 중이에요…" : "📄 사업계획서 초안 만들기"}
+                {drafting
+                  ? "초안과 도식을 만드는 중이에요…"
+                  : planUserTurns < PLAN_MIN_TURNS
+                    ? `📄 초안 만들기 — 대화를 조금 더 해주세요 (${planUserTurns}/${PLAN_MIN_TURNS})`
+                    : "📄 사업계획서 초안 만들기"}
               </button>
+              {planUserTurns < PLAN_MIN_TURNS && (
+                <p className="mt-1.5 text-center text-[11px] text-zinc-400">
+                  질문에 충분히 답할수록 사업계획서가 좋아져요. 위 대화를 이어가 주세요.
+                </p>
+              )}
             </div>
           )}
 

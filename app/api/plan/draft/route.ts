@@ -15,9 +15,10 @@ export async function POST(req: Request) {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
 
-  const { messages, code, programTitle, section, provider: rawProvider } = (body ?? {}) as {
+  const { messages, code, program, programTitle, section, provider: rawProvider } = (body ?? {}) as {
     messages?: ChatMsg[];
     code?: string;
+    program?: { title?: string; summary?: string; target?: string; supportField?: string };
     programTitle?: string;
     section?: { heading?: string; guide?: string };
     provider?: unknown;
@@ -51,10 +52,20 @@ export async function POST(req: Request) {
     .map((m) => `${m.role === "user" ? "사용자" : "상담사"}: ${m.content}`)
     .join("\n");
 
-  const system = `당신은 정부지원사업 사업계획서를 대신 써주는 전문 컨설턴트예요.
-"${programTitle || "해당 지원사업"}"에 제출할 사업계획서의 한 항목을 작성합니다.
+  const pTitle = program?.title || programTitle || "해당 지원사업";
+  const progCtx = [
+    program?.summary ? `- 공고 개요: ${program.summary}` : "",
+    program?.target ? `- 지원대상: ${program.target}` : "",
+    program?.supportField ? `- 지원분야: ${program.supportField}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
+  const system = `당신은 정부지원사업 사업계획서를 대신 써주는 전문 컨설턴트예요.
+"${pTitle}"에 제출할 사업계획서의 한 항목을 작성합니다.
+${progCtx ? `\n[이 지원사업 정보]\n${progCtx}\n` : ""}
 작성 규칙:
+- 이 지원사업의 취지·지원대상에 맞게 쓰세요.
 - 아래 [대화]에서 사용자가 실제로 말한 내용을 근거로 구체적으로 쓰세요.
 - 실제 사업계획서에 들어갈 격식 있고 설득력 있는 문체(존댓말이 아닌 평서체 '~함/~임/~다')로.
 - 마크다운 기호(#, * 등)는 쓰지 말고, 자연스러운 문단으로만.
