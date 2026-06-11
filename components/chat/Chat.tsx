@@ -626,11 +626,11 @@ export default function Chat() {
 
       {mode === "paywall" && selectedProgram && (
         <div
-          className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           onClick={() => setMode("intake")}
         >
           <div
-            className="relative max-h-[92%] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl"
+            className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <button
