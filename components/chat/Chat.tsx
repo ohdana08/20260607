@@ -101,6 +101,8 @@ export default function Chat() {
   const [drafting, setDrafting] = useState(false);
   const [charts, setCharts] = useState<Chart[] | null>(null);
   const [planStartIdx, setPlanStartIdx] = useState(0); // 2차 대화 시작 지점
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState("");
 
   const [convoId, setConvoId] = useState<string>("");
   const [convos, setConvos] = useState<SavedConvo[]>([]);
@@ -347,21 +349,25 @@ export default function Chat() {
     if (wordDocs.length) setPendingDocs((p) => [...p, ...wordDocs].slice(0, 3));
   }
 
-  // 보낸 메시지 수정: 그 메시지부터(포함) 뒤를 지우고 입력창으로 불러옴 → 고쳐서 다시 보내기
-  function editMessage(globalIndex: number) {
+  // 보낸 메시지 '제자리 수정' — 내용만 고치고 나머지 대화는 그대로 둔다
+  function startEdit(globalIndex: number) {
     if (busy) return;
     const m = messages[globalIndex];
     if (!m || m.role !== "user") return;
-    setInput(m.content.replace(READY_MARK, ""));
-    setMessages((prev) => {
-      const next = prev.slice(0, globalIndex);
-      setPlanStartIdx((p) => Math.min(p, next.length));
-      return next;
-    });
-    setPendingImages([]);
-    setPendingFiles([]);
-    setPendingDocs([]);
-    focusInput();
+    setEditingIndex(globalIndex);
+    setEditingText(m.content.replace(READY_MARK, ""));
+  }
+  function saveEdit() {
+    if (editingIndex == null) return;
+    const idx = editingIndex;
+    const text = editingText;
+    setMessages((prev) => prev.map((m, i) => (i === idx ? { ...m, content: text } : m)));
+    setEditingIndex(null);
+    setEditingText("");
+  }
+  function cancelEdit() {
+    setEditingIndex(null);
+    setEditingText("");
   }
 
   async function send() {
@@ -831,9 +837,19 @@ export default function Chat() {
 
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
         {/* 1단계: 인테이크 대화 (+추천) — 사업 선택 후에도 위에 그대로 보임 */}
-        {(programStage ? messages.slice(0, planStartIdx) : messages).map((m, i) => (
-          <Bubble key={i} m={m} busy={busy} onEdit={() => editMessage(i)} />
-        ))}
+        {(programStage ? messages.slice(0, planStartIdx) : messages).map((m, i) =>
+          editingIndex === i ? (
+            <EditBox
+              key={i}
+              value={editingText}
+              onChange={setEditingText}
+              onSave={saveEdit}
+              onCancel={cancelEdit}
+            />
+          ) : (
+            <Bubble key={i} m={m} busy={busy} onEdit={() => startEdit(i)} />
+          ),
+        )}
 
         {recommending && (
           <div className="mr-auto rounded-2xl bg-zinc-100 px-4 py-3 text-sm text-zinc-600">
@@ -861,14 +877,24 @@ export default function Chat() {
               </span>
               <div className="h-px flex-1 bg-blue-200" />
             </div>
-            {messages.slice(planStartIdx).map((m, i) => (
-              <Bubble
-                key={`stage-${i}`}
-                m={m}
-                busy={busy}
-                onEdit={() => editMessage(planStartIdx + i)}
-              />
-            ))}
+            {messages.slice(planStartIdx).map((m, i) =>
+              editingIndex === planStartIdx + i ? (
+                <EditBox
+                  key={`stage-${i}`}
+                  value={editingText}
+                  onChange={setEditingText}
+                  onSave={saveEdit}
+                  onCancel={cancelEdit}
+                />
+              ) : (
+                <Bubble
+                  key={`stage-${i}`}
+                  m={m}
+                  busy={busy}
+                  onEdit={() => startEdit(planStartIdx + i)}
+                />
+              ),
+            )}
           </>
         )}
 
@@ -1046,6 +1072,44 @@ export default function Chat() {
         </>
       )}
     </main>
+  );
+}
+
+function EditBox({
+  value,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="ml-auto flex w-full max-w-[85%] flex-col items-end gap-2">
+      <textarea
+        autoFocus
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        rows={Math.min(8, Math.max(2, value.split("\n").length))}
+        className="w-full resize-none rounded-2xl border-2 border-blue-400 px-4 py-3 text-sm leading-6 text-zinc-900 outline-none"
+      />
+      <div className="flex gap-2">
+        <button
+          onClick={onCancel}
+          className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-50"
+        >
+          취소
+        </button>
+        <button
+          onClick={onSave}
+          className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+        >
+          저장
+        </button>
+      </div>
+    </div>
   );
 }
 
