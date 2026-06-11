@@ -516,7 +516,7 @@ export default function Chat() {
   }
 
   return (
-    <main className="relative flex flex-1 flex-col bg-white">
+    <main className="relative flex h-[100dvh] flex-col overflow-hidden bg-white">
       <header className="border-b border-zinc-100 px-5 py-4">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-start gap-2">
@@ -653,7 +653,7 @@ export default function Chat() {
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-5">
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
         {/* 1단계: 인테이크 대화 (+추천) — 작성 단계에서도 위에 그대로 보임 */}
         {(mode === "plan" ? messages.slice(0, planStartIdx) : messages).map((m, i) => (
           <Bubble key={i} m={m} busy={busy} />
