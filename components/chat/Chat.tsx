@@ -256,15 +256,16 @@ export default function Chat() {
     }
   }
 
-  async function recommend() {
+  async function fetchRecs(append: boolean) {
     if (recommending || busy) return;
     setRecommending(true);
-    setRecs(null);
+    if (!append) setRecs(null);
     try {
+      const excludeIds = append && recs ? recs.map((r) => r.program.id) : [];
       const res = await fetch("/api/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: stripImages(messages), provider }),
+        body: JSON.stringify({ messages: stripImages(messages), provider, excludeIds }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -272,13 +273,30 @@ export default function Chat() {
         return;
       }
       setUsingSample(Boolean(data.usingSample));
-      setRecs(Array.isArray(data.recommendations) ? data.recommendations : []);
+      const incoming: Recommendation[] = Array.isArray(data.recommendations) ? data.recommendations : [];
+      if (append) {
+        if (incoming.length === 0) {
+          setMessages((m) => [
+            ...m,
+            { role: "assistant", content: "음, 더 찾아봤는데 추가로 딱 맞는 사업이 안 보여요. 대화를 조금 더 들려주시면 다시 찾아볼게요!" },
+          ]);
+        } else {
+          setRecs((prev) => {
+            const seen = new Set((prev ?? []).map((r) => r.program.id));
+            return [...(prev ?? []), ...incoming.filter((r) => !seen.has(r.program.id))];
+          });
+        }
+      } else {
+        setRecs(incoming);
+      }
     } catch {
       setMessages((m) => [...m, { role: "assistant", content: "추천을 가져오는 중 연결이 끊겼어요." }]);
     } finally {
       setRecommending(false);
     }
   }
+  const recommend = () => fetchRecs(false);
+  const recommendMore = () => fetchRecs(true);
 
   function chooseProgram(p: Program) {
     setSelectedProgram(p);
@@ -552,7 +570,13 @@ export default function Chat() {
         )}
 
         {recs && mode !== "plan" && (
-          <Recommendations recs={recs} usingSample={usingSample} onChoose={chooseProgram} />
+          <Recommendations
+            recs={recs}
+            usingSample={usingSample}
+            onChoose={chooseProgram}
+            onMore={recommendMore}
+            loadingMore={recommending}
+          />
         )}
 
         {draft && (
@@ -567,7 +591,7 @@ export default function Chat() {
 
       {mode !== "paywall" && (
         <>
-          {mode === "intake" && userTurns >= 1 && (
+          {mode === "intake" && userTurns >= 1 && !recs && (
             <div className="border-t border-zinc-100 px-4 pt-3">
               <button
                 onClick={recommend}
@@ -662,10 +686,14 @@ function Recommendations({
   recs,
   usingSample,
   onChoose,
+  onMore,
+  loadingMore,
 }: {
   recs: Recommendation[];
   usingSample: boolean;
   onChoose: (p: Program) => void;
+  onMore: () => void;
+  loadingMore: boolean;
 }) {
   if (recs.length === 0) {
     return (
@@ -716,6 +744,14 @@ function Recommendations({
           </a>
         </div>
       ))}
+      <button
+        onClick={onMore}
+        disabled={loadingMore}
+        className="w-full rounded-xl border border-blue-200 bg-white py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50 disabled:opacity-50"
+      >
+        {loadingMore ? "다른 사업을 더 찾는 중이에요…" : "🔄 마음에 안 들면, 다른 지원사업 더 추천받기"}
+      </button>
+
       {usingSample && (
         <p className="text-[11px] leading-5 text-zinc-400">
           ※ 지금은 예시 데이터예요. 정부 데이터 연동이 끝나면 실제 공고로 바뀝니다.

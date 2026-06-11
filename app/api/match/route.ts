@@ -80,7 +80,19 @@ export async function POST(req: Request) {
     return Response.json({ error: "대화 내용이 필요해요." }, { status: 400 });
   }
 
-  const { programs, usingSample } = await fetchOpenPrograms();
+  // 이미 추천한 사업은 후보에서 제외 ("더 추천받기"용)
+  const excludeIds = Array.isArray((body as { excludeIds?: unknown })?.excludeIds)
+    ? ((body as { excludeIds: unknown[] }).excludeIds.filter((x) => typeof x === "string") as string[])
+    : [];
+  const excludeSet = new Set(excludeIds);
+
+  const fetched = await fetchOpenPrograms();
+  const usingSample = fetched.usingSample;
+  const programs = fetched.programs.filter((p) => !excludeSet.has(p.id));
+  if (programs.length === 0) {
+    return Response.json({ recommendations: [], usingSample, exhausted: true });
+  }
+
   const conversation = messages
     .map((m) => `${m.role === "user" ? "사용자" : "상담사"}: ${m.content}`)
     .join("\n");
