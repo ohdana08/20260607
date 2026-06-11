@@ -736,7 +736,14 @@ function Recommendations({
               {r.eligibility}
             </span>
           </div>
-          <p className="mt-1.5 text-sm leading-6 text-zinc-700">{r.fitReason}</p>
+          {r.whatItIs && (
+            <div className="mt-2 rounded-lg bg-zinc-50 px-3 py-2 text-xs leading-5 text-zinc-600">
+              <span className="font-semibold text-zinc-700">💡 어떤 사업이냐면</span> {r.whatItIs}
+            </div>
+          )}
+          <p className="mt-2 text-sm leading-6 text-zinc-700">
+            <span className="font-semibold text-blue-700">나에게 맞는 이유</span> {r.fitReason}
+          </p>
           <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-zinc-500">
             <span className="rounded bg-zinc-100 px-1.5 py-0.5">{r.program.supportField}</span>
             <span className="rounded bg-zinc-100 px-1.5 py-0.5">{r.program.region}</span>

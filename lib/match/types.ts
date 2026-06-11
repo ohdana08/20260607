@@ -15,6 +15,7 @@ export interface Program {
 // One recommended program with a plain-language explanation.
 export interface Recommendation {
   program: Program;
+  whatItIs: string; // 이 사업이 실제로 뭘 해주는지 — 쉬운 설명
   fitReason: string; // 왜 이 사람에게 맞는지 — 일상어
   eligibility: "가능성 높음" | "확인 필요"; // 참여 가능성
 }
@@ -22,6 +23,7 @@ export interface Recommendation {
 // What the LLM returns when ranking (merged back to Program by id).
 export interface RankedPick {
   id: string;
+  whatItIs: string;
   fitReason: string;
   eligibility: "가능성 높음" | "확인 필요";
 }
