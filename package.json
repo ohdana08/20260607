@@ -14,6 +14,7 @@
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
     "docx": "^9.7.1",
+    "driver.js": "^1.4.0",
     "next": "16.2.7",
     "openai": "^6.42.0",
     "react": "19.2.4",

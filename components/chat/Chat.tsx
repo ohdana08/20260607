@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 import type { Recommendation, Program } from "@/lib/match/types";
 import { PLAN_SECTIONS } from "@/lib/plan/sections";
 
@@ -93,6 +95,76 @@ export default function Chat() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const userTurns = messages.filter((m) => m.role === "user").length;
   const planUserTurns = messages.slice(planStartIdx).filter((m) => m.role === "user").length;
+
+  function startTour() {
+    const d = driver({
+      showProgress: true,
+      nextBtnText: "다음 →",
+      prevBtnText: "← 이전",
+      doneBtnText: "시작하기",
+      steps: [
+        {
+          popover: {
+            title: "환영해요! 👋",
+            description:
+              "대화만 하면, 나에게 맞는 정부지원사업을 찾아주고 사업계획서까지 써드려요. 어려운 용어는 몰라도 괜찮아요!",
+          },
+        },
+        {
+          element: '[data-tour="input"]',
+          popover: {
+            title: "여기에 답을 적어요 ✍️",
+            description: "편하게 대화하듯 답해 주세요. 챗봇이 하나씩 물어봐요.",
+          },
+        },
+        {
+          element: '[data-tour="send"]',
+          popover: {
+            title: "보내기",
+            description:
+              "몇 번 대화하면 입력창 위에 '✨ 지원사업 추천받기' 버튼이 생겨요. 누르면 나에게 맞는 사업이 나와요!",
+          },
+        },
+        {
+          element: '[data-tour="provider"]',
+          popover: {
+            title: "AI 고르기",
+            description: "Claude 또는 ChatGPT 중에 골라 쓸 수 있어요. (기본은 Claude)",
+          },
+        },
+        {
+          element: '[data-tour="history"]',
+          popover: {
+            title: "지난 대화 보기 🕘",
+            description: "예전에 나눈 대화를 여기서 다시 볼 수 있어요.",
+          },
+        },
+        {
+          popover: {
+            title: "그럼 시작해볼까요? 😊",
+            description: "먼저 '운영 중인 사업이 있는지, 준비 중인지'부터 답해보세요!",
+          },
+        },
+      ],
+    });
+    d.drive();
+  }
+
+  // 첫 진입: 튜토리얼 1회 자동 실행
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (localStorage.getItem("tour_seen_v1")) return;
+    const t = setTimeout(() => {
+      try {
+        startTour();
+        localStorage.setItem("tour_seen_v1", "1");
+      } catch {
+        /* ignore */
+      }
+    }, 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 첫 진입: 저장된 대화 불러오기 + 가장 최근 대화를 화면에 이어서 보여줌
   // (새로고침해도 대화가 사라지지 않게)
@@ -445,6 +517,7 @@ export default function Chat() {
             <button
               onClick={() => setHistoryOpen(true)}
               title="내 대화 기록"
+              data-tour="history"
               className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100"
             >
               🕘
@@ -456,27 +529,39 @@ export default function Chat() {
               </p>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-zinc-100 p-0.5 text-xs">
+          <div className="flex shrink-0 items-center gap-1.5">
             <button
-              onClick={() => setProvider("claude")}
-              className={
-                provider === "claude"
-                  ? "rounded-full bg-white px-2.5 py-1 font-semibold text-zinc-900 shadow-sm"
-                  : "px-2.5 py-1 text-zinc-500"
-              }
+              onClick={startTour}
+              title="사용법 다시 보기"
+              className="flex h-8 items-center rounded-lg px-2 text-xs font-medium text-zinc-500 hover:bg-zinc-100"
             >
-              Claude
+              ❓ 사용법
             </button>
-            <button
-              onClick={() => setProvider("openai")}
-              className={
-                provider === "openai"
-                  ? "rounded-full bg-white px-2.5 py-1 font-semibold text-zinc-900 shadow-sm"
-                  : "px-2.5 py-1 text-zinc-500"
-              }
+            <div
+              data-tour="provider"
+              className="flex items-center gap-0.5 rounded-full bg-zinc-100 p-0.5 text-xs"
             >
-              ChatGPT
-            </button>
+              <button
+                onClick={() => setProvider("claude")}
+                className={
+                  provider === "claude"
+                    ? "rounded-full bg-white px-2.5 py-1 font-semibold text-zinc-900 shadow-sm"
+                    : "px-2.5 py-1 text-zinc-500"
+                }
+              >
+                Claude
+              </button>
+              <button
+                onClick={() => setProvider("openai")}
+                className={
+                  provider === "openai"
+                    ? "rounded-full bg-white px-2.5 py-1 font-semibold text-zinc-900 shadow-sm"
+                    : "px-2.5 py-1 text-zinc-500"
+                }
+              >
+                ChatGPT
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -683,12 +768,14 @@ export default function Chat() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
                 rows={1}
+                data-tour="input"
                 placeholder="여기에 답을 입력하세요… (📎로 사진 첨부)"
                 className="max-h-32 flex-1 resize-none rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
               />
               <button
                 onClick={send}
                 disabled={busy || (!input.trim() && pendingImages.length === 0)}
+                data-tour="send"
                 className="shrink-0 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 보내기
