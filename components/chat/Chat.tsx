@@ -495,6 +495,22 @@ export default function Chat() {
         </div>
       )}
 
+      {mode === "paywall" && selectedProgram && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[92%] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl">
+            <Paywall
+              program={selectedProgram}
+              onUnlock={(c) => {
+                setCode(c);
+                enterPlanMode(selectedProgram);
+              }}
+              onCancel={() => setMode("intake")}
+              verifyCode={verifyCode}
+            />
+          </div>
+        </div>
+      )}
+
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-5">
         {messages.map((m, i) => (
           <div
@@ -530,18 +546,6 @@ export default function Chat() {
 
         {recs && mode !== "plan" && (
           <Recommendations recs={recs} usingSample={usingSample} onChoose={chooseProgram} />
-        )}
-
-        {mode === "paywall" && selectedProgram && (
-          <Paywall
-            program={selectedProgram}
-            onUnlock={(c) => {
-              setCode(c);
-              enterPlanMode(selectedProgram);
-            }}
-            onCancel={() => setMode(recs ? "intake" : "intake")}
-            verifyCode={verifyCode}
-          />
         )}
 
         {draft && (
