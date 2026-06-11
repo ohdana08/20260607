@@ -1287,7 +1287,7 @@ export default function Chat() {
                 onClick={() => setMode("paywall")}
                 className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
               >
-                ✍️ 이 사업으로 사업계획서 쓰기 · {PRICE}
+                ✍️ 이 사업으로 사업계획서 쓰기
               </button>
               <button
                 onClick={switchToFind}
