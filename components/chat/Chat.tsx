@@ -347,6 +347,23 @@ export default function Chat() {
     if (wordDocs.length) setPendingDocs((p) => [...p, ...wordDocs].slice(0, 3));
   }
 
+  // 보낸 메시지 수정: 그 메시지부터(포함) 뒤를 지우고 입력창으로 불러옴 → 고쳐서 다시 보내기
+  function editMessage(globalIndex: number) {
+    if (busy) return;
+    const m = messages[globalIndex];
+    if (!m || m.role !== "user") return;
+    setInput(m.content.replace(READY_MARK, ""));
+    setMessages((prev) => {
+      const next = prev.slice(0, globalIndex);
+      setPlanStartIdx((p) => Math.min(p, next.length));
+      return next;
+    });
+    setPendingImages([]);
+    setPendingFiles([]);
+    setPendingDocs([]);
+    focusInput();
+  }
+
   async function send() {
     const text = input.trim();
     if (
@@ -815,7 +832,7 @@ export default function Chat() {
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
         {/* 1단계: 인테이크 대화 (+추천) — 사업 선택 후에도 위에 그대로 보임 */}
         {(programStage ? messages.slice(0, planStartIdx) : messages).map((m, i) => (
-          <Bubble key={i} m={m} busy={busy} />
+          <Bubble key={i} m={m} busy={busy} onEdit={() => editMessage(i)} />
         ))}
 
         {recommending && (
@@ -845,7 +862,12 @@ export default function Chat() {
               <div className="h-px flex-1 bg-blue-200" />
             </div>
             {messages.slice(planStartIdx).map((m, i) => (
-              <Bubble key={`stage-${i}`} m={m} busy={busy} />
+              <Bubble
+                key={`stage-${i}`}
+                m={m}
+                busy={busy}
+                onEdit={() => editMessage(planStartIdx + i)}
+              />
             ))}
           </>
         )}
@@ -1027,49 +1049,60 @@ export default function Chat() {
   );
 }
 
-function Bubble({ m, busy }: { m: Msg; busy: boolean }) {
+function Bubble({ m, busy, onEdit }: { m: Msg; busy: boolean; onEdit?: () => void }) {
+  const isUser = m.role === "user";
   return (
-    <div
-      className={
-        m.role === "user"
-          ? "ml-auto max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-blue-600 px-4 py-3 text-sm leading-6 text-white"
-          : "mr-auto max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-zinc-100 px-4 py-3 text-sm leading-6 text-zinc-900"
-      }
-    >
-      {m.images && m.images.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {m.images.map((im, k) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={k}
-              src={`data:${im.mediaType};base64,${im.data}`}
-              alt="첨부 이미지"
-              className="h-20 w-20 rounded-lg object-cover"
-            />
-          ))}
-        </div>
+    <div className={isUser ? "ml-auto flex max-w-[85%] flex-col items-end" : "mr-auto max-w-[85%]"}>
+      <div
+        className={
+          isUser
+            ? "whitespace-pre-wrap rounded-2xl rounded-br-sm bg-blue-600 px-4 py-3 text-sm leading-6 text-white"
+            : "whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-zinc-100 px-4 py-3 text-sm leading-6 text-zinc-900"
+        }
+      >
+        {m.images && m.images.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {m.images.map((im, k) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={k}
+                src={`data:${im.mediaType};base64,${im.data}`}
+                alt="첨부 이미지"
+                className="h-20 w-20 rounded-lg object-cover"
+              />
+            ))}
+          </div>
+        )}
+        {((m.files && m.files.length > 0) || (m.docs && m.docs.length > 0)) && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {(m.files ?? []).map((f, k) => (
+              <span
+                key={`f${k}`}
+                className="flex max-w-[200px] items-center gap-1 rounded-lg bg-black/10 px-2 py-1 text-xs"
+              >
+                📄 <span className="truncate">{f.name}</span>
+              </span>
+            ))}
+            {(m.docs ?? []).map((d, k) => (
+              <span
+                key={`d${k}`}
+                className="flex max-w-[200px] items-center gap-1 rounded-lg bg-black/10 px-2 py-1 text-xs"
+              >
+                📝 <span className="truncate">{d.name}</span>
+              </span>
+            ))}
+          </div>
+        )}
+        {m.content.replace(READY_MARK, "").trimEnd() || (busy ? "…" : "")}
+      </div>
+      {isUser && onEdit && !busy && (
+        <button
+          onClick={onEdit}
+          className="mt-1 text-[11px] text-zinc-400 transition-colors hover:text-blue-600"
+        >
+          ✏️ 수정
+        </button>
       )}
-      {((m.files && m.files.length > 0) || (m.docs && m.docs.length > 0)) && (
-        <div className="mb-2 flex flex-wrap gap-1.5">
-          {(m.files ?? []).map((f, k) => (
-            <span
-              key={`f${k}`}
-              className="flex max-w-[200px] items-center gap-1 rounded-lg bg-black/10 px-2 py-1 text-xs"
-            >
-              📄 <span className="truncate">{f.name}</span>
-            </span>
-          ))}
-          {(m.docs ?? []).map((d, k) => (
-            <span
-              key={`d${k}`}
-              className="flex max-w-[200px] items-center gap-1 rounded-lg bg-black/10 px-2 py-1 text-xs"
-            >
-              📝 <span className="truncate">{d.name}</span>
-            </span>
-          ))}
-        </div>
-      )}
-      {m.content.replace(READY_MARK, "").trimEnd() || (busy ? "…" : "")}
     </div>
   );
 }
