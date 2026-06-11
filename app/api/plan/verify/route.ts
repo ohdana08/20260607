@@ -1,4 +1,4 @@
-import { isValidCode } from "@/lib/plan/access";
+import { checkCodeForProgram } from "@/lib/plan/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +10,7 @@ export async function POST(req: Request) {
   } catch {
     return Response.json({ ok: false }, { status: 400 });
   }
-  const code = (body as { code?: unknown })?.code;
-  return Response.json({ ok: isValidCode(code) });
+  const { code, programId } = (body ?? {}) as { code?: unknown; programId?: unknown };
+  const res = await checkCodeForProgram(code, programId);
+  return Response.json({ ok: res.ok, reason: res.reason });
 }

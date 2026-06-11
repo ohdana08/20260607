@@ -1,5 +1,5 @@
 import { Document, HeadingLevel, ImageRun, Packer, Paragraph, TextRun } from "docx";
-import { isValidCode } from "@/lib/plan/access";
+import { checkCodeForProgram } from "@/lib/plan/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,15 +24,17 @@ export async function POST(req: Request) {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
 
-  const { code, title, sections, charts } = (body ?? {}) as {
+  const { code, programId, title, sections, charts } = (body ?? {}) as {
     code?: string;
+    programId?: string;
     title?: string;
     sections?: Section[];
     charts?: Chart[];
   };
 
-  if (!isValidCode(code)) {
-    return Response.json({ error: "이용권 코드가 필요해요." }, { status: 402 });
+  const codeCheck = await checkCodeForProgram(code, programId);
+  if (!codeCheck.ok) {
+    return Response.json({ error: "이용권 코드 확인이 필요해요." }, { status: 402 });
   }
   if (!Array.isArray(sections) || sections.length === 0) {
     return Response.json({ error: "내보낼 내용이 없어요." }, { status: 400 });

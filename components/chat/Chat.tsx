@@ -320,14 +320,14 @@ export default function Chat() {
     });
   }
 
-  async function verifyCode(entered: string) {
+  async function verifyCode(entered: string): Promise<{ ok: boolean; reason?: string }> {
     const res = await fetch("/api/plan/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: entered }),
+      body: JSON.stringify({ code: entered, programId: selectedProgram?.id }),
     });
     const data = await res.json();
-    return Boolean(data?.ok);
+    return { ok: Boolean(data?.ok), reason: data?.reason };
   }
 
   async function generateDraft() {
@@ -387,7 +387,7 @@ export default function Chat() {
         body: JSON.stringify({
           messages: stripImages(messages),
           code,
-          programTitle: selectedProgram.title,
+          program: selectedProgram,
           provider,
         }),
       });
@@ -407,7 +407,13 @@ export default function Chat() {
     const res = await fetch("/api/plan/docx", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, title: draft.title, sections: draft.sections, charts: charts ?? [] }),
+      body: JSON.stringify({
+        code,
+        programId: selectedProgram?.id,
+        title: draft.title,
+        sections: draft.sections,
+        charts: charts ?? [],
+      }),
     });
     if (!res.ok) {
       alert("다운로드에 실패했어요. 다시 시도해 주세요.");
@@ -790,7 +796,7 @@ function Paywall({
   program: Program;
   onUnlock: (code: string) => void;
   onCancel: () => void;
-  verifyCode: (code: string) => Promise<boolean>;
+  verifyCode: (code: string) => Promise<{ ok: boolean; reason?: string }>;
 }) {
   const [entered, setEntered] = useState("");
   const [checking, setChecking] = useState(false);
@@ -800,9 +806,11 @@ function Paywall({
     if (!entered.trim() || checking) return;
     setChecking(true);
     setError("");
-    const ok = await verifyCode(entered.trim());
+    const r = await verifyCode(entered.trim());
     setChecking(false);
-    if (ok) onUnlock(entered.trim());
+    if (r.ok) onUnlock(entered.trim());
+    else if (r.reason === "used_elsewhere")
+      setError("이 코드는 다른 사업계획서에 이미 사용됐어요. 다른 지원사업은 새로 결제해 주세요.");
     else setError("코드가 맞지 않아요. 다시 확인해 주세요.");
   }
 

@@ -1,6 +1,6 @@
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
-import { isValidCode } from "@/lib/plan/access";
+import { checkCodeForProgram } from "@/lib/plan/access";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -8,10 +8,23 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 interface ProgInfo {
+  id?: string;
   title?: string;
   summary?: string;
   target?: string;
   supportField?: string;
+}
+
+function codeErr(reason?: string): Response {
+  return Response.json(
+    {
+      error:
+        reason === "used_elsewhere"
+          ? "이 코드는 다른 사업계획서에 이미 사용됐어요. 다른 지원사업은 새로 결제해 주세요."
+          : "이용권 코드가 필요해요.",
+    },
+    { status: 402 },
+  );
 }
 
 function systemFor(p: ProgInfo): string {
@@ -63,9 +76,8 @@ export async function POST(req: Request) {
     provider?: unknown;
   };
 
-  if (!isValidCode(code)) {
-    return Response.json({ error: "이용권 코드가 필요해요." }, { status: 402 });
-  }
+  const codeCheck = await checkCodeForProgram(code, program?.id);
+  if (!codeCheck.ok) return codeErr(codeCheck.reason);
   const rl = await checkRateLimit(req, "planChat");
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
 
