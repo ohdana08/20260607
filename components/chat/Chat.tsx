@@ -384,7 +384,7 @@ export default function Chat() {
         ? { messages: foldDocs(history), code, program: selectedProgram, provider }
         : mode === "fitcheck"
           ? { messages: foldDocs(history), program: selectedProgram, provider }
-          : { messages: foldDocs(history), provider };
+          : { messages: stripImages(history), provider }; // 추천(intake)은 가벼운 텍스트만
 
     try {
       const res = await fetch(endpoint, {
