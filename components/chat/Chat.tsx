@@ -93,6 +93,7 @@ export default function Chat() {
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const userTurns = messages.filter((m) => m.role === "user").length;
   const planUserTurns = messages.slice(planStartIdx).filter((m) => m.role === "user").length;
 
@@ -386,10 +387,15 @@ export default function Chat() {
         ...m,
         {
           role: "assistant",
-          content: `좋아요! '${p.title}'에 맞춰 사업계획서를 같이 써볼게요. 📝\n좋은 계획서를 쓰려면 몇 가지 여쭤볼게요. 천천히 답해 주시면 제가 글로 정리해 드려요.\n(혹시 공고문이나 양식 사진이 있으면 📎로 첨부해 주셔도 좋아요!)\n\n먼저, 어떤 점이 불편하거나 아쉬워서 이걸 만들고 싶으셨어요?`,
+          content: `✅ 이용권이 확인됐어요! 지금부터 '${p.title}' 사업계획서를 함께 써볼게요. 📝\n좋은 계획서를 쓰려면 제가 몇 가지 여쭤볼게요. 천천히 답해 주시면 제가 글로 정리해 드려요.\n(공고문이나 양식 사진이 있으면 📎로 첨부해 주셔도 좋아요!)\n\n자, 첫 질문이에요 👇\n어떤 점이 불편하거나 아쉬워서 이걸 만들고 싶으셨어요?`,
         },
       ];
     });
+    // 아래 입력창으로 시선·커서 유도
+    setTimeout(() => {
+      inputRef.current?.focus();
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    }, 350);
   }
 
   async function verifyCode(entered: string): Promise<{ ok: boolean; reason?: string }> {
@@ -565,6 +571,13 @@ export default function Chat() {
           </div>
         </div>
       </header>
+
+      {mode === "plan" && (
+        <div className="border-b border-blue-100 bg-blue-50 px-5 py-2.5 text-xs font-semibold text-blue-800">
+          ✅ 이용권 확인 완료 · <span className="text-blue-900">{selectedProgram?.title}</span> 사업계획서
+          작성 중 — 아래 질문에 답해 주세요 ↓
+        </div>
+      )}
 
       {historyOpen && (
         <div className="absolute inset-0 z-30 flex">
@@ -764,6 +777,7 @@ export default function Chat() {
                 />
               </label>
               <textarea
+                ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
