@@ -35,6 +35,7 @@ const GREETING =
   "안녕하세요! 먼저 가볍게 여쭤볼게요. 혹시 이미 운영 중인 사업이 있으세요, 아니면 아직 준비 중(예비창업)이세요?";
 const PRICE = "29,900원";
 const PAYMENT_URL = "https://pf.kakao.com/_xbrxjxkxj/chat"; // BCC 카카오 채널
+const BANK = { name: "부산은행", account: "101-2090-179-808", holder: "비즈니스커리어컨설팅" };
 
 export default function Chat() {
   const [messages, setMessages] = useState<Msg[]>([{ role: "assistant", content: GREETING }]);
@@ -572,26 +573,55 @@ function Paywall({
     else setError("코드가 맞지 않아요. 다시 확인해 주세요.");
   }
 
+  function copyAccount() {
+    navigator.clipboard?.writeText(BANK.account).then(
+      () => alert("계좌번호를 복사했어요!"),
+      () => {},
+    );
+  }
+
   return (
     <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-5">
-      <h3 className="text-sm font-bold text-zinc-900">📝 사업계획서 함께 작성하기</h3>
+      <h3 className="text-sm font-bold text-zinc-900">💳 사업계획서 이용권 · {PRICE}</h3>
       <p className="mt-1 text-sm leading-6 text-zinc-700">
-        <b>{program.title}</b>에 맞춰 AI랑 대화하며 사업계획서 초안을 완성하고 <b>Word 파일로 다운로드</b>할 수
-        있어요.
+        <b>{program.title}</b>에 맞춰 AI랑 대화하며 사업계획서 초안을 완성하고 <b>Word 파일</b>(도식 포함)로
+        다운로드할 수 있어요.
       </p>
-      <p className="mt-2 text-sm font-bold text-blue-700">이용권 {PRICE}</p>
 
+      {/* 1단계: 입금 */}
+      <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3">
+        <div className="text-xs font-semibold text-zinc-500">① 아래 계좌로 {PRICE} 입금</div>
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <div className="text-sm font-bold text-zinc-900">
+            {BANK.name} {BANK.account}
+          </div>
+          <button
+            onClick={copyAccount}
+            className="shrink-0 rounded-lg bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-200"
+          >
+            복사
+          </button>
+        </div>
+        <div className="text-xs text-zinc-500">예금주: {BANK.holder}</div>
+      </div>
+
+      {/* 2단계: 카톡으로 알리기 */}
       <a
         href={PAYMENT_URL}
         target="_blank"
         rel="noopener noreferrer"
-        className="mt-3 block rounded-xl bg-[#FEE500] py-2.5 text-center text-sm font-bold text-[#181600] hover:brightness-95"
+        className="mt-2 block rounded-xl bg-[#FEE500] py-2.5 text-center text-sm font-bold text-[#181600] hover:brightness-95"
       >
-        카카오톡으로 결제하고 이용권 코드 받기
+        ② 카카오톡으로 “입금자명 + 코드 요청” 보내기
       </a>
 
+      <p className="mt-2 text-xs leading-5 text-zinc-500">
+        입금 확인 후 이용권 코드를 보내드려요(보통 빠르게). 코드를 받으면 아래에 입력하세요.
+      </p>
+
+      {/* 3단계: 코드 입력 */}
       <div className="mt-3">
-        <label className="text-xs font-semibold text-zinc-600">이용권 코드 입력</label>
+        <label className="text-xs font-semibold text-zinc-600">③ 이용권 코드 입력</label>
         <div className="mt-1 flex gap-2">
           <input
             value={entered}
