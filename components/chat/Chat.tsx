@@ -401,7 +401,7 @@ export default function Chat() {
 
       {mode !== "paywall" && (
         <>
-          {mode === "intake" && userTurns >= 2 && (
+          {mode === "intake" && userTurns >= 1 && (
             <div className="border-t border-zinc-100 px-4 pt-3">
               <button
                 onClick={recommend}
