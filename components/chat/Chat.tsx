@@ -91,10 +91,18 @@ export default function Chat() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const userTurns = messages.filter((m) => m.role === "user").length;
 
-  // 첫 진입: 저장된 대화 불러오기 + 새 대화 id 발급
+  // 첫 진입: 저장된 대화 불러오기 + 가장 최근 대화를 화면에 이어서 보여줌
+  // (새로고침해도 대화가 사라지지 않게)
   useEffect(() => {
-    setConvos(loadConvos());
-    setConvoId(genId());
+    const list = loadConvos();
+    setConvos(list);
+    const recent = list.find((c) => c.messages.some((m) => m.role === "user"));
+    if (recent) {
+      setMessages(recent.messages.map((m) => ({ role: m.role, content: m.content })));
+      setConvoId(recent.id);
+    } else {
+      setConvoId(genId());
+    }
   }, []);
 
   // 대화가 바뀔 때마다 이 브라우저에 자동 저장(이미지 제외, 사용자 발화 있을 때만)
