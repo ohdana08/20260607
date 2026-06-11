@@ -1171,6 +1171,19 @@ function Bubble({ m, busy, onEdit }: { m: Msg; busy: boolean; onEdit?: () => voi
   );
 }
 
+// 마감일 → 사람이 읽기 쉬운 라벨 (D-day, 상시, 마감)
+function deadlineLabel(applyEnd: string | null): { text: string; urgent: boolean } {
+  if (!applyEnd) return { text: "상시 모집 (마감일 없음)", urgent: false };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const end = new Date(`${applyEnd}T00:00:00`);
+  const days = Math.round((end.getTime() - today.getTime()) / 86400000);
+  if (Number.isNaN(days)) return { text: applyEnd, urgent: false };
+  if (days < 0) return { text: `마감됨 (${applyEnd})`, urgent: false };
+  if (days === 0) return { text: `⏰ 오늘 마감! (${applyEnd})`, urgent: true };
+  return { text: `D-${days} · ${applyEnd}까지`, urgent: days <= 7 };
+}
+
 function Recommendations({
   recs,
   usingSample,
@@ -1220,6 +1233,30 @@ function Recommendations({
           <p className="mt-2 text-sm leading-6 text-zinc-700">
             <span className="font-semibold text-blue-700">나에게 맞는 이유</span> {r.fitReason}
           </p>
+          {/* 공고 상세 (K-Startup 사이트처럼 자세히) */}
+          <div className="mt-3 space-y-1.5 rounded-lg border border-zinc-100 bg-zinc-50/70 px-3 py-2.5 text-xs leading-5 text-zinc-600">
+            {(() => {
+              const dl = deadlineLabel(r.program.applyEnd);
+              return (
+                <div className="flex gap-1.5">
+                  <span className="shrink-0 font-semibold text-zinc-700">📅 신청기간</span>
+                  <span className={dl.urgent ? "font-semibold text-red-600" : ""}>{dl.text}</span>
+                </div>
+              );
+            })()}
+            {r.program.target && r.program.target !== "지원대상 정보 없음" && (
+              <div className="flex gap-1.5">
+                <span className="shrink-0 font-semibold text-zinc-700">🎯 지원대상</span>
+                <span>{r.program.target}</span>
+              </div>
+            )}
+            {r.program.summary && (
+              <div className="flex gap-1.5">
+                <span className="shrink-0 font-semibold text-zinc-700">📋 지원내용</span>
+                <span>{r.program.summary}</span>
+              </div>
+            )}
+          </div>
           <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-zinc-500">
             <span className="rounded bg-zinc-100 px-1.5 py-0.5">{r.program.supportField}</span>
             <span className="rounded bg-zinc-100 px-1.5 py-0.5">{r.program.region}</span>

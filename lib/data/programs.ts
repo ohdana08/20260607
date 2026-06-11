@@ -3,7 +3,7 @@ import { fetchKstartupOpen } from "./kstartup";
 import { fetchBizinfoOpen } from "./bizinfo";
 import { SAMPLE_PROGRAMS } from "./sample";
 
-const MAX_TO_RANK = 120; // LLM 토큰 절약: 추천 후보 상한
+const MAX_TO_RANK = 160; // LLM 토큰 절약 vs 커버리지 균형: 추천 후보 상한
 
 // 두 배열을 번갈아 섞어 양쪽 소스가 고르게 들어가도록.
 function interleave<T>(a: T[], b: T[]): T[] {

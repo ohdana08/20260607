@@ -78,24 +78,39 @@ function normalize(it: BizItem): Program | null {
   };
 }
 
-// 모집중인 기업마당 공고. 키 없으면 [], 호출 실패 시 throw.
-export async function fetchBizinfoOpen(): Promise<Program[]> {
-  const key = process.env.BIZINFO_KEY?.trim();
-  if (!key) return [];
+async function fetchPage(key: string, pageIndex: number): Promise<BizItem[]> {
   const params = new URLSearchParams({
     crtfcKey: key,
     dataType: "json",
     pageUnit: "100",
-    pageIndex: "1",
+    pageIndex: String(pageIndex),
   });
   const res = await fetch(`${BIZINFO_ENDPOINT}?${params.toString()}`, {
     signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) throw new Error(`bizinfo API ${res.status}`);
   const json = (await res.json()) as { jsonArray?: BizItem[] };
-  const items = Array.isArray(json.jsonArray) ? json.jsonArray : [];
+  return Array.isArray(json.jsonArray) ? json.jsonArray : [];
+}
+
+// 모집중인 기업마당 공고. 키 없으면 [], 호출 실패 시 throw.
+// 2페이지(최대 200건)까지 가져와 소상공인 등 다양한 공고가 더 많이 포함되게 한다.
+export async function fetchBizinfoOpen(): Promise<Program[]> {
+  const key = process.env.BIZINFO_KEY?.trim();
+  if (!key) return [];
+  const pages = await Promise.allSettled([fetchPage(key, 1), fetchPage(key, 2)]);
+  const items = pages.flatMap((p) => (p.status === "fulfilled" ? p.value : []));
+  if (items.length === 0) {
+    // 두 페이지 모두 실패 → 첫 페이지 단독 재시도(에러 전파)
+    return (await fetchPage(key, 1))
+      .map(normalize)
+      .filter((p): p is Program => p !== null)
+      .filter((p) => isOpen(p.applyEnd));
+  }
+  const seen = new Set<string>();
   return items
     .map(normalize)
     .filter((p): p is Program => p !== null)
-    .filter((p) => isOpen(p.applyEnd));
+    .filter((p) => isOpen(p.applyEnd))
+    .filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));
 }
