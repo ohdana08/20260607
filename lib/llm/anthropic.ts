@@ -16,9 +16,11 @@ function client(): Anthropic {
 function toApiMessages(messages: ChatMsg[]): Anthropic.MessageParam[] {
   return messages.map((m) => {
     const role = m.role === "assistant" ? "assistant" : "user";
-    if (m.images && m.images.length > 0) {
+    const hasImages = m.images && m.images.length > 0;
+    const hasFiles = m.files && m.files.length > 0;
+    if (hasImages || hasFiles) {
       const content: Anthropic.ContentBlockParam[] = [
-        ...m.images.map((im) => ({
+        ...(m.images ?? []).map((im) => ({
           type: "image" as const,
           source: {
             type: "base64" as const,
@@ -26,7 +28,15 @@ function toApiMessages(messages: ChatMsg[]): Anthropic.MessageParam[] {
             data: im.data,
           },
         })),
-        { type: "text" as const, text: m.content || "(이미지 참고)" },
+        ...(m.files ?? []).map((f) => ({
+          type: "document" as const,
+          source: {
+            type: "base64" as const,
+            media_type: "application/pdf" as const,
+            data: f.data,
+          },
+        })),
+        { type: "text" as const, text: m.content || "(첨부 파일 참고)" },
       ];
       return { role, content };
     }

@@ -11,10 +11,16 @@ interface ChatImage {
   mediaType: string;
   data: string; // base64 (no prefix)
 }
+interface ChatFile {
+  mediaType: string; // application/pdf
+  data: string; // base64 (no prefix)
+  name: string;
+}
 interface Msg {
   role: Role;
   content: string;
   images?: ChatImage[];
+  files?: ChatFile[];
 }
 type Mode = "intake" | "paywall" | "plan";
 interface DraftSection {
@@ -75,6 +81,7 @@ export default function Chat() {
   const [messages, setMessages] = useState<Msg[]>([{ role: "assistant", content: GREETING }]);
   const [input, setInput] = useState("");
   const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<ChatFile[]>([]);
   const [busy, setBusy] = useState(false);
   const [recommending, setRecommending] = useState(false);
   const [recs, setRecs] = useState<Recommendation[] | null>(null);
@@ -259,40 +266,59 @@ export default function Chat() {
     return ms.map(({ role, content }) => ({ role, content }));
   }
 
+  function readBase64(f: File): Promise<string> {
+    return new Promise((res) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result).split(",")[1] ?? "");
+      r.readAsDataURL(f);
+    });
+  }
+
   async function handleFiles(files: FileList | null) {
     if (!files) return;
-    const next: ChatImage[] = [];
+    const imgs: ChatImage[] = [];
+    const docs: ChatFile[] = [];
     for (const f of Array.from(files).slice(0, 3)) {
-      if (!f.type.startsWith("image/")) {
-        alert("지금은 이미지 파일만 첨부할 수 있어요.");
+      const isImage = f.type.startsWith("image/");
+      const isPdf = f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
+      if (!isImage && !isPdf) {
+        alert(
+          `${f.name}: 사진(JPG/PNG) 또는 PDF만 첨부할 수 있어요.\n(한글/워드 파일은 'PDF로 저장' 하거나 캡처해서 올려주세요.)`,
+        );
         continue;
       }
-      if (f.size > 4 * 1024 * 1024) {
-        alert(`${f.name}: 이미지는 4MB 이하만 가능해요.`);
+      if (f.size > 3 * 1024 * 1024) {
+        alert(`${f.name}: 파일은 3MB 이하만 가능해요. (PDF가 크면 필요한 페이지만 캡처해서 사진으로 올려주세요.)`);
         continue;
       }
-      const data = await new Promise<string>((res) => {
-        const r = new FileReader();
-        r.onload = () => res(String(r.result).split(",")[1] ?? "");
-        r.readAsDataURL(f);
-      });
-      if (data) next.push({ mediaType: f.type, data });
+      const data = await readBase64(f);
+      if (!data) continue;
+      if (isImage) imgs.push({ mediaType: f.type, data });
+      else docs.push({ mediaType: "application/pdf", data, name: f.name });
     }
-    setPendingImages((p) => [...p, ...next].slice(0, 3));
+    if (imgs.length) setPendingImages((p) => [...p, ...imgs].slice(0, 3));
+    if (docs.length) setPendingFiles((p) => [...p, ...docs].slice(0, 3));
   }
 
   async function send() {
     const text = input.trim();
-    if ((!text && pendingImages.length === 0) || busy || mode === "paywall") return;
+    if (
+      (!text && pendingImages.length === 0 && pendingFiles.length === 0) ||
+      busy ||
+      mode === "paywall"
+    )
+      return;
     const userMsg: Msg = {
       role: "user",
       content: text,
       ...(pendingImages.length > 0 ? { images: pendingImages } : {}),
+      ...(pendingFiles.length > 0 ? { files: pendingFiles } : {}),
     };
     const history = [...messages, userMsg];
     setMessages([...history, { role: "assistant", content: "" }]);
     setInput("");
     setPendingImages([]);
+    setPendingFiles([]);
     setBusy(true);
 
     const endpoint = mode === "plan" ? "/api/plan/chat" : "/api/chat";
@@ -749,10 +775,10 @@ export default function Chat() {
           )}
 
           <div className="border-t border-zinc-100 p-4">
-            {pendingImages.length > 0 && (
+            {(pendingImages.length > 0 || pendingFiles.length > 0) && (
               <div className="mb-2 flex flex-wrap gap-2">
                 {pendingImages.map((im, k) => (
-                  <div key={k} className="relative">
+                  <div key={`img-${k}`} className="relative">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={`data:${im.mediaType};base64,${im.data}`}
@@ -768,6 +794,22 @@ export default function Chat() {
                     </button>
                   </div>
                 ))}
+                {pendingFiles.map((f, k) => (
+                  <div
+                    key={`file-${k}`}
+                    className="relative flex max-w-[200px] items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-xs text-zinc-700"
+                  >
+                    <span>📄</span>
+                    <span className="truncate">{f.name}</span>
+                    <button
+                      onClick={() => setPendingFiles((p) => p.filter((_, i) => i !== k))}
+                      className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-800 text-xs text-white"
+                      aria-label="첨부 제거"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
             <div className="flex items-end gap-2">
@@ -775,7 +817,7 @@ export default function Chat() {
                 📎
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,application/pdf,.pdf"
                   multiple
                   className="hidden"
                   onChange={(e) => {
@@ -791,12 +833,15 @@ export default function Chat() {
                 onKeyDown={onKeyDown}
                 rows={1}
                 data-tour="input"
-                placeholder="여기에 답을 입력하세요… (📎로 사진 첨부)"
+                placeholder="여기에 답을 입력하세요… (📎로 사진·PDF 첨부)"
                 className="max-h-32 flex-1 resize-none rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
               />
               <button
                 onClick={send}
-                disabled={busy || (!input.trim() && pendingImages.length === 0)}
+                disabled={
+                  busy ||
+                  (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0)
+                }
                 data-tour="send"
                 className="shrink-0 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -829,6 +874,18 @@ function Bubble({ m, busy }: { m: Msg; busy: boolean }) {
               alt="첨부 이미지"
               className="h-20 w-20 rounded-lg object-cover"
             />
+          ))}
+        </div>
+      )}
+      {m.files && m.files.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {m.files.map((f, k) => (
+            <span
+              key={k}
+              className="flex max-w-[200px] items-center gap-1 rounded-lg bg-black/10 px-2 py-1 text-xs"
+            >
+              📄 <span className="truncate">{f.name}</span>
+            </span>
           ))}
         </div>
       )}

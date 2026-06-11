@@ -20,10 +20,17 @@ export interface ChatImage {
   data: string; // base64 (no data: prefix)
 }
 
+export interface ChatFile {
+  mediaType: string; // "application/pdf"
+  data: string; // base64 (no data: prefix)
+  name?: string;
+}
+
 export interface ChatMsg {
   role: "user" | "assistant" | "system";
   content: string;
   images?: ChatImage[];
+  files?: ChatFile[]; // PDF 등 문서 (Claude document 블록)
 }
 
 export interface StreamTextOptions {
