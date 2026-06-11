@@ -36,6 +36,8 @@ const GREETING =
 const PRICE = "29,900원";
 const PAYMENT_URL = "https://pf.kakao.com/_xbrxjxkxj/chat"; // BCC 카카오 채널
 const BANK = { name: "부산은행", account: "101-2090-179-808", holder: "비즈니스커리어컨설팅" };
+// 도구 유입 고객이 카톡에 보낼 메시지(표식 [사업계획서] 포함 → 사장님 자동응답 키워드로 구분).
+const PAY_MSG = "[사업계획서] 이용권 입금했어요! 입금자명: ";
 
 export default function Chat() {
   const [messages, setMessages] = useState<Msg[]>([{ role: "assistant", content: GREETING }]);
@@ -579,6 +581,12 @@ function Paywall({
       () => {},
     );
   }
+  function copyMessage() {
+    navigator.clipboard?.writeText(PAY_MSG).then(
+      () => alert("메시지를 복사했어요! 카카오톡에 붙여넣고 성함을 적어 보내주세요."),
+      () => {},
+    );
+  }
 
   return (
     <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-5">
@@ -605,15 +613,27 @@ function Paywall({
         <div className="text-xs text-zinc-500">예금주: {BANK.holder}</div>
       </div>
 
-      {/* 2단계: 카톡으로 알리기 */}
-      <a
-        href={PAYMENT_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mt-2 block rounded-xl bg-[#FEE500] py-2.5 text-center text-sm font-bold text-[#181600] hover:brightness-95"
-      >
-        ② 카카오톡으로 “입금자명 + 코드 요청” 보내기
-      </a>
+      {/* 2단계: 카톡으로 알리기 (표식 메시지 복사 → 붙여넣기) */}
+      <div className="mt-2 rounded-xl border border-zinc-200 bg-white p-3">
+        <div className="text-xs font-semibold text-zinc-500">② 입금 후 카카오톡으로 알리기</div>
+        <div className="mt-1.5 flex items-center justify-between gap-2">
+          <code className="truncate text-xs text-zinc-700">{PAY_MSG}홍길동</code>
+          <button
+            onClick={copyMessage}
+            className="shrink-0 rounded-lg bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-200"
+          >
+            메시지 복사
+          </button>
+        </div>
+        <a
+          href={PAYMENT_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 block rounded-xl bg-[#FEE500] py-2.5 text-center text-sm font-bold text-[#181600] hover:brightness-95"
+        >
+          카카오톡 열기 → 붙여넣고 성함 적어 보내기
+        </a>
+      </div>
 
       <p className="mt-2 text-xs leading-5 text-zinc-500">
         입금 확인 후 이용권 코드를 보내드려요(보통 빠르게). 코드를 받으면 아래에 입력하세요.
