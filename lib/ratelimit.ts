@@ -3,7 +3,7 @@ import { Redis } from "@upstash/redis";
 
 // 사용량 제한(IP당). Upstash 환경변수가 없으면 제한 없이 통과(개발/초기).
 //   UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN 가 설정되면 자동 활성화.
-type Kind = "chat" | "match" | "fitcheck" | "planChat" | "planDraft";
+type Kind = "chat" | "match" | "fitcheck" | "planChat" | "planDraft" | "diagnose" | "review";
 
 // 무료(비용 노출) 엔드포인트는 빡빡하게, 유료(코드 보유)는 느슨하게.
 const RULES: Record<Kind, { limit: number; window: `${number} m` | `${number} h` }> = {
@@ -12,6 +12,8 @@ const RULES: Record<Kind, { limit: number; window: `${number} m` | `${number} h`
   fitcheck: { limit: 30, window: "1 h" }, // 무료 적합도 확인(문서 읽기)
   planChat: { limit: 80, window: "1 h" }, // 유료 2차 대화
   planDraft: { limit: 50, window: "1 h" }, // 유료 초안(항목 5개=1회)
+  diagnose: { limit: 40, window: "1 h" }, // 무료 7단계 자가진단 + 리포트
+  review: { limit: 10, window: "1 h" }, // 후기 작성(스팸 방지)
 };
 
 let redis: Redis | null = null;

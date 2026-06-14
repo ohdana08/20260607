@@ -1,9 +1,10 @@
 import Link from "next/link";
+import ReviewsSection from "@/components/ReviewsSection";
 
 export default function Home() {
   return (
-    <main className="flex flex-1 flex-col items-center justify-center px-6 py-20">
-      <div className="w-full max-w-2xl text-center">
+    <main className="flex flex-1 flex-col items-center px-6 py-20">
+      <div className="flex w-full max-w-2xl flex-1 flex-col items-center justify-center text-center">
         <p className="mb-3 text-sm font-medium text-blue-600">
           예비창업자를 위한 정부지원사업 도우미
         </p>
@@ -28,6 +29,9 @@ export default function Home() {
           </Link>
         </div>
       </div>
+
+      {/* 후기 5건 이상 쌓이면 자동 노출 (그 전엔 렌더링 안 함) */}
+      <ReviewsSection />
     </main>
   );
 }
