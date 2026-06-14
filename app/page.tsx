@@ -1,9 +1,11 @@
 import Link from "next/link";
 import ReviewsSection from "@/components/ReviewsSection";
+import LandingTracker from "@/components/LandingTracker";
 
 export default function Home() {
   return (
     <main className="flex flex-1 flex-col items-center px-6 py-20">
+      <LandingTracker />
       <div className="flex w-full max-w-2xl flex-1 flex-col items-center justify-center text-center">
         <p className="mb-3 text-sm font-medium text-blue-600">
           예비창업자를 위한 정부지원사업 도우미

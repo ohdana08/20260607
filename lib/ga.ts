@@ -4,8 +4,14 @@
 // 둘 다 없으면(로컬 등) 조용히 무시한다.
 
 export type GaEvent =
+  // 앞단(이메일 캡처) 퍼널
+  | "view_landing" // 랜딩 진입
+  | "submit_email" // 이메일 캡처 완료
+  | "marketing_consent" // 마케팅 수신 동의
+  | "report_sent" // 진단 보고서 이메일 발송 완료
   | "start_diagnosis" // 7단계 자가진단 시작
-  | "view_diagnosis_report" // 진단 리포트 도달
+  | "view_diagnosis_result" // 진단 결과 화면(맛보기) 도달
+  | "view_diagnosis_report" // (구) 진단 리포트 도달 — 호환 유지
   | "click_pay" // 49,900원 버튼 클릭
   | "complete_payment" // 결제 완료 (// TODO: PG연동 후)
   | "complete_draft" // 유료 초안 생성 완료

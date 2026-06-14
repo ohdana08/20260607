@@ -37,6 +37,7 @@ interface SavedProgram {
 }
 const LEAD_KEY = "gp_lead_v1";
 const VIEWED_KEY = "gp_viewed_v1";
+const EMAIL_KEY = "gp_email_v1"; // 진단 게이트에서 받은 이메일(재방문 시 재요청 안 함)
 interface Msg {
   role: Role;
   content: string;
@@ -59,6 +60,12 @@ interface Chart {
   png: string;
   width: number;
   height: number;
+}
+// 진단 결과 화면 '맛보기' (전체 보고서는 이메일로만 발송)
+interface ReportTeaser {
+  strengthLine: string;
+  weaknesses: string[]; // 약점 항목명만 (해결법 X)
+  sent: boolean; // 이메일 발송 성공 여부
 }
 
 const GREETING =
@@ -132,8 +139,11 @@ export default function Chat() {
   const [planStartIdx, setPlanStartIdx] = useState(0); // 2차 대화 시작 지점
   // 무료 7단계 자가진단
   const [diagnoseStartIdx, setDiagnoseStartIdx] = useState(0);
-  const [report, setReport] = useState<string | null>(null); // 진단 리포트 텍스트
+  const [report, setReport] = useState<ReportTeaser | null>(null); // 진단 결과 '맛보기'(전체는 이메일)
   const [reportLoading, setReportLoading] = useState(false);
+  // 이메일 캡처 게이트(진단 시작 전)
+  const [capturedEmail, setCapturedEmail] = useState<string | null>(null);
+  const [emailGateOpen, setEmailGateOpen] = useState(false);
   // 후기 수집 팝업
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewDone, setReviewDone] = useState(false);
@@ -144,8 +154,6 @@ export default function Chat() {
   const [saved, setSaved] = useState<SavedProgram[]>([]);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
-  // 가입 완료 후 어디로 보낼지: "calendar"(관심사업 저장) | "paywall"(결제 진행)
-  const [signupThen, setSignupThen] = useState<"calendar" | "paywall">("calendar");
   const [signupName, setSignupName] = useState("");
   const [signupContact, setSignupContact] = useState("");
   const [signupBusy, setSignupBusy] = useState(false);
@@ -420,6 +428,8 @@ export default function Chat() {
       }
       const v = sessionStorage.getItem(VIEWED_KEY);
       if (v) setViewed(JSON.parse(v));
+      const em = localStorage.getItem(EMAIL_KEY);
+      if (em) setCapturedEmail(em);
     } catch {
       /* ignore */
     }
@@ -530,13 +540,7 @@ export default function Chat() {
       setSignupOpen(false);
       setSignupName("");
       setSignupContact("");
-      // 가입 후 행선지 분기: 결제 흐름이면 결제창, 아니면 캘린더
-      if (signupThen === "paywall") {
-        setSignupThen("calendar");
-        setMode("paywall");
-      } else {
-        setCalendarOpen(true);
-      }
+      setCalendarOpen(true);
     } catch {
       alert("연결에 문제가 생겼어요. 다시 시도해 주세요.");
     } finally {
@@ -783,7 +787,49 @@ export default function Chat() {
     focusInput();
   }
 
-  // ② (무료) 7단계 "될 사업" 자가진단 시작 — 적합도 확인 다음, 결제 전
+  // [이메일 캡처 게이트] 진단 버튼 → 이메일 없으면 게이트, 있으면 바로 진단 시작
+  function startDiagnoseFlow() {
+    if (capturedEmail) {
+      enterDiagnose();
+      return;
+    }
+    setEmailGateOpen(true);
+  }
+
+  // 게이트 제출: 이메일+동의 저장 → submit_email/marketing_consent → 진단 시작
+  async function submitEmailGate(payload: {
+    email: string;
+    marketingConsent: boolean;
+  }): Promise<string | null> {
+    try {
+      const res = await fetch("/api/lead/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: payload.email,
+          privacyConsent: true, // 모달에서 필수 체크 확인 후에만 호출됨
+          marketingConsent: payload.marketingConsent,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) return d?.error ?? "저장에 실패했어요. 다시 시도해 주세요.";
+      setCapturedEmail(payload.email);
+      try {
+        localStorage.setItem(EMAIL_KEY, payload.email);
+      } catch {
+        /* ignore */
+      }
+      track("submit_email");
+      if (payload.marketingConsent) track("marketing_consent");
+      setEmailGateOpen(false);
+      enterDiagnose();
+      return null;
+    } catch {
+      return "연결에 문제가 생겼어요. 다시 시도해 주세요.";
+    }
+  }
+
+  // ② (무료) 7단계 "될 사업" 자가진단 시작 — 이메일 게이트 통과 후
   function enterDiagnose() {
     setMode("diagnose");
     setReport(null);
@@ -795,11 +841,11 @@ export default function Chat() {
     focusInput();
   }
 
-  // 진단 리포트 생성 (무료의 마지막 화면) — 7단계 답을 종합 → 강점/보완/심사위원 한 줄 맛보기
+  // 진단 결과 — 화면엔 '맛보기'만, 전체 보고서는 이메일로 발송
   async function generateReport() {
     if (reportLoading || busy) return;
     setReportLoading(true);
-    setReport("");
+    setReport(null);
     try {
       const res = await fetch("/api/plan/diagnose", {
         method: "POST",
@@ -808,25 +854,26 @@ export default function Chat() {
           messages: foldDocs(messages),
           program: selectedProgram,
           kind: "report",
+          email: capturedEmail,
           provider,
         }),
       });
-      if (!res.ok || !res.body) {
-        setReport("(진단 결과를 정리하지 못했어요. 잠시 후 다시 시도해 주세요.)");
+      if (!res.ok) {
+        alert("진단 결과를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
         return;
       }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let acc = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        acc += decoder.decode(value, { stream: true });
-        setReport(acc);
-      }
-      track("view_diagnosis_report", { program: selectedProgram?.title ?? "" });
+      const data = await res.json();
+      const t = (data?.teaser ?? {}) as { strengthLine?: string; weaknesses?: string[] };
+      const sent = Boolean(data?.sent);
+      setReport({
+        strengthLine: t.strengthLine ?? "",
+        weaknesses: Array.isArray(t.weaknesses) ? t.weaknesses : [],
+        sent,
+      });
+      track("view_diagnosis_result", { program: selectedProgram?.title ?? "" });
+      if (sent) track("report_sent");
     } catch {
-      setReport("(진단 결과를 정리하는 중 연결이 끊겼어요.)");
+      alert("진단 결과를 정리하는 중 연결이 끊겼어요.");
     } finally {
       setReportLoading(false);
       setTimeout(() => {
@@ -836,14 +883,9 @@ export default function Chat() {
   }
 
   // 결제 트리거 — 49,900원 버튼 (// TODO: PG 연동 자리)
-  // 비회원이면 회원가입을 먼저 받고(필수), 가입 완료 후 결제창으로 진행한다.
+  // 이메일은 진단 전 게이트에서 이미 받았으므로 결제 단계에선 추가 가입을 받지 않는다.
   function clickPay() {
     track("click_pay", { program: selectedProgram?.title ?? "", price: 49900 });
-    if (!lead) {
-      setSignupThen("paywall");
-      setSignupOpen(true);
-      return;
-    }
     setMode("paywall");
   }
 
@@ -1181,6 +1223,11 @@ export default function Chat() {
         </div>
       )}
 
+      {/* 이메일 캡처 게이트 — 진단 시작 전 (이메일 + 동의) */}
+      {emailGateOpen && (
+        <EmailGateModal onClose={() => setEmailGateOpen(false)} onSubmit={submitEmailGate} />
+      )}
+
       {/* 후기 수집 팝업 — 초안 완성 직후(만족도 최고점) */}
       {reviewOpen && (
         <ReviewModal
@@ -1189,34 +1236,20 @@ export default function Chat() {
         />
       )}
 
-      {/* 가입(간단 정보) 모달 — 관심사업 저장 / 결제 직전 */}
+      {/* 가입(간단 정보) 모달 — 관심사업 저장 시 */}
       {signupOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => {
-            setSignupOpen(false);
-            setSignupThen("calendar");
-          }}
+          onClick={() => setSignupOpen(false)}
         >
           <div
             className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-base font-bold text-zinc-900">
-              {signupThen === "paywall" ? "✍️ 사업계획서 작성 전, 간단 가입" : "💾 내 캘린더 저장하기"}
-            </h3>
+            <h3 className="text-base font-bold text-zinc-900">💾 내 캘린더 저장하기</h3>
             <p className="mt-1 text-xs leading-5 text-zinc-500">
-              {signupThen === "paywall" ? (
-                <>
-                  결제 후 <b>이용권 코드를 안전하게 보내드리고</b>, 작성한 사업계획서도 이어서 도와드리려고
-                  연락처가 필요해요. 비밀번호 없어요!
-                </>
-              ) : (
-                <>
-                  간단한 정보만 남기면, 지금까지 <b>본 공고들의 마감일을 캘린더로 모아</b> 안전하게 보관하고
-                  알려드려요. 비밀번호 없어요!
-                </>
-              )}
+              간단한 정보만 남기면, 지금까지 <b>본 공고들의 마감일을 캘린더로 모아</b> 안전하게 보관하고
+              알려드려요. 비밀번호 없어요!
             </p>
             <div className="mt-4 space-y-2">
               <input
@@ -1235,10 +1268,7 @@ export default function Chat() {
             </div>
             <div className="mt-4 flex gap-2">
               <button
-                onClick={() => {
-                  setSignupOpen(false);
-                  setSignupThen("calendar");
-                }}
+                onClick={() => setSignupOpen(false)}
                 className="flex-1 rounded-xl border border-zinc-200 py-2.5 text-sm font-medium text-zinc-500 hover:bg-zinc-50"
               >
                 취소
@@ -1248,15 +1278,11 @@ export default function Chat() {
                 disabled={signupBusy || !signupName.trim() || !signupContact.trim()}
                 className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {signupBusy
-                  ? "저장 중…"
-                  : signupThen === "paywall"
-                    ? "가입하고 결제 진행 →"
-                    : "저장하고 캘린더 담기"}
+                {signupBusy ? "저장 중…" : "저장하고 캘린더 담기"}
               </button>
             </div>
             <p className="mt-2 text-center text-[10px] text-zinc-400">
-              입력하신 정보는 코드 발송·마감 알림·맞춤 안내에만 사용돼요.
+              입력하신 정보는 마감 알림·맞춤 안내에만 사용돼요.
             </p>
           </div>
         </div>
@@ -1278,10 +1304,7 @@ export default function Chat() {
             <div className="flex-1 space-y-2 overflow-y-auto p-3">
               {!lead && calItems.length > 0 && (
                 <button
-                  onClick={() => {
-                    setSignupThen("calendar");
-                    setSignupOpen(true);
-                  }}
+                  onClick={() => setSignupOpen(true)}
                   className="w-full rounded-xl bg-blue-600 px-3 py-2.5 text-xs font-bold text-white hover:bg-blue-700"
                 >
                   💾 회원가입하고 이 캘린더 저장하기 (마감 알림 받기)
@@ -1407,7 +1430,7 @@ export default function Chat() {
         )}
 
         {mode === "diagnose" && (report || reportLoading) && (
-          <ReportCard text={report ?? ""} loading={reportLoading} onPay={clickPay} />
+          <ReportCard teaser={report} loading={reportLoading} onPay={clickPay} />
         )}
 
         {draft && (
@@ -1428,10 +1451,7 @@ export default function Chat() {
                 📅 방금 본 공고 <b>{calItems.length}개</b>를 캘린더에 모았어요! 마감 놓치지 않게 저장할까요?
               </span>
               <button
-                onClick={() => {
-                  setSignupThen("calendar");
-                  setSignupOpen(true);
-                }}
+                onClick={() => setSignupOpen(true)}
                 className="shrink-0 rounded-lg bg-blue-600 px-2.5 py-1.5 font-semibold text-white hover:bg-blue-700"
               >
                 저장(가입)
@@ -1476,7 +1496,7 @@ export default function Chat() {
           {mode === "fitcheck" && (
             <div className="border-t border-zinc-100 px-4 pt-3">
               <button
-                onClick={enterDiagnose}
+                onClick={startDiagnoseFlow}
                 className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
               >
                 🩺 무료로 ‘될 사업’ 진단받기 (7단계)
@@ -2039,35 +2059,160 @@ function DraftView({
 }
 
 // 진단 리포트 카드 — 무료의 마지막 화면. 끝에 49,900원 결제 트리거.
+// 진단 결과 — 화면엔 '맛보기'만 (강점 1줄 + 약점 항목명 + 이메일 발송 안내). 전체는 이메일.
 function ReportCard({
-  text,
+  teaser,
   loading,
   onPay,
 }: {
-  text: string;
+  teaser: ReportTeaser | null;
   loading: boolean;
   onPay: () => void;
 }) {
+  if (loading || !teaser) {
+    return (
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4">
+        <p className="text-sm leading-6 text-zinc-700">진단 결과를 정리하는 중이에요… 🩺</p>
+      </div>
+    );
+  }
+  const count = teaser.weaknesses.length;
   return (
     <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4">
-      <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-800">
-        {text || (loading ? "진단 결과를 정리하는 중이에요… 🩺" : "")}
-      </p>
+      <h3 className="text-sm font-bold text-zinc-900">📋 사장님 사업 진단 결과 (요약)</h3>
 
-      {!loading && text && (
-        <div className="mt-4 border-t border-emerald-200 pt-3">
-          <p className="text-xs leading-5 text-zinc-600">
-            이 약점까지 메운 <b>‘합격용 계획서 초안’</b>, 크몽에서 사람이 쓰면 40~90만원 / 작업
-            6~20일. 이 툴은 같은 심사 구조를 즉시, <b>49,900원</b>에 잡아드려요.
+      {teaser.strengthLine && (
+        <p className="mt-2 text-sm leading-6 text-zinc-800">
+          <span className="font-semibold text-emerald-700">✅ 강점</span> {teaser.strengthLine}
+        </p>
+      )}
+
+      {count > 0 && (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm font-semibold text-amber-800">
+            ⚠️ 사장님 계획서에 치명적 약점 {count}개가 있어요
           </p>
-          <button
-            onClick={onPay}
-            className="mt-3 w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-700"
-          >
-            49,900원 — 합격 구조로 초안 받기 →
-          </button>
+          <ul className="mt-1.5 space-y-1">
+            {teaser.weaknesses.map((w, i) => (
+              <li key={i} className="text-sm text-amber-900">
+                • {w}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px] leading-4 text-amber-700">
+            (어디가 왜 위험한지·어떻게 메우는지 자세한 내용은 보고서에 담았어요)
+          </p>
         </div>
       )}
+
+      <div className="mt-3 rounded-xl bg-white px-3 py-2.5 text-xs leading-5 text-zinc-600">
+        {teaser.sent ? (
+          <>📩 <b>상세 진단 보고서</b>를 입력하신 이메일로 보내드렸어요. (스팸함도 확인해 주세요!)</>
+        ) : (
+          <>
+            📩 상세 진단 보고서는 입력하신 이메일로 보내드릴게요.
+            {/* TODO: 확인필요 - 메일 발송 실패 시 재시도/안내 UX */}
+          </>
+        )}
+      </div>
+
+      <div className="mt-4 border-t border-emerald-200 pt-3">
+        <p className="text-xs leading-5 text-zinc-600">
+          이 약점을 메운 <b>‘합격용 사업계획서 초안’</b>을 받아보세요. 크몽에서 사람이 쓰면 40~90만원 /
+          작업 6~20일. 이 툴은 같은 심사 구조를 즉시, <b>49,900원</b>에 잡아드려요.
+        </p>
+        <button
+          onClick={onPay}
+          className="mt-3 w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+        >
+          49,900원 — 합격 구조로 초안 받기 →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// 이메일 캡처 게이트 — 진단 시작 전. 이메일 1칸 + 필수/선택 동의. 비밀번호 없음.
+function EmailGateModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (p: { email: string; marketingConsent: boolean }) => Promise<string | null>;
+}) {
+  const [email, setEmail] = useState("");
+  const [privacy, setPrivacy] = useState(false);
+  const [marketing, setMarketing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const canSubmit = emailOk && privacy && !busy;
+
+  async function submit() {
+    if (!canSubmit) return;
+    setBusy(true);
+    setError("");
+    const err = await onSubmit({ email: email.trim(), marketingConsent: marketing });
+    setBusy(false);
+    if (err) setError(err);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-bold text-zinc-900">📩 진단 보고서, 어디로 보내드릴까요?</h3>
+        <p className="mt-1 text-xs leading-5 text-zinc-500">
+          7단계 진단이 끝나면 <b>상세 진단 보고서</b>(약점 상세 + 심사위원 관점)를 이메일로 보내드려요.
+          비밀번호 없어요!
+        </p>
+
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="이메일 (예: hong@gmail.com)"
+          className="mt-4 w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+        />
+
+        <label className="mt-3 flex items-start gap-2 text-xs leading-5 text-zinc-700">
+          <input
+            type="checkbox"
+            checked={privacy}
+            onChange={(e) => setPrivacy(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0"
+          />
+          <span>
+            <b className="text-zinc-900">(필수)</b> 개인정보 수집·이용 동의 — 목적: 진단 보고서 발송
+          </span>
+        </label>
+        <label className="mt-2 flex items-start gap-2 text-xs leading-5 text-zinc-700">
+          <input
+            type="checkbox"
+            checked={marketing}
+            onChange={(e) => setMarketing(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0"
+          />
+          <span>(선택) 맞춤 공고·정보 메일 수신 동의</span>
+        </label>
+
+        {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
+
+        <button
+          onClick={submit}
+          disabled={!canSubmit}
+          className="mt-4 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-bold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+        >
+          {busy ? "준비 중…" : "진단 보고서 받기"}
+        </button>
+        <p className="mt-2 text-center text-[10px] text-zinc-400">
+          입력하신 이메일은 보고서 발송·맞춤 안내에만 사용돼요. 비밀번호는 받지 않아요.
+        </p>
+      </div>
     </div>
   );
 }
