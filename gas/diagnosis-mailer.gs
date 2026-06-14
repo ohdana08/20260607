@@ -123,8 +123,26 @@ function parsePayload_(e) {
   return null;
 }
 
+// 단독(standalone) 프로젝트에서도 동작: 시트에 바인딩돼 있으면 그걸 쓰고,
+// 아니면 전용 스프레드시트를 자동 생성해 ID를 스크립트 속성에 저장(다음부턴 그걸 재사용).
+function getSpreadsheet_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('SHEET_ID');
+  if (id) {
+    try { return SpreadsheetApp.openById(id); } catch (e) { /* 삭제됐으면 새로 생성 */ }
+  }
+  var active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active) {
+    props.setProperty('SHEET_ID', active.getId());
+    return active;
+  }
+  var created = SpreadsheetApp.create('정부지원 진단리드');
+  props.setProperty('SHEET_ID', created.getId());
+  return created;
+}
+
 function getOrCreateSheet_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getSpreadsheet_();
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
   return sheet;
@@ -161,15 +179,33 @@ function jsonOk_(payload) {
 }
 
 // =============== 테스트 ===============
+// ⚠️ 테스트할 때 받을 이메일을 여기 직접 적으세요. (운영에선 방문자가 입력한 이메일을 사용하므로 무관)
+//    Session.getActiveUser().getEmail() 은 빈 문자열을 반환하는 경우가 많아 테스트가 조용히 실패합니다.
+var TEST_EMAIL = '본인이메일@gmail.com';
+
 function testCapture() {
   doPost({ postData: { contents: JSON.stringify({
-    type: 'email_capture', email: 'test@example.com', privacyConsent: 'Y', marketingConsent: 'N'
+    type: 'email_capture', email: TEST_EMAIL, privacyConsent: 'Y', marketingConsent: 'N'
   }) } });
 }
+
 function testReport() {
-  doPost({ postData: { contents: JSON.stringify({
-    type: 'report', email: Session.getActiveUser().getEmail(),
+  Logger.log('보낼 대상 이메일: ' + TEST_EMAIL);
+  var res = doPost({ postData: { contents: JSON.stringify({
+    type: 'report', email: TEST_EMAIL,
     weaknessSummary: '판매 검증, 반복 구조',
     fullReportText: '📋 사장님 사업 진단 결과\n\n✅ 강점: ...\n\n⚠️ 보완 필요: ...\n\n💡 심사위원 관점: ...'
   }) } });
+  Logger.log('결과: ' + res.getContent()); // {"ok":true,"sent":true} 면 정상
+}
+
+// 발송 기능만 단독 점검 (권한·스팸 확인용)
+function testMailDirect() {
+  MailApp.sendEmail({
+    to: TEST_EMAIL,
+    name: '정부지원사업 사업계획서 도우미',
+    subject: '✅ 메일 발송 테스트',
+    body: '이 메일이 오면 발송 기능 정상입니다.'
+  });
+  Logger.log('발송 시도 완료 → ' + TEST_EMAIL);
 }
