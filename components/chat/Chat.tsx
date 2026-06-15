@@ -1866,8 +1866,15 @@ function Recommendations({
 }) {
   if (recs.length === 0) {
     return (
-      <div className="mr-auto max-w-[90%] rounded-2xl bg-zinc-100 px-4 py-3 text-sm text-zinc-700">
-        딱 맞는 사업을 아직 못 찾았어요. 아이템이나 상황을 조금만 더 알려주시면 다시 찾아볼게요!
+      <div className="mr-auto max-w-[90%] space-y-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm leading-6 text-zinc-700">
+        <p>
+          지금 <b>모집 중인 공고</b> 중에선 사장님께 딱 맞는 게 안 보였어요 😢 예비창업패키지처럼 큰 사업은
+          보통 연 1~2회만 열려서, 지금은 모집이 닫혀 있을 수 있어요. (말씀해주신 내용은 잘 기억하고 있어요!)
+        </p>
+        <p className="text-zinc-600">
+          👉 위쪽 <b>‘📑 표준 양식 무료로 받기’</b>로 미리 사업계획서를 써두면, 새 공고가 열렸을 때 바로 낼 수 있어요.
+          아래 <b>‘추천받기’</b>를 한 번 더 눌러보셔도 돼요!
+        </p>
       </div>
     );
   }

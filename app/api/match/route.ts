@@ -113,23 +113,28 @@ export async function POST(req: Request) {
     ? "\n\n[개수] 사용자가 '다른 사업을 더' 보고 싶어해요. 사용자 사업과 관련 있는 지원사업을 최대 5개 더 골라주세요. 완벽히 딱 맞지 않아도 도움될 만하면 포함하세요. 단, 교육생·수강생·참가자 모집/강좌/행사/세미나, 그리고 사용자 사업과 무관한 공고는 절대 포함하지 마세요."
     : "\n\n[개수] 가장 잘 맞는 1~2개만 골라주세요. 절대 3개 이상 고르지 마세요. (집중도·비용 때문)";
   const llm = getLlm(provider, "fast");
-  let picks: RankedPick[] = [];
-  try {
-    picks = await llm.json<RankedPick[]>({
+  const programsJson = JSON.stringify(programs.map(programForPrompt), null, 2);
+  const rank = (note: string) =>
+    llm.json<RankedPick[]>({
       system: RANK_SYSTEM,
-      messages: [
-        {
-          role: "user",
-          content: `[대화]\n${conversation}${moreNote}\n\n[지원사업 목록]\n${JSON.stringify(
-            programs.map(programForPrompt),
-            null,
-            2,
-          )}`,
-        },
-      ],
+      messages: [{ role: "user", content: `[대화]\n${conversation}${note}\n\n[지원사업 목록]\n${programsJson}` }],
       schema: {},
       maxTokens: 2600,
     });
+
+  // 넓게 찾기 안내 — 엄격 패스가 0개일 때만 한 번 더 시도(대화를 다 했는데 빈손인 경험 방지).
+  const BROAD_NOTE =
+    "\n\n[개수] 딱 맞는 게 없더라도, 사용자 사업에 '그래도 도움이 될 만한' 지원사업을 1~2개만 골라주세요(완벽히 맞지 않아도 됨). 단, 교육생·수강생·참가자 모집/강좌/행사/세미나, 사용자 사업과 완전히 무관한 공고는 절대 포함하지 마세요. fitReason에는 '딱 맞지는 않지만 ○○ 때문에 도움될 수 있어요'처럼 솔직히 적으세요.";
+
+  let picks: RankedPick[] = [];
+  let relaxed = false;
+  try {
+    picks = await rank(moreNote);
+    // 첫 추천인데 엄격 기준으로 0개면 → 기준을 낮춰 한 번 더 (그래도 도움될 만한 것)
+    if (picks.length === 0 && !isMore) {
+      relaxed = true;
+      picks = await rank(BROAD_NOTE);
+    }
   } catch (err) {
     console.error("[/api/match] ranking failed", err);
     return Response.json({ error: "추천을 만드는 중 문제가 생겼어요. 다시 시도해 주세요." }, { status: 500 });
@@ -150,5 +155,5 @@ export async function POST(req: Request) {
     .filter((r): r is Recommendation => r !== null)
     .slice(0, isMore ? 5 : 2);
 
-  return Response.json({ recommendations, usingSample });
+  return Response.json({ recommendations, usingSample, relaxed });
 }
