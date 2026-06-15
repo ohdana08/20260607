@@ -55,7 +55,7 @@ function teaserSystem(p: ProgInfo): string {
 - 첨부한 사진·문서가 있으면 근거로 반영. 100% 쉬운 일상어.`;
 }
 
-// 이메일로 보낼 전체 보고서 — 품질 모델(Sonnet)로 백그라운드 생성.
+// 이메일로 보낼 전체 보고서 — '평문'으로 생성(긴 출력에 견고). JSON 미사용.
 function fullReportSystem(p: ProgInfo): string {
   const title = p.title || "이 지원사업";
   return `당신은 13년간 380개 공공기관 정부지원사업을 심사해 온 수석 심사위원이자 컨설턴트예요.
@@ -65,11 +65,7 @@ function fullReportSystem(p: ProgInfo): string {
 ⚠️ 가장 중요한 금지사항: 사용자가 한 말을 그대로 다시 풀어쓰기(요약·재진술)만 하지 마세요. 그건 가치가 없습니다.
 반드시 "심사위원 관점의 새로운 통찰 + 구체적 실행 방법 + 자료/근거 찾는 법"을 더해야 합니다.
 
-아래 JSON 한 개만 출력하세요. (다른 말·코드블록 없이 JSON만)
-{
-  "weaknessSummary": "약점을 한 문장으로 요약 (시트 저장용, 30자 내외)",
-  "fullReportText": "아래 [보고서 형식]을 그대로 따른 평문(줄바꿈 \\n 포함)"
-}
+출력은 아래 [보고서 형식] 그대로 '평문'으로만 작성하세요. JSON·코드블록·마크다운 기호(#, *)는 쓰지 마세요. 보고서 본문만 출력하세요.
 
 [보고서 형식] — 이 순서·제목을 지키세요:
 
@@ -99,16 +95,12 @@ function fullReportSystem(p: ProgInfo): string {
 - 100% 쉬운 일상어. 단, 막연하면 안 됨 — 늘 구체적 숫자·예시·출처를 들 것.
 - 대화/첨부에서 사용자가 실제로 말한 내용을 근거로 하되, 일반적 심사 기준과 실행법은 적극적으로 더하세요.
 - 사실을 지어내지 말고, 가격·결제 문구는 넣지 마세요.
-- 반드시 위 2개 키를 가진 JSON 객체 하나만 출력하세요.`;
+- 보고서 본문(평문)만 출력하세요. 머리말·꼬리말·JSON 금지.`;
 }
 
 interface TeaserJson {
   strengthLine: string;
   weaknesses: string[];
-}
-interface FullReportJson {
-  weaknessSummary: string;
-  fullReportText: string;
 }
 
 function isChatMsg(x: unknown): x is ChatMsg {
@@ -132,13 +124,15 @@ export async function POST(req: Request) {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
 
-  const { messages, program, kind, email, provider: rawProvider } = (body ?? {}) as {
-    messages?: unknown;
-    program?: ProgInfo;
-    kind?: "chat" | "report" | "report_email";
-    email?: unknown;
-    provider?: unknown;
-  };
+  const { messages, program, kind, email, weaknessSummary: rawWeakness, provider: rawProvider } =
+    (body ?? {}) as {
+      messages?: unknown;
+      program?: ProgInfo;
+      kind?: "chat" | "report" | "report_email";
+      email?: unknown;
+      weaknessSummary?: unknown;
+      provider?: unknown;
+    };
 
   const provider = parseProvider(rawProvider);
   if (!isProviderConfigured(provider)) {
@@ -196,21 +190,25 @@ export async function POST(req: Request) {
     const progTitle = program?.title || "이 지원사업";
     try {
       const reportLlm = getLlm(provider, "fast"); // Haiku — 무료 진단 비용 최소화
-      const full = await reportLlm.json<FullReportJson>({
+      // 긴 보고서는 JSON 한 필드에 넣으면 잘림/이스케이프로 깨지므로 '평문 스트림'으로 받는다.
+      let fullReportText = "";
+      for await (const chunk of reportLlm.streamText({
         system: fullReportSystem(program ?? {}),
         messages: [
           ...trimmed,
-          { role: "user", content: "위 [보고서 형식] 그대로, 각 약점의 What/Why/How/Find를 빠짐없이 채워 JSON으로 출력해줘." },
+          { role: "user", content: "위 [보고서 형식] 그대로, 각 약점의 What/Why/How/Find를 빠짐없이 채워 평문으로 작성해줘." },
         ],
-        schema: {},
         maxTokens: 3000,
-      });
-      const fullReportText = String(full.fullReportText ?? "").trim();
-      const weaknessSummary = String(full.weaknessSummary ?? "").trim();
+      })) {
+        fullReportText += chunk;
+      }
+      fullReportText = fullReportText.trim();
       if (!fullReportText) {
         console.error("[/api/plan/diagnose report_email] empty fullReportText");
         return Response.json({ ok: false, sent: false, error: "empty_report" }, { status: 502 });
       }
+      // 약점요약은 맛보기 단계에서 만든 값을 클라가 넘겨줌(시트 저장용). 없으면 빈 값.
+      const weaknessSummary = (typeof rawWeakness === "string" ? rawWeakness : "").slice(0, 120);
       const docxBase64 = await buildReportDocxBase64(`${progTitle} · 사업 진단 보고서`, fullReportText);
       const sent = await sendReportEmail({ email, fullReportText, weaknessSummary, docxBase64 });
       return Response.json({ ok: true, sent });

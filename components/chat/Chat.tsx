@@ -854,6 +854,7 @@ export default function Chat() {
     if (reportLoading || busy) return;
     setReportLoading(true);
     setReport(null);
+    let weaknessSummary = ""; // 맛보기 약점 → 이메일 단계에 넘겨 시트에 저장
     // ① 맛보기(빠름)
     try {
       const res = await fetch("/api/plan/diagnose", {
@@ -872,9 +873,11 @@ export default function Chat() {
       }
       const data = await res.json();
       const t = (data?.teaser ?? {}) as { strengthLine?: string; weaknesses?: string[] };
+      const ws = Array.isArray(t.weaknesses) ? t.weaknesses : [];
+      weaknessSummary = ws.join(", ");
       setReport({
         strengthLine: t.strengthLine ?? "",
-        weaknesses: Array.isArray(t.weaknesses) ? t.weaknesses : [],
+        weaknesses: ws,
         sent: false,
         emailPending: Boolean(capturedEmail), // 이메일 있으면 곧 발송
       });
@@ -901,6 +904,7 @@ export default function Chat() {
           program: selectedProgram,
           kind: "report_email",
           email: capturedEmail,
+          weaknessSummary,
           provider,
         }),
       });
