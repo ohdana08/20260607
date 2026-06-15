@@ -10,6 +10,11 @@ export type GaEvent =
   | "marketing_consent" // 마케팅 수신 동의
   | "open_official_link" // K-Startup 공식 사업공고·양식 바로가기 클릭
   | "report_sent" // 진단 보고서 이메일 발송 완료
+  // 단계별 이탈 측정(v3) — 어느 단계에서 빠지는지 GA4에서 보기 위함
+  | "chat_started" // 사용자가 첫 답변을 입력(인테이크 시작)
+  | "validation_answered" // 검증 질문까지 마쳐 추천 준비 완료(1막+1.5막 통과)
+  | "recommendation_shown" // 공고 추천이 화면에 표시됨
+  | "plan_writing_started" // '사업계획서 쓰기'를 눌러 작성 단계 진입
   | "start_diagnosis" // 7단계 자가진단 시작
   | "view_diagnosis_result" // 진단 결과 화면(맛보기) 도달
   | "view_diagnosis_report" // (구) 진단 리포트 도달 — 호환 유지

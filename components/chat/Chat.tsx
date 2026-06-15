@@ -137,6 +137,9 @@ export default function Chat() {
   const [recommending, setRecommending] = useState(false);
   const [recs, setRecs] = useState<Recommendation[] | null>(null);
   const [usingSample, setUsingSample] = useState(false);
+  // GA4 단계 이벤트(v3): 세션당 한 번만 발화하도록 가드
+  const chatStartedRef = useRef(false);
+  const validationFiredRef = useRef(false);
 
   const [provider, setProvider] = useState<"claude" | "openai">("claude");
   const [mode, setMode] = useState<Mode>("intake");
@@ -626,6 +629,11 @@ export default function Chat() {
       ...(pendingFiles.length > 0 ? { files: pendingFiles } : {}),
       ...(pendingDocs.length > 0 ? { docs: pendingDocs } : {}),
     };
+    // GA4: 인테이크 단계에서 사용자가 첫 답변을 입력한 순간(세션당 1회)
+    if (mode === "intake" && !chatStartedRef.current && text) {
+      chatStartedRef.current = true;
+      track("chat_started");
+    }
     const history = [...messages, userMsg];
     setMessages([...history, { role: "assistant", content: "" }]);
     setInput("");
@@ -678,6 +686,11 @@ export default function Chat() {
         acc += decoder.decode(value, { stream: true });
         replaceLast(acc);
       }
+      // GA4: 검증 질문까지 마쳐 추천 준비 완료(1막+1.5막 통과 신호) — 세션당 1회
+      if (mode === "intake" && !validationFiredRef.current && acc.includes(READY_MARK)) {
+        validationFiredRef.current = true;
+        track("validation_answered");
+      }
     } catch {
       replaceLast("연결이 끊겼어요. 잠시 후 다시 시도해 주세요.");
     } finally {
@@ -718,6 +731,8 @@ export default function Chat() {
       } else {
         setRecs(incoming);
       }
+      // GA4: 공고 추천이 화면에 뜬 순간
+      if (incoming.length > 0) track("recommendation_shown", { count: incoming.length, more: append });
     } catch {
       setMessages((m) => [...m, { role: "assistant", content: "추천을 가져오는 중 연결이 끊겼어요." }]);
     } finally {
@@ -753,6 +768,7 @@ export default function Chat() {
 
   // 추천을 거치지 않고, 사용자가 가진 공고문/양식으로 바로 시작 (무료 확인 → 결제 → 작성)
   function startDirect() {
+    track("plan_writing_started", { program: "직접 올린 공고문·양식" });
     const custom: Program = {
       id: `custom:${genId()}`,
       title: "직접 올린 공고문·양식",
@@ -784,6 +800,7 @@ export default function Chat() {
 
   // ① (무료) 공고문/양식 첨부 → 내 사업과 맞는지 확인
   function chooseProgram(p: Program) {
+    track("plan_writing_started", { program: p.title ?? "" });
     setSelectedProgram(p);
     setMode("fitcheck");
     setDraft(null);

@@ -23,7 +23,7 @@ const RANK_SYSTEM = `당신은 창업자·사업자에게 "정부지원사업"�
 - 지원대상(예비/초기/업력·지역·연령)이 사용자와 맞는지
 
 [대화]에서 사용자 상황을 파악하고, [지원사업 목록] 중 **진짜로 도움이 되는 것만** 고르세요.
-억지로 5개 채우지 말고, 정말 맞는 것만 1~5개. 하나도 없으면 빈 배열 [].
+억지로 개수를 채우지 말고, 정말 맞는 것만 고르세요(몇 개를 고를지는 아래 [개수] 지시를 따르세요). 하나도 없으면 빈 배열 [].
 
 반드시 아래 형식의 JSON 배열만 출력하세요(설명·문장 없이 JSON만):
 [
@@ -107,11 +107,11 @@ export async function POST(req: Request) {
     .map((m) => `${m.role === "user" ? "사용자" : "상담사"}: ${m.content}`)
     .join("\n");
 
-  // "더 추천받기"(excludeIds 있음)일 땐 폭넓게 — 완벽하지 않아도 관련 있는 것까지.
-  const moreNote =
-    excludeIds.length > 0
-      ? "\n\n[중요] 사용자가 '다른 사업을 더' 보고 싶어해요. 사용자 사업과 관련 있는 지원사업을 최대 5개 더 골라주세요. 완벽히 딱 맞지 않아도 도움될 만하면 포함하세요. 단, 교육생·수강생·참가자 모집/강좌/행사/세미나, 그리고 사용자 사업과 무관한 공고는 절대 포함하지 마세요."
-      : "";
+  // 첫 추천은 집중도·비용 때문에 최대 2개. "더 추천받기"(excludeIds 있음)일 때만 폭넓게.
+  const isMore = excludeIds.length > 0;
+  const moreNote = isMore
+    ? "\n\n[개수] 사용자가 '다른 사업을 더' 보고 싶어해요. 사용자 사업과 관련 있는 지원사업을 최대 5개 더 골라주세요. 완벽히 딱 맞지 않아도 도움될 만하면 포함하세요. 단, 교육생·수강생·참가자 모집/강좌/행사/세미나, 그리고 사용자 사업과 무관한 공고는 절대 포함하지 마세요."
+    : "\n\n[개수] 가장 잘 맞는 1~2개만 골라주세요. 절대 3개 이상 고르지 마세요. (집중도·비용 때문)";
   const llm = getLlm(provider, "fast");
   let picks: RankedPick[] = [];
   try {
@@ -148,7 +148,7 @@ export async function POST(req: Request) {
       } satisfies Recommendation;
     })
     .filter((r): r is Recommendation => r !== null)
-    .slice(0, 5);
+    .slice(0, isMore ? 5 : 2);
 
   return Response.json({ recommendations, usingSample });
 }
