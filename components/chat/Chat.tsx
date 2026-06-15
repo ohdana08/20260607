@@ -78,7 +78,7 @@ interface ReportTeaser {
 }
 
 const GREETING =
-  "안녕하세요! 먼저 가볍게 여쭤볼게요. 혹시 이미 운영 중인 사업이 있으세요, 아니면 아직 준비 중(예비창업)이세요?";
+  "안녕하세요! 사장님께 맞는 정부지원사업을 같이 찾아볼게요. 😊\n먼저, 어떤 사업을 구상 중이세요? 한 문장으로 편하게 말씀해 주세요.";
 const PLAN_MIN_TURNS = 5; // 2차 대화를 최소 이만큼 한 뒤에야 초안 작성 가능
 const DIAGNOSE_MIN_TURNS = 3; // 7단계 자가진단을 최소 이만큼 답한 뒤 리포트 생성 가능
 const READY_MARK = "[추천준비완료]"; // 인테이크 완료 신호(사용자에겐 숨김)
@@ -1106,8 +1106,8 @@ export default function Chat() {
   return (
     <main className="relative flex h-[100dvh] flex-col overflow-hidden bg-white">
       <header className="border-b border-zinc-100 px-5 py-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-start gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-2">
             <button
               onClick={() => setHistoryOpen(true)}
               title="내 대화 기록"
@@ -1128,8 +1128,8 @@ export default function Chat() {
                 </span>
               )}
             </button>
-            <div>
-              <h1 className="text-base font-semibold">정부지원사업 사업계획서 도우미</h1>
+            <div className="min-w-0">
+              <h1 className="text-base font-semibold leading-tight">정부지원사업 사업계획서 도우미</h1>
               <p className="mt-0.5 text-xs text-zinc-500">
                 편하게 대화하듯 답해 주세요. 나에게 맞는 지원사업을 찾아 드릴게요.
               </p>
