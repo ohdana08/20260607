@@ -236,8 +236,15 @@ export default function Chat() {
         },
         {
           popover: {
+            title: "이렇게 3단계로 진행돼요 📋",
+            description:
+              "①내 아이템·나이·지역에 맞는 정부지원사업 찾기 → ②그 사업에 합격하려면 뭐가 부족한지 진단 → ③부족한 걸 채워 사업계획서 작성. 책 목차처럼요!",
+          },
+        },
+        {
+          popover: {
             title: "그럼 시작해볼까요? 😊",
-            description: "먼저 '운영 중인 사업이 있는지, 준비 중인지'부터 답해보세요!",
+            description: "먼저 '어떤 사업을 구상 중인지'부터 편하게 답해보세요!",
           },
         },
       ],
@@ -811,7 +818,7 @@ export default function Chat() {
         ...m,
         {
           role: "assistant",
-          content: `'${p.title}'를 고르셨네요! 👍\n\n이 사업이 사장님 사업과 잘 맞는지 먼저 확인해볼게요.\n\n📎로 아래를 올려주세요:\n1️⃣ 이 사업의 **공고문** (방금 '공고 원문 보기'에서 받은 것)\n2️⃣ **사업계획서 양식** 파일\n\n📷 사진·PDF·워드 다 돼요! 제가 꼼꼼히 읽고 **사장님 아이템과 맞는지 / 자격(업력·지역·나이)이 되는지** 알려드릴게요.\n\n💡 **양식 파일이 없거나, 홈페이지에서 바로 지원하는 사업(자유양식·IR)이어도 괜찮아요!** 그럴 땐 공고 페이지의 '지원내용/평가방법' 부분만 캡처해 올려주시거나, 그냥 사업을 한두 줄로 말씀해 주세요.`,
+          content: `'${p.title}'를 고르셨네요! 👍\n\n**사업계획서는 곧 써드려요!** 합격을 위해 딱 두 가지만 먼저 할게요 — ① 이 사업이 사장님과 맞는지 확인 → ② 떨어질 약점 빠른 진단. 그래야 '쓰고 나서 탈락'을 막아요. 😊\n\n📎로 아래를 올려주세요:\n1️⃣ 이 사업의 **공고문** (방금 '공고 원문 보기'에서 받은 것)\n2️⃣ **사업계획서 양식** 파일\n\n📷 사진·PDF·워드 다 돼요! 제가 꼼꼼히 읽고 **사장님 아이템과 맞는지 / 자격(업력·지역·나이)이 되는지** 알려드릴게요.\n\n💡 **양식 파일이 없거나, 홈페이지에서 바로 지원하는 사업(자유양식·IR)이어도 괜찮아요!** 그럴 땐 공고 페이지의 '지원내용/평가방법' 부분만 캡처해 올려주시거나, 그냥 사업을 한두 줄로 말씀해 주세요.`,
         },
       ];
     });
@@ -1544,6 +1551,25 @@ export default function Chat() {
           )}
           {mode === "intake" && !recs && (
             <div className="px-4 pt-2 space-y-2">
+              {/* 진행 단계 목차 — 처음 온 사람이 '어떻게 흘러가는지' 한눈에 (책 목차처럼) */}
+              <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5">
+                <p className="text-[11px] font-semibold text-blue-800">📋 이렇게 3단계로 진행돼요</p>
+                <ol className="mt-1.5 space-y-1 text-[11px] leading-4 text-zinc-600">
+                  <li className="flex gap-1.5">
+                    <span className="font-bold text-blue-600">1.</span>
+                    <span>내 <b>아이템·나이·지역</b>에 맞는 정부지원사업 찾기</span>
+                  </li>
+                  <li className="flex gap-1.5">
+                    <span className="font-bold text-blue-600">2.</span>
+                    <span>그 사업에 <b>합격하려면 뭐가 부족한지</b> 진단</span>
+                  </li>
+                  <li className="flex gap-1.5">
+                    <span className="font-bold text-blue-600">3.</span>
+                    <span>부족한 걸 채워 <b>사업계획서 작성</b></span>
+                  </li>
+                </ol>
+              </div>
+
               {/* 이미 공고/양식 있는 사람 — 연노랑으로 시선 강조 (로직 동일) */}
               <button
                 onClick={startDirect}
@@ -1580,11 +1606,17 @@ export default function Chat() {
           )}
           {mode === "fitcheck" && (
             <div className="border-t border-zinc-100 px-4 pt-3">
+              {/* 왜 바로 안 쓰고 진단부터인지 — '귀찮은 단계'가 아니라 '합격을 위한 내 편'으로 프레이밍 */}
+              <div className="mb-2 rounded-xl bg-blue-50 px-3 py-2.5 text-[11px] leading-5 text-blue-800">
+                ✍️ 곧 사업계획서를 써드려요! 그 전에 <b>딱 한 단계</b>만요. 바로 쓰면 심사에서
+                ‘준비가 덜 됐다’고 떨어지기 쉬워서, <b>심사위원이 보는 7가지로 약점을 먼저 찾아 보완</b>해요.
+                이게 합격률을 가장 크게 높이는 부분이에요. (무료 · 약 3분)
+              </div>
               <button
                 onClick={startDiagnoseFlow}
                 className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
               >
-                🩺 무료로 ‘될 사업’ 진단받기 (7단계)
+                🩺 합격 진단 받고 사업계획서 쓰기 (무료)
               </button>
               <button
                 onClick={switchToFind}
@@ -1592,9 +1624,6 @@ export default function Chat() {
               >
                 🔄 이 사업 말고, 나에게 맞는 지원사업 찾아줘
               </button>
-              <p className="mt-1.5 text-center text-[11px] text-zinc-400">
-                7단계로 약점을 먼저 찾고, 이어서 사업계획서를 써드려요. (진단은 무료예요!)
-              </p>
             </div>
           )}
           {mode === "diagnose" && !report && (
