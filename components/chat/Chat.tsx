@@ -39,6 +39,9 @@ interface SavedProgram {
 const LEAD_KEY = "gp_lead_v1";
 const VIEWED_KEY = "gp_viewed_v1";
 const EMAIL_KEY = "gp_email_v1"; // 진단 게이트에서 받은 이메일(재방문 시 재요청 안 함)
+// 무료 표준 사업계획서 양식 파일 URL(공개값). 운영자가 public/templates 등에 올리고 env로 지정.
+// 미설정 시 다운로드 버튼은 숨김.
+const TEMPLATE_URL = process.env.NEXT_PUBLIC_TEMPLATE_URL;
 interface Msg {
   role: Role;
   content: string;
@@ -146,6 +149,8 @@ export default function Chat() {
   // 이메일 캡처 게이트(진단 시작 전)
   const [capturedEmail, setCapturedEmail] = useState<string | null>(null);
   const [emailGateOpen, setEmailGateOpen] = useState(false);
+  // 이메일 게이트 통과 후 무엇을 할지: 진단 시작 | 무료 양식 다운로드
+  const [emailGatePurpose, setEmailGatePurpose] = useState<"diagnose" | "template">("diagnose");
   // 후기 수집 팝업
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewDone, setReviewDone] = useState(false);
@@ -796,8 +801,27 @@ export default function Chat() {
 
   // [이메일 캡처 게이트] 진단 버튼 → 이메일 없으면 게이트, 있으면 바로 진단 시작
   function startDiagnoseFlow() {
+    setEmailGatePurpose("diagnose");
     if (capturedEmail) {
       enterDiagnose();
+      return;
+    }
+    setEmailGateOpen(true);
+  }
+
+  // 무료 표준 양식 다운로드 (실행)
+  function downloadTemplate() {
+    if (!TEMPLATE_URL) return;
+    track("download_template");
+    window.open(TEMPLATE_URL, "_blank", "noopener,noreferrer");
+  }
+
+  // 무료 양식 받기 버튼 → 이메일 없으면 게이트(다운로드 목적), 있으면 바로 다운로드
+  function getTemplate() {
+    if (!TEMPLATE_URL) return;
+    setEmailGatePurpose("template");
+    if (capturedEmail) {
+      downloadTemplate();
       return;
     }
     setEmailGateOpen(true);
@@ -830,7 +854,12 @@ export default function Chat() {
       track("submit_email");
       if (payload.marketingConsent) track("marketing_consent");
       setEmailGateOpen(false);
-      enterDiagnose();
+      // 게이트 목적에 따라 분기: 무료 양식 다운로드 vs 진단 시작
+      if (emailGatePurpose === "template") {
+        downloadTemplate();
+      } else {
+        enterDiagnose();
+      }
       return null;
     } catch {
       return "연결에 문제가 생겼어요. 다시 시도해 주세요.";
@@ -1260,7 +1289,11 @@ export default function Chat() {
 
       {/* 이메일 캡처 게이트 — 진단 시작 전 (이메일 + 동의) */}
       {emailGateOpen && (
-        <EmailGateModal onClose={() => setEmailGateOpen(false)} onSubmit={submitEmailGate} />
+        <EmailGateModal
+          purpose={emailGatePurpose}
+          onClose={() => setEmailGateOpen(false)}
+          onSubmit={submitEmailGate}
+        />
       )}
 
       {/* 후기 수집 팝업 — 초안 완성 직후(만족도 최고점) */}
@@ -1519,13 +1552,22 @@ export default function Chat() {
             </div>
           )}
           {mode === "intake" && !recs && (
-            <div className="px-4 pt-2">
+            <div className="px-4 pt-2 space-y-2">
+              {/* 이미 공고/양식 있는 사람 — 연노랑으로 시선 강조 (로직 동일) */}
               <button
                 onClick={startDirect}
-                className="w-full rounded-xl border border-zinc-200 py-2 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-50"
+                className="w-full rounded-xl border border-yellow-300 bg-yellow-50 py-2.5 text-xs font-semibold text-yellow-800 transition-colors hover:bg-yellow-100"
               >
                 📄 이미 정한 공고문·양식이 있어요 → 바로 작성하기
               </button>
+              {TEMPLATE_URL && (
+                <button
+                  onClick={getTemplate}
+                  className="w-full rounded-xl border border-zinc-200 py-2 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-50"
+                >
+                  📥 무료 표준 사업계획서 양식 받기 (이걸로 한 번 써보세요)
+                </button>
+              )}
             </div>
           )}
           {mode === "fitcheck" && (
@@ -2178,9 +2220,11 @@ function ReportCard({
 function EmailGateModal({
   onClose,
   onSubmit,
+  purpose = "diagnose",
 }: {
   onClose: () => void;
   onSubmit: (p: { email: string; marketingConsent: boolean }) => Promise<string | null>;
+  purpose?: "diagnose" | "template";
 }) {
   const [email, setEmail] = useState("");
   const [privacy, setPrivacy] = useState(false);
@@ -2188,6 +2232,7 @@ function EmailGateModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  const isTemplate = purpose === "template";
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const canSubmit = emailOk && privacy && !busy;
 
@@ -2206,10 +2251,20 @@ function EmailGateModal({
         className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-base font-bold text-zinc-900">📩 진단 보고서, 어디로 보내드릴까요?</h3>
+        <h3 className="text-base font-bold text-zinc-900">
+          {isTemplate ? "📥 무료 표준 양식, 이메일만 남기면 받아요" : "📩 진단 보고서, 어디로 보내드릴까요?"}
+        </h3>
         <p className="mt-1 text-xs leading-5 text-zinc-500">
-          7단계 진단이 끝나면 <b>상세 진단 보고서</b>(약점 상세 + 심사위원 관점)를 이메일로 보내드려요.
-          비밀번호 없어요!
+          {isTemplate ? (
+            <>
+              정부지원 <b>표준 사업계획서 양식</b>을 보내드려요. 이 양식으로 한 번 직접 써보세요. 비밀번호 없어요!
+            </>
+          ) : (
+            <>
+              7단계 진단이 끝나면 <b>상세 진단 보고서</b>(약점 상세 + 심사위원 관점)를 이메일로 보내드려요. 비밀번호
+              없어요!
+            </>
+          )}
         </p>
 
         <input
@@ -2229,7 +2284,8 @@ function EmailGateModal({
             className="mt-0.5 h-4 w-4 shrink-0"
           />
           <span>
-            <b className="text-zinc-900">(필수)</b> 개인정보 수집·이용 동의 — 목적: 진단 보고서 발송
+            <b className="text-zinc-900">(필수)</b> 개인정보 수집·이용 동의 — 목적:{" "}
+            {isTemplate ? "표준 양식 제공 및 안내" : "진단 보고서 발송"}
           </span>
         </label>
         <label className="mt-2 flex items-start gap-2 text-xs leading-5 text-zinc-700">
@@ -2249,7 +2305,7 @@ function EmailGateModal({
           disabled={!canSubmit}
           className="mt-4 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-bold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
         >
-          {busy ? "준비 중…" : "진단 보고서 받기"}
+          {busy ? "준비 중…" : isTemplate ? "무료 양식 받기" : "진단 보고서 받기"}
         </button>
         <p className="mt-2 text-center text-[10px] text-zinc-400">
           입력하신 이메일은 보고서 발송·맞춤 안내에만 사용돼요. 비밀번호는 받지 않아요.

@@ -8,6 +8,7 @@ export type GaEvent =
   | "view_landing" // 랜딩 진입
   | "submit_email" // 이메일 캡처 완료
   | "marketing_consent" // 마케팅 수신 동의
+  | "download_template" // 무료 표준 사업계획서 양식 다운로드
   | "report_sent" // 진단 보고서 이메일 발송 완료
   | "start_diagnosis" // 7단계 자가진단 시작
   | "view_diagnosis_result" // 진단 결과 화면(맛보기) 도달
