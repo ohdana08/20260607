@@ -67,6 +67,7 @@ interface ReportTeaser {
   strengthLine: string;
   weaknesses: string[]; // 약점 항목명만 (해결법 X)
   sent: boolean; // 이메일 발송 성공 여부
+  emailPending: boolean; // 이메일 발송 진행 중
 }
 
 const GREETING =
@@ -848,11 +849,12 @@ export default function Chat() {
     focusInput();
   }
 
-  // 진단 결과 — 화면엔 '맛보기'만, 전체 보고서는 이메일로 발송
+  // 진단 결과 — ① 맛보기 빠르게 표시 → ② 전체 보고서 이메일을 별도 요청으로 '동기' 발송
   async function generateReport() {
     if (reportLoading || busy) return;
     setReportLoading(true);
     setReport(null);
+    // ① 맛보기(빠름)
     try {
       const res = await fetch("/api/plan/diagnose", {
         method: "POST",
@@ -861,7 +863,6 @@ export default function Chat() {
           messages: foldDocs(messages),
           program: selectedProgram,
           kind: "report",
-          email: capturedEmail,
           provider,
         }),
       });
@@ -871,21 +872,44 @@ export default function Chat() {
       }
       const data = await res.json();
       const t = (data?.teaser ?? {}) as { strengthLine?: string; weaknesses?: string[] };
-      const queued = Boolean(data?.emailQueued);
       setReport({
         strengthLine: t.strengthLine ?? "",
         weaknesses: Array.isArray(t.weaknesses) ? t.weaknesses : [],
-        sent: queued, // 백그라운드 발송 예약됨(낙관적)
+        sent: false,
+        emailPending: Boolean(capturedEmail), // 이메일 있으면 곧 발송
       });
       track("view_diagnosis_result", { program: selectedProgram?.title ?? "" });
-      if (queued) track("report_sent");
     } catch {
       alert("진단 결과를 정리하는 중 연결이 끊겼어요.");
+      setReportLoading(false);
+      return;
     } finally {
       setReportLoading(false);
       setTimeout(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
       }, 100);
+    }
+
+    // ② 전체 보고서 + Word 첨부 이메일 발송 (동기 — 실제 sent 결과를 받음)
+    if (!capturedEmail) return;
+    try {
+      const r2 = await fetch("/api/plan/diagnose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: foldDocs(messages),
+          program: selectedProgram,
+          kind: "report_email",
+          email: capturedEmail,
+          provider,
+        }),
+      });
+      const d2 = await r2.json().catch(() => ({}));
+      const sent = Boolean(d2?.sent);
+      setReport((prev) => (prev ? { ...prev, sent, emailPending: false } : prev));
+      if (sent) track("report_sent");
+    } catch {
+      setReport((prev) => (prev ? { ...prev, emailPending: false } : prev));
     }
   }
 
@@ -2118,10 +2142,12 @@ function ReportCard({
       )}
 
       <div className="mt-3 rounded-xl bg-white px-3 py-2.5 text-xs leading-5 text-zinc-600">
-        {teaser.sent ? (
+        {teaser.emailPending ? (
+          <>⏳ <b>상세 진단 보고서</b>(약점 상세 + 심사위원 관점)를 <b>Word 파일</b>로 만들어 이메일로 보내는 중이에요… (잠시만요)</>
+        ) : teaser.sent ? (
           <>
-            📩 <b>상세 진단 보고서</b>(약점 상세 + 심사위원 관점)를 입력하신 이메일로 <b>Word 파일 첨부</b>해
-            보내드리고 있어요. <b>1~2분</b> 내 도착해요. (안 보이면 스팸함·프로모션함도 확인!)
+            📩 <b>상세 진단 보고서</b>를 입력하신 이메일로 <b>Word 파일 첨부</b>해 보내드렸어요! (안 보이면
+            스팸함·프로모션함도 확인해 주세요)
           </>
         ) : (
           <>📩 상세 진단 보고서는 이메일을 입력하시면 Word 파일로 보내드려요.</>

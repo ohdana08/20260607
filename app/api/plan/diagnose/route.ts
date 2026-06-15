@@ -1,4 +1,3 @@
-import { after } from "next/server";
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
@@ -107,7 +106,7 @@ export async function POST(req: Request) {
   const { messages, program, kind, email, provider: rawProvider } = (body ?? {}) as {
     messages?: unknown;
     program?: ProgInfo;
-    kind?: "chat" | "report";
+    kind?: "chat" | "report" | "report_email";
     email?: unknown;
     provider?: unknown;
   };
@@ -134,9 +133,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "먼저 답변을 입력해 주세요." }, { status: 400 });
   }
 
-  // ── 진단 결과 ──
-  // ① 화면 맛보기: 빠른 모델(Haiku)로 즉시 생성 → 바로 반환 (대기 최소화)
-  // ② 전체 보고서: 품질 모델(Sonnet)로 백그라운드 생성 → Word 첨부 이메일 발송 (after)
+  // ── 진단 결과 ① 화면 맛보기: 빠른 모델(Haiku)로 즉시 생성 → 바로 반환 ──
   if (kind === "report") {
     const teaserLlm = getLlm(provider, "fast");
     let teaser: TeaserJson;
@@ -157,38 +154,39 @@ export async function POST(req: Request) {
       ? teaser.weaknesses.map((w) => String(w).trim()).filter(Boolean).slice(0, 2)
       : [];
 
-    // 전체 보고서 생성 + Word 첨부 이메일 발송은 응답 이후 백그라운드로.
-    const reportEmail = isEmail(email) ? email : null;
-    const progTitle = program?.title || "이 지원사업";
-    if (reportEmail) {
-      after(async () => {
-        try {
-          const reportLlm = getLlm(provider, "fast"); // Haiku — 무료 진단 비용 최소화
-          const full = await reportLlm.json<FullReportJson>({
-            system: fullReportSystem(program ?? {}),
-            messages: [...trimmed, { role: "user", content: "위 JSON으로 전체 보고서를 출력해줘." }],
-            schema: {},
-            maxTokens: 1800,
-          });
-          const fullReportText = String(full.fullReportText ?? "").trim();
-          const weaknessSummary = String(full.weaknessSummary ?? weaknesses.join(", ")).trim();
-          if (!fullReportText) return;
-          const docxBase64 = await buildReportDocxBase64(
-            `${progTitle} · 사업 진단 보고서`,
-            fullReportText,
-          );
-          await sendReportEmail({ email: reportEmail, fullReportText, weaknessSummary, docxBase64 });
-        } catch (err) {
-          console.error("[/api/plan/diagnose report after]", err);
-        }
-      });
-    }
+    return Response.json({ teaser: { strengthLine, weaknesses } });
+  }
 
-    return Response.json({
-      teaser: { strengthLine, weaknesses },
-      // 이메일 발송은 백그라운드라 여기서 성공을 보장하진 않음(낙관적). 입력 이메일이 있으면 발송 예약됨.
-      emailQueued: Boolean(reportEmail),
-    });
+  // ── 진단 결과 ② 전체 보고서 생성 + Word 첨부 이메일 '동기' 발송 ──
+  // 별도 요청으로 분리해 맛보기는 빠르게 유지하면서, 발송은 응답 전에 await로 확실히 실행.
+  // (Vercel Hobby는 응답 후 after()/백그라운드가 끝까지 안 돌 수 있어 동기로 처리한다.)
+  if (kind === "report_email") {
+    if (!isEmail(email)) {
+      return Response.json({ ok: false, sent: false, error: "email_required" }, { status: 400 });
+    }
+    const progTitle = program?.title || "이 지원사업";
+    try {
+      const reportLlm = getLlm(provider, "fast"); // Haiku — 무료 진단 비용 최소화
+      const full = await reportLlm.json<FullReportJson>({
+        system: fullReportSystem(program ?? {}),
+        messages: [...trimmed, { role: "user", content: "위 JSON으로 전체 보고서를 출력해줘." }],
+        schema: {},
+        maxTokens: 1800,
+      });
+      const fullReportText = String(full.fullReportText ?? "").trim();
+      const weaknessSummary = String(full.weaknessSummary ?? "").trim();
+      if (!fullReportText) {
+        console.error("[/api/plan/diagnose report_email] empty fullReportText");
+        return Response.json({ ok: false, sent: false, error: "empty_report" }, { status: 502 });
+      }
+      const docxBase64 = await buildReportDocxBase64(`${progTitle} · 사업 진단 보고서`, fullReportText);
+      const sent = await sendReportEmail({ email, fullReportText, weaknessSummary, docxBase64 });
+      console.log("[/api/plan/diagnose report_email] sent =", sent);
+      return Response.json({ ok: true, sent });
+    } catch (err) {
+      console.error("[/api/plan/diagnose report_email]", err);
+      return Response.json({ ok: false, sent: false, error: "failed" }, { status: 502 });
+    }
   }
 
   // ── 7단계 문답 (스트리밍) ──
