@@ -64,7 +64,8 @@ function doPost(e) {
 }
 
 function doGet() {
-  return ContentService.createTextOutput('진단 리드 컬렉터 · POST only').setMimeType(ContentService.MimeType.TEXT);
+  // 버전 표식: 배포가 최신(첨부 지원)인지 외부에서 GET으로 확인하기 위함
+  return ContentService.createTextOutput('진단 리드 컬렉터 v2 (docx-attach) · POST only').setMimeType(ContentService.MimeType.TEXT);
 }
 
 // 이메일+동의 upsert
