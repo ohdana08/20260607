@@ -6,6 +6,7 @@ import "driver.js/dist/driver.css";
 import type { Recommendation, Program } from "@/lib/match/types";
 import { PLAN_SECTIONS } from "@/lib/plan/sections";
 import { track } from "@/lib/ga";
+import { captureUtm, getLeadSource } from "@/lib/utm";
 
 type Role = "user" | "assistant";
 interface ChatImage {
@@ -232,6 +233,11 @@ export default function Chat() {
     });
     d.drive();
   }
+
+  // 첫 진입: UTM 캡처(/embed 직접 유입 시 URL에서 읽어 sessionStorage 보관)
+  useEffect(() => {
+    captureUtm();
+  }, []);
 
   // 첫 진입: 튜토리얼 1회 자동 실행
   useEffect(() => {
@@ -809,6 +815,7 @@ export default function Chat() {
           email: payload.email,
           privacyConsent: true, // 모달에서 필수 체크 확인 후에만 호출됨
           marketingConsent: payload.marketingConsent,
+          source: getLeadSource(), // UTM 기반 source (없으면 기본값은 서버에서 처리)
         }),
       });
       const d = await res.json().catch(() => ({}));

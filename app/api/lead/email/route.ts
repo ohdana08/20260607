@@ -9,7 +9,14 @@ export const dynamic = "force-dynamic";
 // 1순위: BCC CRM과 같은 Supabase의 leads 테이블 (홈페이지 폼 /api/lead 와 동일 테이블).
 // 폴백: Supabase 실패 시에만 기존 GAS 구글시트 (리드 유실 방지).
 // 비밀번호는 받지 않는다. 필수 동의 없으면 거부.
-const SOURCE = "threads_chatbot";
+const DEFAULT_SOURCE = "threads_chatbot";
+
+// 클라이언트가 보낸 source(UTM 기반)를 정제. 없거나 비면 기본값.
+function cleanSource(raw: unknown): string {
+  if (typeof raw !== "string") return DEFAULT_SOURCE;
+  const s = raw.replace(/[\r\n\t]+/g, " ").trim().slice(0, 200);
+  return s || DEFAULT_SOURCE;
+}
 
 export async function POST(req: Request) {
   const rl = await checkRateLimit(req, "review");
@@ -22,10 +29,11 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: "요청을 읽지 못했어요." }, { status: 400 });
   }
 
-  const { email, privacyConsent, marketingConsent } = (body ?? {}) as {
+  const { email, privacyConsent, marketingConsent, source } = (body ?? {}) as {
     email?: unknown;
     privacyConsent?: unknown;
     marketingConsent?: unknown;
+    source?: unknown;
   };
 
   if (!isEmail(email)) {
@@ -41,6 +49,7 @@ export async function POST(req: Request) {
   const contact = email.trim();
   const marketing = Boolean(marketingConsent);
   const name = contact.split("@")[0] || "챗봇 리드"; // 이메일 앞부분을 이름으로
+  const leadSource = cleanSource(source); // UTM 기반(없으면 threads_chatbot)
 
   // 1순위: Supabase leads (CRM 통합 단일 소스)
   try {
@@ -49,7 +58,7 @@ export async function POST(req: Request) {
       name,
       contact,
       request_type: "general",
-      source: SOURCE,
+      source: leadSource,
       // 마케팅 동의 전용 컬럼이 없어 message에 함께 보존
       message: `진단 챗봇 이메일 게이트 · 마케팅수신: ${marketing ? "Y" : "N"}`,
       consent: true,
