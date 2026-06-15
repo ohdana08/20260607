@@ -18,7 +18,7 @@ function gasUrl(): string | null {
   return process.env.GAS_DIAGNOSIS_URL || null;
 }
 function token(): string {
-  return process.env.GAS_TOKEN ?? "";
+  return (process.env.GAS_TOKEN ?? "").trim();
 }
 
 let redis: Redis | null = null;
@@ -98,8 +98,13 @@ export async function sendReportEmail(args: {
       }),
     });
     if (!res.ok) return false;
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; sent?: boolean };
-    return data.sent ?? data.ok ?? true;
+    let data: { ok?: boolean; sent?: boolean } = {};
+    try {
+      data = JSON.parse(await res.text());
+    } catch {
+      /* HTML 등 비-JSON 응답 */
+    }
+    return data.sent ?? data.ok ?? false;
   } catch (err) {
     console.error("[diagnosis] GAS report send failed", err);
     return false;

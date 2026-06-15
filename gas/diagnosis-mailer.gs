@@ -30,8 +30,10 @@ var FROM_NAME = '정부지원사업 사업계획서 도우미';
 
 function verifyToken_(body) {
   var expected = PropertiesService.getScriptProperties().getProperty('REVIEW_TOKEN');
-  if (!expected) return true;
-  return body && String(body._token || '') === expected;
+  if (!expected) return true; // 토큰 미설정 시 통과(권장하지 않음 — 끄지 말 것)
+  // 앞뒤 공백 차이로 인한 불일치 방지(양쪽 trim 비교)
+  var got = body && body._token != null ? String(body._token).trim() : '';
+  return got === String(expected).trim();
 }
 
 function doPost(e) {

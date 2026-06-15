@@ -181,7 +181,6 @@ export async function POST(req: Request) {
       }
       const docxBase64 = await buildReportDocxBase64(`${progTitle} · 사업 진단 보고서`, fullReportText);
       const sent = await sendReportEmail({ email, fullReportText, weaknessSummary, docxBase64 });
-      console.log("[/api/plan/diagnose report_email] sent =", sent);
       return Response.json({ ok: true, sent });
     } catch (err) {
       console.error("[/api/plan/diagnose report_email]", err);
