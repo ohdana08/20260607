@@ -13,7 +13,9 @@ import { createAnthropicClient } from "./anthropic";
 import { createOpenAIClient } from "./openai";
 
 export type Provider = "claude" | "openai";
-export type Tier = "fast" | "quality";
+// fast = 저렴/빠름(문진·적합도·진단 맛보기), balanced = 중간(진단 보고서),
+// quality = 최고품질(유료 사업계획서 초안 — 비용 감수)
+export type Tier = "fast" | "balanced" | "quality";
 
 export interface ChatImage {
   mediaType: string; // "image/png" | "image/jpeg" | "image/webp" | "image/gif"
@@ -74,8 +76,14 @@ export function isProviderConfigured(provider: Provider): boolean {
 export function getLlm(provider: Provider, tier: Tier = "fast"): LlmClient {
   if (provider === "openai") {
     const model =
-      tier === "quality" ? process.env.OPENAI_MODEL || "gpt-4o" : "gpt-4o-mini";
+      tier === "fast" ? "gpt-4o-mini" : process.env.OPENAI_MODEL || "gpt-4o";
     return createOpenAIClient(model);
   }
-  return createAnthropicClient(tier === "quality" ? "claude-opus-4-8" : "claude-haiku-4-5");
+  const model =
+    tier === "quality"
+      ? "claude-opus-4-8" // 유료 초안: 최고 품질
+      : tier === "balanced"
+        ? "claude-sonnet-4-6" // 진단 보고서: 빠르고 충분한 품질
+        : "claude-haiku-4-5"; // 문진·적합도·맛보기: 빠름/저렴
+  return createAnthropicClient(model);
 }

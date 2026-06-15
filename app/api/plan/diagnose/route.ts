@@ -1,7 +1,9 @@
+import { after } from "next/server";
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { isEmail, sendReportEmail } from "@/lib/diagnosis";
+import { buildReportDocxBase64 } from "@/lib/report-docx";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,31 +40,45 @@ const STEP_SYSTEM = `추천된 사업으로 계획서를 쓰기 전에, 이 사�
 - 📎 **사용자가 사진·캡처·PDF·문서를 첨부하면, 반드시 그 내용을 꼼꼼히 읽고** 무엇이 보이는지 한마디로 짚어준 뒤("올려주신 화면 보니 ○○가 있네요!") 지금 단계의 '근거'로 적극 반영하세요. (예: '팔아본 적' 질문에 예약·문의·선주문 캡처를 올리면 = 판매 검증의 강력한 증거로 인정). 첨부를 절대 무시하지 말고, 안 보이면 "이미지가 잘 안 보여요, 다시 올려주실래요?"라고 말하세요.
 - 7단계를 다 물었으면(또는 사용자가 그만 진단하고 싶어 하면): "7단계를 다 봤어요! 아래 '📋 내 사업 진단 결과 보기' 버튼을 눌러주세요 😊"라고 안내하세요.`;
 
-function reportSystem(p: ProgInfo): string {
+// 화면 '맛보기'만 — 빠른 모델(Haiku)로 즉시 생성해 사용자 대기를 최소화.
+function teaserSystem(p: ProgInfo): string {
   const title = p.title || "이 지원사업";
-  return `당신은 13년간 380개 공공기관에서 쌓은 심사 노하우를 학습한 진단 상담사예요.
-지금까지의 7단계 자가진단 대화를 종합해, 아래 JSON 한 개만 출력하세요. (다른 말·코드블록 없이 JSON만)
+  return `7단계 자가진단 대화를 종합해, 화면에 보여줄 '맛보기'를 아래 JSON 한 개로만 출력하세요. (다른 말·코드블록 없이 JSON만)
 대상 지원사업: "${title}"
 
-출력 JSON 스키마:
 {
   "strengthLine": "사장님 사업의 강점을 따뜻하게 한 줄로 (쉬운 일상어)",
-  "weaknesses": ["치명적 약점 항목명1", "치명적 약점 항목명2"],
-  "weaknessSummary": "약점을 한 문장으로 요약 (시트 저장용, 30자 내외)",
-  "fullReportText": "이메일로 보낼 전체 보고서. 줄바꿈(\\n) 포함 평문. 구성: ① 📋 사장님 사업 진단 결과 ② ✅ 강점 ③ ⚠️ 보완 필요(약점 상세 + 왜 위험한지 + 어떻게 메우는지) ④ 💡 심사위원 관점 한 줄 (\"이 항목(○○), 정부지원 심사위원은 이렇게 봅니다 → ...\"). 격려로 마무리."
+  "weaknesses": ["치명적 약점 항목명1", "치명적 약점 항목명2"]
 }
 
 규칙:
-- 대화 중 사용자가 첨부한 사진·문서가 있으면 그 내용도 근거로 반영해 강점/약점을 판단하세요.
-- weaknesses 는 '항목명만' 정확히 2개. (예: "판매 검증", "반복 구조") 해결법·설명은 넣지 마세요. ← 화면 맛보기에 항목명만 노출됨
-- fullReportText 에는 약점의 상세 설명과 해결 방향, 심사위원 관점을 충분히 담으세요. (이건 이메일로만 갑니다)
-- 100% 쉬운 일상어, 솔직하되 부풀리지 않기. 결제 유도 문구·가격은 넣지 마세요.
-- 반드시 위 4개 키를 가진 JSON 객체 하나만 출력하세요.`;
+- weaknesses 는 '항목명만' 정확히 2개 (예: "판매 검증", "반복 구조"). 해결법·설명은 넣지 마세요.
+- 첨부한 사진·문서가 있으면 근거로 반영. 100% 쉬운 일상어.`;
 }
 
-interface ReportJson {
+// 이메일로 보낼 전체 보고서 — 품질 모델(Sonnet)로 백그라운드 생성.
+function fullReportSystem(p: ProgInfo): string {
+  const title = p.title || "이 지원사업";
+  return `당신은 13년간 380개 공공기관에서 쌓은 심사 노하우를 학습한 진단 상담사예요.
+7단계 자가진단 대화를 종합해, 아래 JSON 한 개만 출력하세요. (다른 말·코드블록 없이 JSON만)
+대상 지원사업: "${title}"
+
+{
+  "weaknessSummary": "약점을 한 문장으로 요약 (시트 저장용, 30자 내외)",
+  "fullReportText": "이메일로 보낼 전체 보고서. 줄바꿈(\\n) 포함 평문. 구성: ① 📋 사장님 사업 진단 결과 ② ✅ 강점 ③ ⚠️ 보완 필요(약점 상세 + 왜 위험한지 + 어떻게 메우는지) ④ 💡 심사위원 관점 한 줄. 격려로 마무리."
+}
+
+규칙:
+- 대화 중 첨부한 사진·문서가 있으면 근거로 반영. 약점의 상세 설명·해결 방향·심사위원 관점을 충분히.
+- 100% 쉬운 일상어, 솔직하되 부풀리지 않기. 결제 유도·가격 금지.
+- 반드시 위 2개 키를 가진 JSON 객체 하나만 출력하세요.`;
+}
+
+interface TeaserJson {
   strengthLine: string;
   weaknesses: string[];
+}
+interface FullReportJson {
   weaknessSummary: string;
   fullReportText: string;
 }
@@ -118,42 +134,60 @@ export async function POST(req: Request) {
     return Response.json({ error: "먼저 답변을 입력해 주세요." }, { status: 400 });
   }
 
-  // ── 진단 결과: 화면 맛보기(JSON) + 전체 보고서 이메일 발송 ──
+  // ── 진단 결과 ──
+  // ① 화면 맛보기: 빠른 모델(Haiku)로 즉시 생성 → 바로 반환 (대기 최소화)
+  // ② 전체 보고서: 품질 모델(Sonnet)로 백그라운드 생성 → Word 첨부 이메일 발송 (after)
   if (kind === "report") {
-    const llm = getLlm(provider, "quality");
-    let parsed: ReportJson;
+    const teaserLlm = getLlm(provider, "fast");
+    let teaser: TeaserJson;
     try {
-      parsed = await llm.json<ReportJson>({
-        system: reportSystem(program ?? {}),
-        messages: [
-          ...trimmed,
-          { role: "user", content: "지금까지의 7단계 답을 종합해 위 JSON으로 진단 결과를 출력해줘." },
-        ],
+      teaser = await teaserLlm.json<TeaserJson>({
+        system: teaserSystem(program ?? {}),
+        messages: [...trimmed, { role: "user", content: "위 JSON으로 맛보기만 출력해줘." }],
         schema: {},
-        maxTokens: 1800,
+        maxTokens: 400,
       });
     } catch (err) {
-      console.error("[/api/plan/diagnose report]", err);
+      console.error("[/api/plan/diagnose teaser]", err);
       return Response.json({ error: "진단 결과를 정리하지 못했어요." }, { status: 502 });
     }
 
-    const strengthLine = String(parsed.strengthLine ?? "").trim();
-    const weaknesses = Array.isArray(parsed.weaknesses)
-      ? parsed.weaknesses.map((w) => String(w).trim()).filter(Boolean).slice(0, 2)
+    const strengthLine = String(teaser.strengthLine ?? "").trim();
+    const weaknesses = Array.isArray(teaser.weaknesses)
+      ? teaser.weaknesses.map((w) => String(w).trim()).filter(Boolean).slice(0, 2)
       : [];
-    const weaknessSummary = String(parsed.weaknessSummary ?? weaknesses.join(", ")).trim();
-    const fullReportText = String(parsed.fullReportText ?? "").trim();
 
-    // 전체 보고서는 화면에 내려보내지 않고 이메일로만 발송한다.
-    let sent = false;
-    if (isEmail(email) && fullReportText) {
-      sent = await sendReportEmail({ email, fullReportText, weaknessSummary });
+    // 전체 보고서 생성 + Word 첨부 이메일 발송은 응답 이후 백그라운드로.
+    const reportEmail = isEmail(email) ? email : null;
+    const progTitle = program?.title || "이 지원사업";
+    if (reportEmail) {
+      after(async () => {
+        try {
+          const reportLlm = getLlm(provider, "balanced"); // Sonnet
+          const full = await reportLlm.json<FullReportJson>({
+            system: fullReportSystem(program ?? {}),
+            messages: [...trimmed, { role: "user", content: "위 JSON으로 전체 보고서를 출력해줘." }],
+            schema: {},
+            maxTokens: 1800,
+          });
+          const fullReportText = String(full.fullReportText ?? "").trim();
+          const weaknessSummary = String(full.weaknessSummary ?? weaknesses.join(", ")).trim();
+          if (!fullReportText) return;
+          const docxBase64 = await buildReportDocxBase64(
+            `${progTitle} · 사업 진단 보고서`,
+            fullReportText,
+          );
+          await sendReportEmail({ email: reportEmail, fullReportText, weaknessSummary, docxBase64 });
+        } catch (err) {
+          console.error("[/api/plan/diagnose report after]", err);
+        }
+      });
     }
 
     return Response.json({
       teaser: { strengthLine, weaknesses },
-      weaknessSummary,
-      sent,
+      // 이메일 발송은 백그라운드라 여기서 성공을 보장하진 않음(낙관적). 입력 이메일이 있으면 발송 예약됨.
+      emailQueued: Boolean(reportEmail),
     });
   }
 

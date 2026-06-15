@@ -69,11 +69,12 @@ export async function saveEmailCapture(c: EmailCapture): Promise<boolean> {
   return true;
 }
 
-// 진단 후: 약점요약 갱신 + 전체 보고서 Gmail 발송
+// 진단 후: 약점요약 갱신 + 전체 보고서 Gmail 발송 (Word .docx 첨부)
 export async function sendReportEmail(args: {
   email: string;
   fullReportText: string;
   weaknessSummary: string;
+  docxBase64?: string; // 있으면 GAS가 진단보고서.docx 로 첨부
 }): Promise<boolean> {
   const url = gasUrl();
   if (!url) {
@@ -93,6 +94,7 @@ export async function sendReportEmail(args: {
         email: args.email.trim().toLowerCase(),
         weaknessSummary: args.weaknessSummary,
         fullReportText: args.fullReportText,
+        docxBase64: args.docxBase64 ?? "",
       }),
     });
     if (!res.ok) return false;

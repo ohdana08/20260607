@@ -96,12 +96,23 @@ function handleReport_(sheet, email, body) {
   if (!report) return jsonOk_({ ok: false, sent: false, error: 'empty_report' });
 
   try {
-    MailApp.sendEmail({
+    var mail = {
       to: email,
       name: FROM_NAME,
       subject: '📋 사장님 사업 진단 보고서 (정부지원 심사 관점)',
       body: report + '\n\n— ' + FROM_NAME
-    });
+    };
+    // Word(.docx) 첨부가 있으면 첨부 (Next 서버가 base64로 보냄)
+    var docx = String(body.docxBase64 || '');
+    if (docx) {
+      var blob = Utilities.newBlob(
+        Utilities.base64Decode(docx),
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '사업진단보고서.docx'
+      );
+      mail.attachments = [blob];
+    }
+    MailApp.sendEmail(mail);
     sheet.getRange(row, 6).setValue('Y');
     sheet.getRange(row, 7).setValue(now);
     return jsonOk_({ ok: true, sent: true });

@@ -77,7 +77,7 @@ const READY_MARK = "[추천준비완료]"; // 인테이크 완료 신호(사용�
 const PRICE = "49,900원";
 // 무료 7단계 자가진단 첫 인사 + 1단계 질문(이후 단계는 /api/plan/diagnose가 이어감)
 const DIAGNOSE_INTRO =
-  "좋아요! 사업계획서를 쓰기 전에, 이 사업이 '될 사업'인지 7단계로 빠르게 같이 점검해볼게요. 🩺\n부담 갖지 마세요 — 짧게 답하셔도 돼요. (무료예요!)\n\n1️⃣ 먼저 시장이요. 이 사업, 이미 비슷한 걸로 돈을 벌고 있는 사람이 있나요? (있으면 '돈이 도는 시장'이라는 좋은 신호예요!)";
+  "좋아요! 사업계획서를 쓰기 전에, 이 사업이 '될 사업'인지 7단계로 빠르게 같이 점검해볼게요. 🩺\n부담 갖지 마세요 — 짧게 답하셔도 돼요. (무료예요!)\n\n💡 답하면서 **증거가 될 사진·파일(📎)을 올리면 진단이 훨씬 정확해져요.** 예: 매출·예약·문의·선주문 캡처, 공고문, 사업계획서 양식. (이 자료는 나중에 유료 사업계획서를 쓸 때도 그대로 활용돼요!)\n\n1️⃣ 먼저 시장이요. 이 사업, 이미 비슷한 걸로 돈을 벌고 있는 사람이 있나요? (있으면 '돈이 도는 시장'이라는 좋은 신호예요!)";
 // 후기 수집 팝업의 태그 선택지 (업무지시서 4-2)
 const REVIEW_TAGS = [
   "막막했는데 구조가 잡혔다",
@@ -871,14 +871,14 @@ export default function Chat() {
       }
       const data = await res.json();
       const t = (data?.teaser ?? {}) as { strengthLine?: string; weaknesses?: string[] };
-      const sent = Boolean(data?.sent);
+      const queued = Boolean(data?.emailQueued);
       setReport({
         strengthLine: t.strengthLine ?? "",
         weaknesses: Array.isArray(t.weaknesses) ? t.weaknesses : [],
-        sent,
+        sent: queued, // 백그라운드 발송 예약됨(낙관적)
       });
       track("view_diagnosis_result", { program: selectedProgram?.title ?? "" });
-      if (sent) track("report_sent");
+      if (queued) track("report_sent");
     } catch {
       alert("진단 결과를 정리하는 중 연결이 끊겼어요.");
     } finally {
@@ -1559,6 +1559,11 @@ export default function Chat() {
           )}
 
           <div className="border-t border-zinc-100 p-4">
+            {programStage && (
+              <p className="mb-2 text-center text-[11px] leading-4 text-zinc-400">
+                💡 사진·PDF·워드(📎)를 올리면 진단과 사업계획서가 더 정확해져요 (공고문·양식·매출/예약 캡처 등)
+              </p>
+            )}
             {(pendingImages.length > 0 || pendingFiles.length > 0 || pendingDocs.length > 0) && (
               <div className="mb-2 flex flex-wrap gap-2">
                 {pendingImages.map((im, k) => (
@@ -2114,12 +2119,12 @@ function ReportCard({
 
       <div className="mt-3 rounded-xl bg-white px-3 py-2.5 text-xs leading-5 text-zinc-600">
         {teaser.sent ? (
-          <>📩 <b>상세 진단 보고서</b>를 입력하신 이메일로 보내드렸어요. (스팸함도 확인해 주세요!)</>
-        ) : (
           <>
-            📩 상세 진단 보고서는 입력하신 이메일로 보내드릴게요.
-            {/* TODO: 확인필요 - 메일 발송 실패 시 재시도/안내 UX */}
+            📩 <b>상세 진단 보고서</b>(약점 상세 + 심사위원 관점)를 입력하신 이메일로 <b>Word 파일 첨부</b>해
+            보내드리고 있어요. <b>1~2분</b> 내 도착해요. (안 보이면 스팸함·프로모션함도 확인!)
           </>
+        ) : (
+          <>📩 상세 진단 보고서는 이메일을 입력하시면 Word 파일로 보내드려요.</>
         )}
       </div>
 
