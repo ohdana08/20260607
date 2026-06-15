@@ -163,7 +163,7 @@ export async function POST(req: Request) {
     if (reportEmail) {
       after(async () => {
         try {
-          const reportLlm = getLlm(provider, "balanced"); // Sonnet
+          const reportLlm = getLlm(provider, "fast"); // Haiku — 무료 진단 비용 최소화
           const full = await reportLlm.json<FullReportJson>({
             system: fullReportSystem(program ?? {}),
             messages: [...trimmed, { role: "user", content: "위 JSON으로 전체 보고서를 출력해줘." }],
