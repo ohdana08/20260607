@@ -39,11 +39,12 @@ interface SavedProgram {
 const LEAD_KEY = "gp_lead_v1";
 const VIEWED_KEY = "gp_viewed_v1";
 const EMAIL_KEY = "gp_email_v1"; // 진단 게이트에서 받은 이메일(재방문 시 재요청 안 함)
-// 공식 사업공고·사업계획서 양식 바로가기 (K-Startup 공식). 검색형 URL이라 해마다 안 깨지고 항상 최신 공고로 연결.
+// 사업계획서 표준 양식(구글드라이브, 공개 뷰어) + K-Startup 모집중 공고 목록.
+// 드라이브 폴더에 공고문·별첨 양식이 들어 있어 사용자가 바로 받아 써볼 수 있다.
 const OFFICIAL_LINKS: { label: string; href: string }[] = [
-  { label: "예비창업패키지", href: "https://www.google.com/search?q=예비창업패키지+사업공고+site:k-startup.go.kr" },
-  { label: "초기창업패키지", href: "https://www.google.com/search?q=초기창업패키지+사업공고+site:k-startup.go.kr" },
-  { label: "K-Startup 전체 공고", href: "https://www.k-startup.go.kr/" },
+  { label: "예비창업패키지 양식", href: "https://drive.google.com/drive/folders/1SkYXXPAGHo28h0BSsIw9KHUbAfZktpcS" },
+  { label: "초기창업패키지 양식", href: "https://drive.google.com/drive/folders/1Y57CqqwsFdaoEcb12NbXqZFpOyDSdHrt" },
+  { label: "K-Startup 모집중 공고", href: "https://www.k-startup.go.kr/web/contents/bizpbanc-ongoing.do" },
 ];
 interface Msg {
   role: Role;
@@ -1537,7 +1538,7 @@ export default function Chat() {
               {/* 공식 사업공고·양식 어디서 찾나요 — K-Startup 공식 링크(무료, 가입 불필요) */}
               <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 px-3 py-2.5">
                 <p className="text-[11px] font-semibold text-zinc-600">
-                  📑 공고·사업계획서 양식, 어디서 받나요? (K-Startup 공식)
+                  📑 사업계획서 표준 양식 무료로 받기 (한 번 써보세요)
                 </p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   {OFFICIAL_LINKS.map((l) => (
@@ -1554,8 +1555,8 @@ export default function Chat() {
                   ))}
                 </div>
                 <p className="mt-1.5 text-[10px] leading-4 text-zinc-400">
-                  공식 공고 페이지에서 사업계획서 양식(.hwp)을 내려받아 한 번 써보세요. 막히면 위에서 같이 진단해
-                  드려요.
+                  예비/초기창업패키지 표준 양식(공고문·별첨 포함)을 바로 받아 한 번 써보세요. 막히면 위에서 같이
+                  진단해 드려요.
                 </p>
               </div>
             </div>
