@@ -2,6 +2,7 @@ import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider"
 import type { ChatMsg } from "@/lib/llm/provider";
 import { checkCodeForProgram } from "@/lib/plan/access";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
+import { maintenanceGate } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -127,6 +128,8 @@ export async function POST(req: Request) {
     provider?: unknown;
   };
 
+  const gate = maintenanceGate();
+  if (gate) return gate;
   const codeCheck = await checkCodeForProgram(code, program?.id);
   if (!codeCheck.ok) return codeErr(codeCheck.reason);
   const rl = await checkRateLimit(req, "planChat");

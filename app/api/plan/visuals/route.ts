@@ -1,6 +1,7 @@
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
 import { checkCodeForProgram } from "@/lib/plan/access";
+import { maintenanceGate } from "@/lib/config";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { buildCharts, type VizData } from "@/lib/viz/svg";
 
@@ -40,6 +41,8 @@ export async function POST(req: Request) {
     provider?: unknown;
   };
 
+  const gate = maintenanceGate();
+  if (gate) return gate;
   const codeCheck = await checkCodeForProgram(code, program?.id);
   if (!codeCheck.ok) {
     return Response.json(

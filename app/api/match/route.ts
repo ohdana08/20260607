@@ -3,6 +3,7 @@ import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider"
 import type { ChatMsg } from "@/lib/llm/provider";
 import type { Program, RankedPick, Recommendation } from "@/lib/match/types";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
+import { maintenanceGate } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,6 +68,9 @@ export async function POST(req: Request) {
   } catch {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
+
+  const gate = maintenanceGate();
+  if (gate) return gate;
 
   const provider = parseProvider((body as { provider?: unknown })?.provider);
   if (!isProviderConfigured(provider)) {

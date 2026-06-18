@@ -1,8 +1,11 @@
 import Link from "next/link";
 import ReviewsSection from "@/components/ReviewsSection";
 import LandingTracker from "@/components/LandingTracker";
+import { MAINTENANCE } from "@/lib/config";
+import Maintenance from "@/components/Maintenance";
 
 export default function Home() {
+  if (MAINTENANCE) return <Maintenance />;
   return (
     <main className="flex flex-1 flex-col items-center px-6 py-20">
       <LandingTracker />

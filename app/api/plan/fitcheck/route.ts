@@ -1,6 +1,7 @@
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
+import { maintenanceGate } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,6 +61,8 @@ export async function POST(req: Request) {
     provider?: unknown;
   };
 
+  const gate = maintenanceGate();
+  if (gate) return gate;
   const rl = await checkRateLimit(req, "fitcheck");
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
 
