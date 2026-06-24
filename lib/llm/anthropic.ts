@@ -60,15 +60,27 @@ function cachedSystem(system?: string): Anthropic.TextBlockParam[] | undefined {
 // 직전 턴까지의 프리픽스를 캐시에서 읽어온다(표준 멀티턴 캐싱 패턴).
 function withConversationCache(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
   if (messages.length === 0) return messages;
-  const out = messages.slice();
-  const last = out[out.length - 1];
+  const last = messages[messages.length - 1];
   const blocks: Anthropic.ContentBlockParam[] =
     typeof last.content === "string"
-      ? [{ type: "text", text: last.content }]
+      ? last.content.trim() === ""
+        ? [] // 빈 문자열 메시지 → 빈 텍스트 블록을 만들지 않는다(만들면 cache_control 시 400).
+        : [{ type: "text", text: last.content }]
       : last.content.slice();
-  if (blocks.length === 0) return out;
-  const i = blocks.length - 1;
-  blocks[i] = { ...blocks[i], cache_control: CACHE } as Anthropic.ContentBlockParam;
+  // 뒤에서부터 cache_control 을 붙일 수 있는 블록을 찾는다.
+  // 빈/공백 텍스트 블록엔 cache_control 을 붙일 수 없다(Anthropic API 400).
+  // 내용 있는 마지막 블록(text/image/document)에 breakpoint 를 둔다.
+  let idx = -1;
+  for (let j = blocks.length - 1; j >= 0; j--) {
+    const b = blocks[j];
+    if (b.type === "text" && (!b.text || b.text.trim() === "")) continue;
+    idx = j;
+    break;
+  }
+  // 캐싱할 블록이 없으면(빈 메시지 등) 원본을 그대로 둔다 — 메시지 형태를 바꾸지 않는다.
+  if (idx === -1) return messages;
+  const out = messages.slice();
+  blocks[idx] = { ...blocks[idx], cache_control: CACHE } as Anthropic.ContentBlockParam;
   out[out.length - 1] = { ...last, content: blocks };
   return out;
 }
