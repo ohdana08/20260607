@@ -629,6 +629,21 @@ export default function Chat() {
       mode === "paywall"
     )
       return;
+    // intake(추천 초기 대화)는 첨부를 모델에 보내지 않는다(stripImages 가 PDF/이미지 제거).
+    // PDF·이미지만 올리면 빈 메시지가 돼 API 가 거부하므로, 에러 대신 안내하고 첨부는 떼어낸다.
+    if (mode === "intake" && (pendingFiles.length > 0 || pendingImages.length > 0)) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+            "📄 사진·PDF 같은 첨부 파일은 사업계획서 작성 단계에서 활용할게요. 지금은 간단히 텍스트로 알려주세요!",
+        },
+      ]);
+      setPendingFiles([]);
+      setPendingImages([]);
+      return;
+    }
     const userMsg: Msg = {
       role: "user",
       content: text,
