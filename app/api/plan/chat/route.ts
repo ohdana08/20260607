@@ -130,10 +130,11 @@ export async function POST(req: Request) {
 
   const gate = maintenanceGate();
   if (gate) return gate;
-  const codeCheck = await checkCodeForProgram(code, program?.id);
-  if (!codeCheck.ok) return codeErr(codeCheck.reason);
+  // rate limit을 코드 검증보다 먼저 — 코드 추측 시도도 제한에 걸리게(점검표 문제 3)
   const rl = await checkRateLimit(req, "planChat");
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  const codeCheck = await checkCodeForProgram(code, program?.id);
+  if (!codeCheck.ok) return codeErr(codeCheck.reason);
 
   const provider = parseProvider(rawProvider);
   if (!isProviderConfigured(provider)) {

@@ -27,6 +27,9 @@ export async function POST(req: Request) {
 
   const gate = maintenanceGate();
   if (gate) return gate;
+  // rate limit을 코드 검증보다 먼저 — 코드 추측 시도도 제한에 걸리게(점검표 문제 3)
+  const rl = await checkRateLimit(req, "planDraft");
+  if (!rl.ok) return tooManyRequests(rl.retryAfter);
   const codeCheck = await checkCodeForProgram(code, program?.id);
   if (!codeCheck.ok) {
     return Response.json(
@@ -39,8 +42,6 @@ export async function POST(req: Request) {
       { status: 402 },
     );
   }
-  const rl = await checkRateLimit(req, "planDraft");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
   if (!Array.isArray(messages) || !section?.heading) {
     return Response.json({ error: "필요한 정보가 부족해요." }, { status: 400 });
   }
