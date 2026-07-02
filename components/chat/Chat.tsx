@@ -396,21 +396,24 @@ export default function Chat() {
     });
   }
 
+  // 스트림 오류 복구 문구는 다음 턴 LLM 입력에서 제외 — 토큰 낭비 방지 (점검표 문제 10)
+  const RECOVERY_RE = /\n*\(죄송해요, 잠시 문제가 생겼어요\. 다시 (한 번 )?보내주시겠어요\?\)/g;
+
   // 추천/작성/도식 호출엔 이미지를 빼고 텍스트만 보냄(비용·토큰 절약).
   function stripImages(ms: Msg[]) {
-    return ms.map(({ role, content }) => ({ role, content }));
+    return ms.map(({ role, content }) => ({ role, content: content.replace(RECOVERY_RE, "") }));
   }
 
   // 워드에서 뽑은 글자를 전송 직전 content에 합쳐줌 (화면엔 칩으로만 표시)
   function foldDocs(ms: Msg[]): Msg[] {
     return ms.map((m) => {
-      if (!m.docs || m.docs.length === 0) return m;
+      if (!m.docs || m.docs.length === 0) return { ...m, content: m.content.replace(RECOVERY_RE, "") };
       const note = m.docs
         .map((d) => `\n\n[첨부한 문서 "${d.name}"의 내용]\n${d.text}`)
         .join("");
       const { docs: _drop, ...rest } = m;
       void _drop;
-      return { ...rest, content: (m.content || "") + note };
+      return { ...rest, content: (m.content.replace(RECOVERY_RE, "") || "") + note };
     });
   }
 
