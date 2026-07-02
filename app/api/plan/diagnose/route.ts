@@ -1,6 +1,7 @@
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
+import { maintenanceGate } from "@/lib/config";
 import { isEmail, sendReportEmail } from "@/lib/diagnosis";
 import { buildReportDocxBase64 } from "@/lib/report-docx";
 
@@ -123,6 +124,8 @@ function isChatMsg(x: unknown): x is ChatMsg {
 }
 
 export async function POST(req: Request) {
+  const gate = maintenanceGate();
+  if (gate) return gate;
   const rl = await checkRateLimit(req, "diagnose");
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
 
