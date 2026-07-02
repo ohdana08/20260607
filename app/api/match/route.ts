@@ -2,6 +2,7 @@ import { fetchOpenPrograms } from "@/lib/data/programs";
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
 import type { Program, RankedPick, Recommendation } from "@/lib/match/types";
+import { prefilterPrograms, type MatchProfile } from "@/lib/match/prefilter";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
 
@@ -96,12 +97,28 @@ export async function POST(req: Request) {
     : [];
   const excludeSet = new Set(excludeIds);
 
+  // 인테이크 버튼 폼에서 온 구조화 프로필(지역·단계·연령) — 규칙 기반 사전 필터에 사용
+  const rawProfile = (body as { profile?: unknown })?.profile;
+  const profile: MatchProfile | undefined =
+    typeof rawProfile === "object" && rawProfile !== null
+      ? {
+          stage: typeof (rawProfile as MatchProfile).stage === "string" ? (rawProfile as MatchProfile).stage : undefined,
+          region: typeof (rawProfile as MatchProfile).region === "string" ? (rawProfile as MatchProfile).region : undefined,
+          ageGroup: typeof (rawProfile as MatchProfile).ageGroup === "string" ? (rawProfile as MatchProfile).ageGroup : undefined,
+        }
+      : undefined;
+
   const fetched = await fetchOpenPrograms();
   const usingSample = fetched.usingSample;
   // 이미 추천한 것 제외 + '교육생/수강생 모집' 같은 분명한 교육·참가자 모집은 아예 후보에서 제거
   const TRAINEE = /(교육생|수강생|참가자|참여자|수강|교육과정)\s*모집/;
-  const programs = fetched.programs.filter(
+  const base = fetched.programs.filter(
     (p) => !excludeSet.has(p.id) && !TRAINEE.test(p.title),
+  );
+  // LLM 투입 전 규칙 기반 사전 필터: 지역·연령·업력 + 마감 임박순 상위 45건 (점검표 문제 7)
+  const programs = prefilterPrograms(base, profile);
+  console.log(
+    `[/api/match] 후보 ${programs.length}건 (필터 전 ${base.length}건, 지역=${profile?.region ?? "-"}, 단계=${profile?.stage ?? "-"}, 연령=${profile?.ageGroup ?? "-"})`,
   );
   if (programs.length === 0) {
     return Response.json({ recommendations: [], usingSample, exhausted: true });
@@ -121,7 +138,8 @@ export async function POST(req: Request) {
   const rank = (note: string) =>
     llm.json<RankedPick[]>({
       system: RANK_SYSTEM,
-      messages: [{ role: "user", content: `[대화]\n${conversation}${note}\n\n[지원사업 목록]\n${programsJson}` }],
+      // [개수] 지시문을 공고 목록 '뒤'에 배치 — 재시도·더보기 때 목록 프리픽스가 캐시에 걸리게(점검표 문제 7)
+      messages: [{ role: "user", content: `[대화]\n${conversation}\n\n[지원사업 목록]\n${programsJson}${note}` }],
       schema: {},
       maxTokens: 2600,
     });
