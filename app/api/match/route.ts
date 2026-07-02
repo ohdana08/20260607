@@ -135,11 +135,16 @@ export async function POST(req: Request) {
     : "\n\n[개수] 가장 잘 맞는 1~2개만 골라주세요. 절대 3개 이상 고르지 마세요. (집중도·비용 때문)";
   const llm = getLlm(provider, "fast");
   const programsJson = JSON.stringify(programs.map(programForPrompt), null, 2);
+  // [개수] 지시문을 공고 목록 '뒤' 별도 턴으로 배치 — 대화+목록 프리픽스 끝에 캐시
+  // breakpoint가 걸려 0건 재시도 때 재사용된다 (점검표 문제 7, lib/llm/anthropic.ts 참조)
   const rank = (note: string) =>
     llm.json<RankedPick[]>({
       system: RANK_SYSTEM,
-      // [개수] 지시문을 공고 목록 '뒤'에 배치 — 재시도·더보기 때 목록 프리픽스가 캐시에 걸리게(점검표 문제 7)
-      messages: [{ role: "user", content: `[대화]\n${conversation}\n\n[지원사업 목록]\n${programsJson}${note}` }],
+      messages: [
+        { role: "user", content: `[대화]\n${conversation}\n\n[지원사업 목록]\n${programsJson}` },
+        { role: "assistant", content: "확인했어요. 몇 개를 고를지 알려주세요." },
+        { role: "user", content: note.trim() },
+      ],
       schema: {},
       maxTokens: 2600,
     });

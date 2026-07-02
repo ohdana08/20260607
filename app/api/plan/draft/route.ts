@@ -92,7 +92,11 @@ ${progCtx ? `\n[이 지원사업 정보]\n${progCtx}\n` : ""}
 - 대화에 7단계 자가진단 내용이 있으면 이 항목과 연결되는 강점/근거를 자연스럽게 반영하세요.
 - 사용자가 첨부 양식을 냈다면 그 양식 항목의 취지에 맞게 쓰되, 항목 구조 자체는 바꾸지 마세요.`;
 
-  const userPrompt = `[작성할 항목]\n${section.heading}\n(이 항목에 담을 내용: ${section.guide ?? ""})\n\n[대화]\n${conversation}`;
+  // [대화]를 앞 턴으로, [작성할 항목]을 뒤 턴으로 분리 — 5회 연속 호출이 같은
+  // "system+[대화]" 프리픽스를 공유하고, 그 경계(직전 사용자 턴)에 캐시 breakpoint가
+  // 걸려 2~5번째 호출이 캐시 히트한다 (점검표 §3 #8, lib/llm/anthropic.ts 참조)
+  const conversationMsg = `[대화]\n${conversation}`;
+  const sectionMsg = `[작성할 항목]\n${section.heading}\n(이 항목에 담을 내용: ${section.guide ?? ""})`;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -100,7 +104,11 @@ ${progCtx ? `\n[이 지원사업 정보]\n${progCtx}\n` : ""}
       try {
         for await (const chunk of llm.streamText({
           system,
-          messages: [{ role: "user", content: userPrompt }],
+          messages: [
+            { role: "user", content: conversationMsg },
+            { role: "assistant", content: "네, 대화 내용을 확인했어요. 작성할 항목을 알려주세요." },
+            { role: "user", content: sectionMsg },
+          ],
           maxTokens: 1200,
         })) {
           controller.enqueue(encoder.encode(chunk));

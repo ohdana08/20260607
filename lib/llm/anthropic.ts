@@ -45,10 +45,11 @@ function toApiMessages(messages: ChatMsg[]): Anthropic.MessageParam[] {
 }
 
 // ── 프롬프트 캐싱 (점검표 문제 6 재적용) ───────────────────────────────
-// 규칙 2개만 지킨다:
+// 규칙:
 //  ① cache_control은 "비어있지 않은" 콘텐츠 블록에만 (빈 텍스트 블록에 붙이면 400 — 과거 롤백 원인)
-//  ② 배치는 system 블록 + 마지막 사용자 턴 블록, 딱 2곳
-// Haiku 4.5는 4,096토큰 미만 프리픽스는 캐시가 안 됨(무해하게 무시됨) — 첨부·긴 대화부터 효과.
+//  ② 배치는 system 블록 + 마지막/직전 사용자 턴, 최대 3곳 (API 한도 4곳)
+//     — 직전 턴 breakpoint는 draft 5연속 호출·match 재시도의 공유 프리픽스 캐시 히트에 필수
+// Haiku 4.5·Opus 4.8 모두 4,096토큰 미만 프리픽스는 캐시가 안 됨(무해하게 무시됨) — 첨부·긴 대화부터 효과.
 const CACHE: Anthropic.CacheControlEphemeral = { type: "ephemeral" };
 
 function cachedSystem(system: string): Anthropic.TextBlockParam[] | string {
@@ -56,24 +57,14 @@ function cachedSystem(system: string): Anthropic.TextBlockParam[] | string {
   return [{ type: "text", text: system, cache_control: CACHE }];
 }
 
-// 마지막 사용자 턴의 마지막 "비어있지 않은" 블록에 breakpoint —
-// 멀티턴(진단·코칭)의 누적 대화 + 첨부(PDF/이미지) 프리픽스를 캐시에서 재사용.
-function withConversationCache(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
-  let idx = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === "user") {
-      idx = i;
-      break;
-    }
-  }
-  if (idx < 0) return messages;
-  const target = messages[idx];
+// 메시지의 마지막 "비어있지 않은" 블록에 cache_control을 붙인다(규칙 ①). 붙일 곳 없으면 null.
+function withCacheOnLastBlock(msg: Anthropic.MessageParam): Anthropic.MessageParam | null {
   const blocks: Anthropic.ContentBlockParam[] =
-    typeof target.content === "string"
-      ? target.content
-        ? [{ type: "text", text: target.content }]
+    typeof msg.content === "string"
+      ? msg.content
+        ? [{ type: "text", text: msg.content }]
         : []
-      : target.content.slice();
+      : msg.content.slice();
   let hit = -1;
   for (let i = blocks.length - 1; i >= 0; i--) {
     const b = blocks[i];
@@ -83,10 +74,27 @@ function withConversationCache(messages: Anthropic.MessageParam[]): Anthropic.Me
       break;
     }
   }
-  if (hit < 0) return messages;
+  if (hit < 0) return null;
   blocks[hit] = { ...blocks[hit], cache_control: CACHE } as Anthropic.ContentBlockParam;
+  return { ...msg, content: blocks };
+}
+
+// 마지막 사용자 턴 + 그 직전 사용자 턴에 breakpoint (system 포함 총 3곳, API 한도 4곳 이내).
+// - 마지막 턴: 멀티턴(진단·코칭)의 누적 대화 + 첨부 프리픽스 재사용 (표준 패턴)
+// - 직전 턴: 캐시 엔트리는 breakpoint 위치에만 기록되므로, draft(5연속)·match(재시도)처럼
+//   "공유 프리픽스 + 달라지는 꼬리" 구조에서는 공유 프리픽스 끝(직전 사용자 턴)에
+//   breakpoint가 있어야 2번째 호출부터 히트한다 (작업 G의 캐시 히트 조건).
+function withConversationCache(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
   const out = messages.slice();
-  out[idx] = { ...target, content: blocks };
+  let tagged = 0;
+  for (let i = out.length - 1; i >= 0 && tagged < 2; i--) {
+    if (out[i].role !== "user") continue;
+    const cached = withCacheOnLastBlock(out[i]);
+    if (cached) {
+      out[i] = cached;
+      tagged++;
+    }
+  }
   return out;
 }
 
