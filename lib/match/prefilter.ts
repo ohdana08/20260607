@@ -24,7 +24,7 @@ function representativeAge(ageGroup?: string): number | null {
 }
 
 function regionOk(p: Program, region?: string): boolean {
-  if (!region || region === "전국") return true;
+  if (!region || region.includes("전국")) return true; // "전국(어디든 가능)" 포함
   if (!p.region || p.region.includes("전국")) return true;
   return p.region.includes(region);
 }

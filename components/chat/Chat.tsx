@@ -78,7 +78,19 @@ interface ReportTeaser {
 }
 
 const GREETING =
-  "안녕하세요! 사장님께 맞는 정부지원사업을 같이 찾아볼게요. 😊\n먼저, 어떤 사업을 구상 중이세요? 한 문장으로 편하게 말씀해 주세요.";
+  "안녕하세요! 사장님께 맞는 정부지원사업을 같이 찾아볼게요. 😊\n먼저 아래 세 가지만 골라주세요 — 딱 맞는 사업을 찾는 데 꼭 필요해요!";
+// 인테이크 앞단 3문항(단계·지역·연령) — 버튼/선택지로 받아 LLM 호출 없이 수집 (점검표 문제 8)
+interface IntakeProfile {
+  stage: string;
+  region: string;
+  ageGroup: string;
+}
+const PROFILE_STAGES = ["예비창업 준비 중", "운영 중(사업자 있음)"];
+const PROFILE_REGIONS = [
+  "전국(어디든 가능)", "서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+  "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주",
+];
+const PROFILE_AGES = ["20대", "30대", "40대", "50대", "60대 이상"];
 const PLAN_MIN_TURNS = 5; // 2차 대화를 최소 이만큼 한 뒤에야 초안 작성 가능
 const DIAGNOSE_MIN_TURNS = 3; // 7단계 자가진단을 최소 이만큼 답한 뒤 리포트 생성 가능
 const READY_MARK = "[추천준비완료]"; // 인테이크 완료 신호(사용자에겐 숨김)
@@ -143,6 +155,8 @@ export default function Chat() {
 
   const [provider, setProvider] = useState<"claude" | "openai">("claude");
   const [mode, setMode] = useState<Mode>("intake");
+  // 인테이크 앞단 3문항(버튼) 결과 — /api/match 사전 필터에도 전달
+  const [profile, setProfile] = useState<IntakeProfile | null>(null);
   const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
   const [code, setCode] = useState<string>("");
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -191,6 +205,27 @@ export default function Chat() {
     messages.some((m) => m.role === "assistant" && m.content.includes(READY_MARK)) ||
     userTurns >= 6;
   const programStage = mode === "fitcheck" || mode === "diagnose" || mode === "plan";
+  // 대화 시작 전, 앞단 3문항 폼이 떠 있는 상태 (이때는 텍스트 입력 잠금)
+  const profileFormVisible = mode === "intake" && !profile && messages.length === 1 && !recs;
+
+  // 앞단 3문항 완료 — LLM 호출 없이 대화에 [내 정보]로 기록하고 아이템 질문으로 진행
+  function submitProfile(p: IntakeProfile) {
+    setProfile(p);
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: `[내 정보] 사업 단계: ${p.stage} / 지역: ${p.region} / 연령대: ${p.ageGroup}` },
+      {
+        role: "assistant",
+        content: "좋아요, 확인했어요! 그럼 어떤 사업을 구상 중이세요? 한 문장으로 편하게 말씀해 주세요. 😊",
+      },
+    ]);
+    // GA4: 인테이크 첫 답변(버튼 선택)이 이뤄진 순간 — 세션당 1회
+    if (!chatStartedRef.current) {
+      chatStartedRef.current = true;
+      track("chat_started");
+    }
+    focusInput();
+  }
 
   function startTour() {
     const d = driver({
@@ -736,7 +771,12 @@ export default function Chat() {
       const res = await fetch("/api/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: stripImages(messages), provider, excludeIds }),
+        body: JSON.stringify({
+          messages: stripImages(messages),
+          provider,
+          excludeIds,
+          profile: profile ?? undefined, // 사전 필터용(지역·단계·연령)
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1476,6 +1516,9 @@ export default function Chat() {
           ),
         )}
 
+        {/* 인테이크 앞단 3문항 — 버튼/선택지 (LLM 호출 0회) */}
+        {profileFormVisible && <IntakeProfileForm onSubmit={submitProfile} />}
+
         {recommending && (
           <div className="mr-auto rounded-2xl bg-zinc-100 px-4 py-3 text-sm text-zinc-600">
             맞는 지원사업을 찾는 중이에요… 🔎
@@ -1779,13 +1822,19 @@ export default function Chat() {
                 onKeyDown={onKeyDown}
                 rows={1}
                 data-tour="input"
-                placeholder="여기에 답을 입력하세요… (📎로 사진·PDF·워드 첨부)"
-                className="max-h-32 flex-1 resize-none rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
+                disabled={profileFormVisible}
+                placeholder={
+                  profileFormVisible
+                    ? "먼저 위에서 세 가지를 골라주세요 👆"
+                    : "여기에 답을 입력하세요… (📎로 사진·PDF·워드 첨부)"
+                }
+                className="max-h-32 flex-1 resize-none rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm outline-none focus:border-blue-500 disabled:bg-zinc-50"
               />
               <button
                 onClick={send}
                 disabled={
                   busy ||
+                  profileFormVisible ||
                   (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0)
                 }
                 data-tour="send"
@@ -1798,6 +1847,74 @@ export default function Chat() {
         </>
       )}
     </main>
+  );
+}
+
+// 인테이크 앞단 3문항(단계·지역·연령) 버튼 폼 — LLM 호출 없이 수집 (점검표 문제 8)
+function IntakeProfileForm({ onSubmit }: { onSubmit: (p: IntakeProfile) => void }) {
+  const [stage, setStage] = useState("");
+  const [region, setRegion] = useState("");
+  const [ageGroup, setAgeGroup] = useState("");
+  const ready = Boolean(stage && region && ageGroup);
+  const pick = (cur: string, v: string) =>
+    `rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
+      cur === v
+        ? "border-blue-500 bg-blue-50 text-blue-700"
+        : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+    }`;
+  return (
+    <div className="mr-auto w-full max-w-[95%] rounded-2xl border border-blue-100 bg-blue-50/40 p-4">
+      <div className="space-y-3">
+        <div>
+          <p className="text-xs font-semibold text-zinc-700">1️⃣ 사업 단계가 어떻게 되세요?</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {PROFILE_STAGES.map((v) => (
+              <button key={v} onClick={() => setStage(v)} className={pick(stage, v)}>
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-zinc-700">
+            2️⃣ 어느 지역에서 하세요? <span className="font-normal text-zinc-400">(지역 제한 사업이 많아요)</span>
+          </p>
+          <select
+            value={region}
+            onChange={(e) => setRegion(e.target.value)}
+            className={`mt-1.5 w-full rounded-xl border px-3 py-2 text-xs outline-none focus:border-blue-500 ${
+              region ? "border-blue-500 bg-blue-50 text-blue-700" : "border-zinc-200 bg-white text-zinc-600"
+            }`}
+          >
+            <option value="">지역을 골라주세요</option>
+            {PROFILE_REGIONS.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-zinc-700">
+            3️⃣ 연령대는요? <span className="font-normal text-zinc-400">(나이로 자격이 갈리는 경우가 있어요)</span>
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {PROFILE_AGES.map((v) => (
+              <button key={v} onClick={() => setAgeGroup(v)} className={pick(ageGroup, v)}>
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <button
+        onClick={() => ready && onSubmit({ stage, region, ageGroup })}
+        disabled={!ready}
+        className="mt-3 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
+      >
+        {ready ? "이걸로 시작하기 →" : "세 가지를 모두 골라주세요"}
+      </button>
+    </div>
   );
 }
 
