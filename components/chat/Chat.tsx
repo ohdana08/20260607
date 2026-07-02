@@ -169,6 +169,7 @@ export default function Chat() {
   const [signupName, setSignupName] = useState("");
   const [signupContact, setSignupContact] = useState("");
   const [signupBusy, setSignupBusy] = useState(false);
+  const [signupConsent, setSignupConsent] = useState(false);
   const [viewed, setViewed] = useState<SavedProgram[]>([]); // 비회원이 본 공고(이 브라우저 임시)
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
   // 회원이면 서버 저장본, 비회원이면 본 공고 임시목록
@@ -524,13 +525,18 @@ export default function Chat() {
   }
 
   async function submitSignup() {
-    if (!signupName.trim() || !signupContact.trim() || signupBusy) return;
+    if (!signupName.trim() || !signupContact.trim() || !signupConsent || signupBusy) return;
     setSignupBusy(true);
     try {
       const res = await fetch("/api/lead/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: signupName, contact: signupContact }),
+        body: JSON.stringify({
+          name: signupName,
+          contact: signupContact,
+          source: getLeadSource(), // UTM 기반 source (없으면 기본값은 서버에서 처리)
+          consent: signupConsent,
+        }),
       });
       const d = await res.json();
       if (!res.ok) {
@@ -564,6 +570,7 @@ export default function Chat() {
       setSignupOpen(false);
       setSignupName("");
       setSignupContact("");
+      setSignupConsent(false);
       setCalendarOpen(true);
     } catch {
       alert("연결에 문제가 생겼어요. 다시 시도해 주세요.");
@@ -1347,6 +1354,18 @@ export default function Chat() {
                 className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500"
               />
             </div>
+            <label className="mt-3 flex cursor-pointer items-start gap-2 text-xs leading-5 text-zinc-600">
+              <input
+                type="checkbox"
+                checked={signupConsent}
+                onChange={(e) => setSignupConsent(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+              />
+              <span>
+                <b>(필수)</b> 개인정보 수집·이용에 동의합니다. 수집 항목: 이름·연락처 / 이용 목적:
+                마감 알림·맞춤 안내 / 동의 거부 시 캘린더 저장이 불가해요.
+              </span>
+            </label>
             <div className="mt-4 flex gap-2">
               <button
                 onClick={() => setSignupOpen(false)}
@@ -1356,7 +1375,7 @@ export default function Chat() {
               </button>
               <button
                 onClick={submitSignup}
-                disabled={signupBusy || !signupName.trim() || !signupContact.trim()}
+                disabled={signupBusy || !signupName.trim() || !signupContact.trim() || !signupConsent}
                 className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               >
                 {signupBusy ? "저장 중…" : "저장하고 캘린더 담기"}
