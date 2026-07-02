@@ -121,7 +121,13 @@ export async function POST(req: Request) {
     `[/api/match] 후보 ${programs.length}건 (필터 전 ${base.length}건, 지역=${profile?.region ?? "-"}, 단계=${profile?.stage ?? "-"}, 연령=${profile?.ageGroup ?? "-"})`,
   );
   if (programs.length === 0) {
-    return Response.json({ recommendations: [], usingSample, exhausted: true });
+    // 필터 결과 0건 — 조건 무관 마감 임박순 2~3건을 '근접 공고'로 반환 (리드 수집 흐름용)
+    return Response.json({
+      recommendations: [],
+      nearMisses: prefilterPrograms(base).slice(0, 3),
+      usingSample,
+      exhausted: true,
+    });
   }
 
   const conversation = messages
@@ -182,5 +188,7 @@ export async function POST(req: Request) {
     .filter((r): r is Recommendation => r !== null)
     .slice(0, isMore ? 5 : 2);
 
-  return Response.json({ recommendations, usingSample, relaxed });
+  // 추천 0건이면: 조건에 가장 근접했던 공고(필터 통과분 마감 임박순) 2~3건 — 리드 수집 흐름용
+  const nearMisses = recommendations.length === 0 ? programs.slice(0, 3) : [];
+  return Response.json({ recommendations, nearMisses, usingSample, relaxed });
 }

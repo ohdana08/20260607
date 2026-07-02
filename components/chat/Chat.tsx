@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import type { Recommendation, Program } from "@/lib/match/types";
@@ -148,6 +148,7 @@ export default function Chat() {
   const [busy, setBusy] = useState(false);
   const [recommending, setRecommending] = useState(false);
   const [recs, setRecs] = useState<Recommendation[] | null>(null);
+  const [nearMisses, setNearMisses] = useState<Program[]>([]); // 추천 0건 시 근접 공고 (리드 수집 흐름)
   const [usingSample, setUsingSample] = useState(false);
   // GA4 단계 이벤트(v3): 세션당 한 번만 발화하도록 가드
   const chatStartedRef = useRef(false);
@@ -802,9 +803,14 @@ export default function Chat() {
         }
       } else {
         setRecs(incoming);
+        // 0건이면 근접 공고(마감/모집 전 라벨)로 리드 수집 흐름 노출
+        setNearMisses(
+          incoming.length === 0 && Array.isArray(data.nearMisses) ? (data.nearMisses as Program[]) : [],
+        );
       }
-      // GA4: 공고 추천이 화면에 뜬 순간
+      // GA4: 공고 추천이 화면에 뜬 순간 / 0건 발생 측정
       if (incoming.length > 0) track("recommendation_shown", { count: incoming.length, more: append });
+      else if (!append) track("recommendation_empty");
     } catch {
       setMessages((m) => [...m, { role: "assistant", content: "추천을 가져오는 중 연결이 끊겼어요." }]);
     } finally {
@@ -1531,12 +1537,15 @@ export default function Chat() {
         {recs && (
           <Recommendations
             recs={recs}
+            nearMisses={nearMisses}
             usingSample={usingSample}
             onChoose={chooseProgram}
             onMore={recommendMore}
             loadingMore={recommending}
             onView={viewProgram}
             collectedIds={collectedIds}
+            hasLead={Boolean(lead)}
+            onSignup={() => setSignupOpen(true)}
           />
         )}
 
@@ -1959,6 +1968,13 @@ function EditBox({
   );
 }
 
+// **별표** 마크다운을 볼드로 렌더링 — LLM 응답의 별표가 그대로 노출되지 않게 (v4.1 소정리)
+function renderBold(text: string): ReactNode {
+  const parts = text.split(/\*\*([^*]+)\*\*/g);
+  if (parts.length === 1) return text;
+  return parts.map((p, i) => (i % 2 === 1 ? <b key={i}>{p}</b> : p));
+}
+
 function Bubble({ m, busy, onEdit }: { m: Msg; busy: boolean; onEdit?: () => void }) {
   const isUser = m.role === "user";
   return (
@@ -2003,7 +2019,7 @@ function Bubble({ m, busy, onEdit }: { m: Msg; busy: boolean; onEdit?: () => voi
             ))}
           </div>
         )}
-        {m.content.replace(READY_MARK, "").trimEnd() || (busy ? "…" : "")}
+        {renderBold(m.content.replace(READY_MARK, "").trimEnd()) || (busy ? "…" : "")}
       </div>
       {isUser && onEdit && !busy && (
         <button
@@ -2032,31 +2048,69 @@ function deadlineLabel(applyEnd: string | null): { text: string; urgent: boolean
 
 function Recommendations({
   recs,
+  nearMisses,
   usingSample,
   onChoose,
   onMore,
   loadingMore,
   onView,
   collectedIds,
+  hasLead,
+  onSignup,
 }: {
   recs: Recommendation[];
+  nearMisses: Program[];
   usingSample: boolean;
   onChoose: (p: Program) => void;
   onMore: () => void;
   loadingMore: boolean;
   onView: (p: Program) => void;
   collectedIds: Set<string>;
+  hasLead: boolean;
+  onSignup: () => void;
 }) {
   if (recs.length === 0) {
+    // 추천 0건 — 근접 공고 + 알림 신청(가입)으로 리드 수집 (v4.1 패치 2)
     return (
-      <div className="mr-auto max-w-[90%] space-y-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm leading-6 text-zinc-700">
-        <p>
-          지금 <b>모집 중인 공고</b> 중에선 사장님께 딱 맞는 게 안 보였어요 😢 예비창업패키지처럼 큰 사업은
-          보통 연 1~2회만 열려서, 지금은 모집이 닫혀 있을 수 있어요. (말씀해주신 내용은 잘 기억하고 있어요!)
-        </p>
-        <p className="text-zinc-600">
-          👉 위쪽 <b>‘📑 표준 양식 무료로 받기’</b>로 미리 사업계획서를 써두면, 새 공고가 열렸을 때 바로 낼 수 있어요.
-          아래 <b>‘추천받기’</b>를 한 번 더 눌러보셔도 돼요!
+      <div className="mr-auto max-w-[90%] space-y-3">
+        <div className="space-y-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm leading-6 text-zinc-700">
+          <p>
+            지금 <b>모집 중인 공고</b> 중에선 사장님께 딱 맞는 게 안 보였어요 😢 예비창업패키지처럼 큰
+            사업은 보통 연 1~2회만 열려서, 지금은 모집이 닫혀 있을 수 있어요. (말씀해주신 내용은 잘
+            기억하고 있어요!)
+          </p>
+        </div>
+        {nearMisses.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-zinc-500">그래도 조건에 가까웠던 공고들이에요 👇</p>
+            {nearMisses.map((p) => (
+              <div key={p.id} className="rounded-2xl border border-zinc-200 bg-white p-3.5">
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="text-sm font-bold leading-5 text-zinc-800">{p.title}</h3>
+                  <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-500">
+                    🕐 지금은 마감/모집 전
+                  </span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px] text-zinc-500">
+                  <span className="rounded bg-zinc-100 px-1.5 py-0.5">{p.supportField}</span>
+                  <span className="rounded bg-zinc-100 px-1.5 py-0.5">{p.region}</span>
+                  <span className="rounded bg-zinc-100 px-1.5 py-0.5">{deadlineLabel(p.applyEnd).text}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!hasLead && (
+          <button
+            onClick={onSignup}
+            className="w-full rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            🔔 맞는 공고가 열리면 알려드릴게요 — 알림 신청
+          </button>
+        )}
+        <p className="text-xs leading-5 text-zinc-500">
+          👉 위쪽 <b>‘📑 표준 양식 무료로 받기’</b>로 미리 사업계획서를 써두면, 새 공고가 열렸을 때 바로
+          낼 수 있어요. 아래 <b>‘추천받기’</b>를 한 번 더 눌러보셔도 돼요!
         </p>
       </div>
     );
@@ -2147,6 +2201,16 @@ function Recommendations({
       >
         {loadingMore ? "다른 사업을 더 찾는 중이에요…" : "🔄 마음에 안 들면, 다른 지원사업 더 추천받기"}
       </button>
+
+      {/* 마감 알림(가입) 진입점 — 추천 결과 하단 상시 노출 (v4.1 패치 3) */}
+      {!hasLead && (
+        <button
+          onClick={onSignup}
+          className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
+        >
+          🔔 이 공고들 마감 알림 받기 (간단 가입 · 비밀번호 없음)
+        </button>
+      )}
 
       {usingSample && (
         <p className="text-[11px] leading-5 text-zinc-400">

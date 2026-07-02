@@ -14,6 +14,7 @@ export type GaEvent =
   | "chat_started" // 사용자가 첫 답변을 입력(인테이크 시작)
   | "validation_answered" // 검증 질문까지 마쳐 추천 준비 완료(1막+1.5막 통과)
   | "recommendation_shown" // 공고 추천이 화면에 표시됨
+  | "recommendation_empty" // 추천 0건 발생 (근접 공고 + 알림 신청 유도 노출)
   | "plan_writing_started" // '사업계획서 쓰기'를 눌러 작성 단계 진입
   | "start_diagnosis" // 7단계 자가진단 시작
   | "view_diagnosis_result" // 진단 결과 화면(맛보기) 도달
