@@ -97,6 +97,20 @@ export async function POST(req: Request) {
     return Response.json({ error: "먼저 답변을 입력해 주세요." }, { status: 400 });
   }
 
+  // v4.1 패치1 보강: 모델이 질문 상한을 놓치는 경우를 대비한 서버측 가드 —
+  // [내 정보](버튼 폼) 이후 사용자 답변이 3번째에 도달하면, 이번 턴은 질문 없이
+  // 선언 후 [추천준비완료]를 붙이도록 강제 지시를 주입한다 (3턴 안에 추천 도달 보장).
+  const profileIdx = trimmed.findIndex((m) => m.role === "user" && m.content.startsWith("[내 정보]"));
+  const answerCount =
+    profileIdx >= 0 ? trimmed.slice(profileIdx + 1).filter((m) => m.role === "user").length : 0;
+  const FORCE_RECOMMEND = `
+
+## [강제 진행 — 이번 턴에 반드시 적용]
+질문 상한에 도달했다. 이번 응답에서는 어떤 질문도 하지 마라.
+지금까지 파악한 내용을 한 문장으로 요약하고 "일단 이 내용으로 맞는 사업을 찾아볼게요!"라고 선언한 뒤,
+[2막 안내]대로 사용자의 지역·단계를 넣어 '추천받기' 버튼을 누르도록 안내하고 메시지 맨 끝에 정확히 [추천준비완료] 를 붙여라.`;
+  const system = answerCount >= 3 ? SYSTEM + FORCE_RECOMMEND : SYSTEM;
+
   const llm = getLlm(provider, "fast");
   const encoder = new TextEncoder();
 
@@ -104,7 +118,7 @@ export async function POST(req: Request) {
     async start(controller) {
       try {
         for await (const chunk of llm.streamText({
-          system: SYSTEM,
+          system,
           messages: trimmed,
           maxTokens: 1024,
         })) {
