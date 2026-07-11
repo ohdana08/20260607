@@ -19,7 +19,10 @@ function interleave<T>(a: T[], b: T[]): T[] {
 
 // K-Startup + 기업마당(중앙·지자체 포함)을 합쳐 모집중 공고 목록을 반환.
 // 둘 다 0건이면 샘플로 폴백.
-export async function fetchOpenPrograms(): Promise<{ programs: Program[]; usingSample: boolean }> {
+// maxCount: LLM 랭킹용 기본 160. 규칙 기반(버튼 4단계) 매칭은 토큰 제약이 없어 더 크게 요청.
+export async function fetchOpenPrograms(
+  maxCount: number = MAX_TO_RANK,
+): Promise<{ programs: Program[]; usingSample: boolean }> {
   const [ks, biz] = await Promise.allSettled([fetchKstartupOpen(), fetchBizinfoOpen()]);
   // API 응답 직후 마감 지난 공고 제거 (KST 기준 — 2026-07-10 버그 수정).
   // kstartup 은 모집중 플래그(rcrt_prgs_yn)만 믿어 날짜 검사가 없었고,
@@ -29,7 +32,7 @@ export async function fetchOpenPrograms(): Promise<{ programs: Program[]; usingS
   if (ks.status === "rejected") console.error("[programs] kstartup failed", ks.reason);
   if (biz.status === "rejected") console.error("[programs] bizinfo failed", biz.reason);
 
-  const merged = interleave(ksList, bizList).slice(0, MAX_TO_RANK);
+  const merged = interleave(ksList, bizList).slice(0, maxCount);
   if (merged.length === 0) return { programs: SAMPLE_PROGRAMS, usingSample: true };
   return { programs: merged, usingSample: false };
 }

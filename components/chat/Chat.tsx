@@ -866,21 +866,16 @@ export default function Chat() {
     }, 350);
   }
 
-  // 적합도 확인에서 "이건 말고 맞는 사업 찾아줘" → 추천 흐름으로 전환
+  // "이건 말고 맞는 사업 찾아줘" → 버튼 4단계 찾기 위저드 (2026-07-12: LLM 채팅 인테이크 대체)
   function switchToFind() {
     setMode("intake");
     setSelectedProgram(null);
     setRecs(null);
     setDraft(null);
     setCharts(null);
-    setMessages((m) => [
-      ...m,
-      {
-        role: "assistant",
-        content: `네! 그럼 사장님께 맞는 지원사업을 찾아드릴게요. 🔎\n\n간단히 알려주세요:\n① 어떤 사업을 하세요(또는 준비 중)?\n② 어느 지역이세요?\n③ 나이대는요?\n④ 사업 시작한 지 얼마나 됐나요? (예비 / ○년차)\n⑤ 가장 필요한 도움은요? (자금 · 공간 · 판로 · 멘토링)\n\n(이미 위에서 말씀하신 게 있으면 빼고 답하셔도 돼요!)`,
-      },
-    ]);
-    focusInput();
+    resetEvidence();
+    setWizAnalysis({ text: "", busy: false });
+    setWizardStart("find");
   }
 
   // '직접 올린 공고' 프로그램 세팅 — 위저드 도움 방식 2(정한 공고 진단)의 공통 준비
@@ -1632,12 +1627,11 @@ export default function Chat() {
             evProgramsLoading={evProgramsLoading}
             analysis={wizAnalysis}
             convertFiles={convertFiles}
-            onFindPrograms={() => {
-              setWizardStart(null);
-              // 신규 진입(intake)이면 3문항 폼이 바로 뜨고, 진단 도중 이탈이면 찾기 대화로 전환
-              if (mode !== "intake") switchToFind();
-            }}
             onDirectProgram={makeCustomProgram}
+            onChooseProgram={chooseProgram}
+            onViewProgram={viewProgram}
+            hasLead={Boolean(lead)}
+            onSignup={() => setSignupOpen(true)}
             onAnalyze={(payload, note) => void wizardAnalyze(payload, note)}
             onSubmitEvidence={submitEvidence}
             onPay={clickPay}
@@ -1646,7 +1640,9 @@ export default function Chat() {
       )}
 
       {!wizardActive && (
-      <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-5">
+      {/* 본문 폭 제한(§11-1) — 대화도 시안처럼 좁은 컬럼으로 집중 */}
+      <div className="mx-auto w-full max-w-[820px] space-y-3">
         {/* 1단계: 인테이크 대화 (+추천) — 사업 선택 후에도 위에 그대로 보임 */}
         {(programStage ? messages.slice(0, planStartIdx) : messages).map((m, i) =>
           editingIndex === i ? (
@@ -1753,10 +1749,11 @@ export default function Chat() {
           />
         )}
       </div>
+      </div>
       )}
 
       {mode !== "paywall" && !wizardActive && (
-        <>
+        <div className="mx-auto w-full max-w-[820px]">
           {/* 캘린더 저장(가입) 배너 — 추천 탐색 중에만. 진단·작성 중에는 노출하지 않는다 (§12) */}
           {mode === "intake" && !lead && !nudgeDismissed && calItems.length > 0 && (
             <div className="mx-4 mt-2 flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
@@ -1796,7 +1793,8 @@ export default function Chat() {
               )}
             </div>
           )}
-          {mode === "intake" && !recs && (
+          {/* 진행 안내·직접 경로·표준양식 — 대화가 시작되면 숨긴다 (§12: 현재 단계만 노출) */}
+          {mode === "intake" && !recs && userTurns === 0 && (
             <div className="px-4 pt-2 space-y-2">
               {/* 진행 단계 목차 — 처음 온 사람이 '어떻게 흘러가는지' 한눈에 (책 목차처럼) */}
               <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5">
@@ -2001,7 +1999,7 @@ export default function Chat() {
             </div>
           </div>
           )}
-        </>
+        </div>
       )}
     </main>
   );

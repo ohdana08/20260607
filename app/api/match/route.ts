@@ -3,6 +3,7 @@ import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider"
 import type { ChatMsg } from "@/lib/llm/provider";
 import type { Program, RankedPick, Recommendation } from "@/lib/match/types";
 import { prefilterPrograms, type MatchProfile } from "@/lib/match/prefilter";
+import { matchByButtons, type ButtonProfile } from "@/lib/match/buttonFilter";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
 
@@ -72,6 +73,36 @@ export async function POST(req: Request) {
 
   const gate = maintenanceGate();
   if (gate) return gate;
+
+  // ── 버튼 4단계 매칭 (2026-07-10 확정 설계) — LLM 없이 규칙 기반 즉시 응답 ──
+  const rawBtn = (body as { buttonProfile?: unknown })?.buttonProfile;
+  if (rawBtn && typeof rawBtn === "object") {
+    const bp = rawBtn as Partial<ButtonProfile>;
+    if (
+      typeof bp.years !== "string" ||
+      typeof bp.region !== "string" ||
+      typeof bp.supportType !== "string"
+    ) {
+      return Response.json({ error: "업력·지역·지원유형을 선택해 주세요." }, { status: 400 });
+    }
+    const fetched = await fetchOpenPrograms(400);
+    const TRAINEE_RE = /(교육생|수강생|참가자|참여자|수강|교육과정)\s*모집/;
+    // 멘토링·교육을 찾는 사용자에겐 교육 프로그램 모집도 유효한 결과일 수 있어 남긴다
+    const base =
+      bp.supportType === "멘토링·교육"
+        ? fetched.programs
+        : fetched.programs.filter((p) => !TRAINEE_RE.test(p.title));
+    const result = matchByButtons(base, {
+      years: bp.years,
+      region: bp.region,
+      supportType: bp.supportType,
+      sector: typeof bp.sector === "string" ? bp.sector : undefined,
+    });
+    console.log(
+      `[/api/match] 버튼매칭 ${result.recommendations.length}건 (전체 ${base.length}건, ${bp.years}/${bp.region}/${bp.supportType}/${bp.sector ?? "-"}, relaxed=${result.relaxed})`,
+    );
+    return Response.json({ ...result, usingSample: fetched.usingSample });
+  }
 
   const provider = parseProvider((body as { provider?: unknown })?.provider);
   if (!isProviderConfigured(provider)) {
