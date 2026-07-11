@@ -6,7 +6,9 @@ import { PRICE_LABEL } from "@/lib/config";
 import { track } from "@/lib/ga";
 import {
   YEARS_OPTIONS,
-  REGION_OPTIONS,
+  REGION_MAIN,
+  REGION_ETC,
+  NATIONWIDE,
   TYPE_OPTIONS,
   SECTOR_OPTIONS,
   type ButtonProfile,
@@ -77,18 +79,37 @@ function ddayLabel(applyEnd: string | null): { text: string; urgent: boolean } {
   return { text: `D-${days} · ${applyEnd}까지`, urgent: days <= 7 };
 }
 
-// 찾기 단계 공용 — 단일 선택 카드 (누르면 바로 다음 단계로)
-function PickCard({ label, onClick }: { label: string; onClick: () => void }) {
+// 찾기 단계 공용 — 단일 선택 카드 (누르면 바로 다음 단계로). sub: 회색 보조 설명 한 줄
+function PickCard({ label, sub, onClick }: { label: string; sub?: string; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="flex w-full items-center justify-between rounded-xl border border-zinc-200 bg-white px-5 py-4 text-left text-base font-semibold text-zinc-800 transition-colors hover:border-blue-400 hover:bg-blue-50/40"
+      className="flex w-full items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-5 py-4 text-left transition-colors hover:border-blue-400 hover:bg-blue-50/40"
     >
-      {label}
-      <span className="text-sm font-bold text-blue-500">→</span>
+      <span className="min-w-0">
+        <span className="block text-base font-semibold text-zinc-800">{label}</span>
+        {sub && <span className="mt-0.5 block text-[13px] leading-5 text-zinc-500">{sub}</span>}
+      </span>
+      <span className="shrink-0 text-sm font-bold text-blue-500">→</span>
     </button>
   );
 }
+
+// 지원유형·관심분야 버튼 서브텍스트 (2026-07-12 확정 카피)
+const TYPE_SUBS: Record<string, string> = {
+  사업화: "시제품 제작, 마케팅, 판로개척 등 사업 실행에 쓰는 지원금",
+  "R&D": "기술·제품 개발에 쓰는 연구개발 자금",
+  "시설·공간": "사무실, 공장, 입주공간 등 장소 지원",
+  "멘토링·교육": "전문가 상담, 창업교육, 컨설팅 지원",
+  "융자·보증": "낮은 금리로 빌려주는 돈 (지원금과 달리 갚아야 해요)",
+};
+const SECTOR_SUBS: Record<string, string> = {
+  창업: "예비창업, 초기창업, 재창업 (예: 예비창업패키지)",
+  경영: "마케팅, 판로, 인력, 경영개선 (예: 소상공인 경영지원)",
+  기술: "기술개발, 특허, 스마트공장 (예: 중소기업 R&D)",
+  수출: "해외진출, 수출바우처, 박람회 (예: 수출초보기업 지원)",
+  금융: "정책자금, 융자, 보증 (예: 소진공 정책자금)",
+};
 
 function Title({ children }: { children: React.ReactNode }) {
   return (
@@ -350,14 +371,14 @@ export default function DiagnosisWizard({
         </section>
       )}
 
-      {/* ── 찾기 2/4: 지역 ─────────────────────────────────────── */}
+      {/* ── 찾기 2/4: 지역 — 부산·울산·경남 버튼 + 나머지 시도 드롭다운 + 전국 ── */}
       {step === "find-region" && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
           <StagePill>지원사업 찾기 2/4</StagePill>
           <Title>어느 지역에서 사업하세요?</Title>
           <Sub>해당 지역 공고와 전국(중앙부처) 공고를 함께 찾아드려요.</Sub>
           <div className="mt-5 space-y-2.5">
-            {REGION_OPTIONS.map((v) => (
+            {REGION_MAIN.map((v) => (
               <PickCard
                 key={v}
                 label={v}
@@ -367,6 +388,30 @@ export default function DiagnosisWizard({
                 }}
               />
             ))}
+            <PickCard
+              label={NATIONWIDE}
+              sub="지역 제한 없이 전국 어디서나 지원 가능한 공고"
+              onClick={() => {
+                setFRegion(NATIONWIDE);
+                setStep("find-type");
+              }}
+            />
+            <select
+              value=""
+              onChange={(e) => {
+                if (!e.target.value) return;
+                setFRegion(e.target.value);
+                setStep("find-type");
+              }}
+              className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-4 text-base font-semibold text-zinc-500 outline-none focus:border-blue-500"
+            >
+              <option value="">다른 지역 선택…</option>
+              {REGION_ETC.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
           </div>
           <BackLink onClick={() => setStep("find-years")}>← 이전으로</BackLink>
         </section>
@@ -383,6 +428,7 @@ export default function DiagnosisWizard({
               <PickCard
                 key={v}
                 label={v}
+                sub={TYPE_SUBS[v]}
                 onClick={() => {
                   setFType(v);
                   setStep("find-sector");
@@ -405,6 +451,7 @@ export default function DiagnosisWizard({
               <PickCard
                 key={v}
                 label={v}
+                sub={SECTOR_SUBS[v]}
                 onClick={() =>
                   void runFind({ years: fYears, region: fRegion, supportType: fType, sector: v })
                 }
@@ -494,27 +541,36 @@ export default function DiagnosisWizard({
                       <h3 className="text-base font-bold leading-6 text-zinc-900">{r.program.title}</h3>
                       <span
                         className={
-                          r.eligibility === "가능성 높음"
-                            ? "shrink-0 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700"
+                          r.eligibility === "조건 충족"
+                            ? "shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700"
                             : "shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700"
                         }
                       >
                         {r.eligibility}
                       </span>
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-zinc-600">{r.fitReason}</p>
-                    <div className="mt-2.5 flex flex-wrap gap-1.5 text-xs text-zinc-500">
-                      <span className={`rounded bg-zinc-100 px-2 py-1 ${dl.urgent ? "font-semibold text-red-600" : ""}`}>
+                    {/* 조건 원문 덤프 대신 내 조건 대조형 칩 (✓ 일치 / ⚠️ 주의) */}
+                    <div className="mt-2.5 flex flex-wrap gap-1.5 text-xs">
+                      <span
+                        className={`rounded px-2 py-1 ${dl.urgent ? "bg-red-50 font-semibold text-red-600" : "bg-zinc-100 text-zinc-500"}`}
+                      >
                         📅 {dl.text}
                       </span>
-                      {r.program.supportField && (
-                        <span className="rounded bg-zinc-100 px-2 py-1">{r.program.supportField}</span>
-                      )}
-                      <span className="rounded bg-zinc-100 px-2 py-1">{r.program.region}</span>
+                      {(r.conditions ?? []).map((c) => (
+                        <span
+                          key={c}
+                          className={
+                            c.startsWith("⚠️")
+                              ? "rounded bg-amber-50 px-2 py-1 font-medium text-amber-700"
+                              : c.startsWith("✓")
+                                ? "rounded bg-emerald-50 px-2 py-1 text-emerald-700"
+                                : "rounded bg-zinc-100 px-2 py-1 text-zinc-500"
+                          }
+                        >
+                          {c}
+                        </span>
+                      ))}
                     </div>
-                    {r.program.target && r.program.target !== "지원대상 정보 없음" && (
-                      <p className="mt-2 text-xs leading-5 text-zinc-500">🎯 {r.program.target}</p>
-                    )}
                     <button
                       onClick={() => onChooseProgram(r.program)}
                       className="mt-3.5 h-12 w-full rounded-xl bg-blue-600 text-base font-bold text-white transition-colors hover:bg-blue-700"

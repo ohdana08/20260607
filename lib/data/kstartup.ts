@@ -1,4 +1,5 @@
 import type { Program } from "@/lib/match/types";
+import { decodeEntities } from "./decodeEntities";
 
 // ── 실제 K-Startup API (data.go.kr 게이트웨이) ──────────────────────────────
 // 엔드포인트·필드명은 실제 응답으로 검증 완료.
@@ -23,12 +24,7 @@ interface KstartupItem {
 }
 
 function decode(s: string | undefined): string {
-  return (s ?? "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\s+/g, " ")
-    .trim();
+  return decodeEntities(s).replace(/\s+/g, " ").trim();
 }
 
 function clip(s: string, n: number): string {

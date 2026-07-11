@@ -17,7 +17,9 @@ export interface Recommendation {
   program: Program;
   whatItIs: string; // 이 사업이 실제로 뭘 해주는지 — 쉬운 설명
   fitReason: string; // 왜 이 사람에게 맞는지 — 일상어
-  eligibility: "가능성 높음" | "확인 필요"; // 참여 가능성
+  // 참여 가능성 — "조건 충족"(버튼 매칭, 전부 일치)·"가능성 높음"(LLM 랭킹)·"확인 필요"
+  eligibility: "조건 충족" | "가능성 높음" | "확인 필요";
+  conditions?: string[]; // 버튼 매칭: 사용자 조건 대조형 칩 ("✓ 부산", "⚠️ 재창업자 대상" 등)
 }
 
 // What the LLM returns when ranking (merged back to Program by id).

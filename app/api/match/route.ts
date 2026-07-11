@@ -206,7 +206,7 @@ export async function POST(req: Request) {
 
   const byId = new Map(programs.map((p) => [p.id, p]));
   const recommendations: Recommendation[] = picks
-    .map((pick) => {
+    .map((pick): Recommendation | null => {
       const program = byId.get(pick.id);
       if (!program) return null;
       return {
@@ -214,7 +214,7 @@ export async function POST(req: Request) {
         whatItIs: pick.whatItIs ?? "",
         fitReason: pick.fitReason,
         eligibility: pick.eligibility === "가능성 높음" ? "가능성 높음" : "확인 필요",
-      } satisfies Recommendation;
+      };
     })
     .filter((r): r is Recommendation => r !== null)
     .slice(0, isMore ? 5 : 2);

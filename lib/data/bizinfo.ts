@@ -1,5 +1,6 @@
 import type { Program } from "@/lib/match/types";
 import { isStillOpen } from "./openFilter";
+import { decodeEntities } from "./decodeEntities";
 
 // 기업마당(bizinfo) 지원사업정보 API. 중앙부처+지자체+공공기관 통합.
 const BIZINFO_ENDPOINT = "https://www.bizinfo.go.kr/uss/rss/bizinfoApi.do";
@@ -22,12 +23,7 @@ interface BizItem {
 }
 
 function stripHtml(s: string | undefined): string {
-  return (s ?? "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
+  return decodeEntities((s ?? "").replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -59,14 +55,14 @@ function isOpen(endDate: string | null): boolean {
 }
 
 function normalize(it: BizItem): Program | null {
-  const title = (it.pblancNm ?? "").trim();
+  const title = decodeEntities(it.pblancNm).trim();
   if (!title) return null;
   const end = endDateOf(it.reqstBeginEndDe);
   return {
     id: `bizinfo:${it.pblancId ?? title}`,
     title,
     summary: clip(stripHtml(it.bsnsSumryCn), 220),
-    target: clip((it.trgetNm ?? "").trim() || "지원대상 정보 없음", 120),
+    target: clip(decodeEntities(it.trgetNm).trim() || "지원대상 정보 없음", 120),
     supportField: (it.pldirSportRealmLclasCodeNm ?? "").trim() || "기타",
     region: regionOf(it.hashtags),
     applyEnd: end,

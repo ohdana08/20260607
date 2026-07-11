@@ -12,7 +12,13 @@ export const YEARS_OPTIONS = [
   "창업도약기(4~7년)",
   "7년 이상",
 ] as const;
-export const REGION_OPTIONS = ["부산", "경남", "전국(중앙부처)"] as const;
+// 지역(2026-07-12 개편): 주력 지역 3개는 버튼, 나머지 14개 시도는 드롭다운, 전국은 별도 버튼
+export const REGION_MAIN = ["부산", "울산", "경남"] as const;
+export const REGION_ETC = [
+  "서울", "경기", "인천", "대구", "경북", "광주", "전남", "전북",
+  "대전", "충남", "충북", "세종", "강원", "제주",
+] as const;
+export const NATIONWIDE = "전국(중앙부처)";
 export const TYPE_OPTIONS = ["사업화", "R&D", "시설·공간", "멘토링·교육", "융자·보증"] as const;
 export const SECTOR_OPTIONS = ["창업", "경영", "기술", "수출", "금융"] as const;
 
@@ -92,6 +98,31 @@ function byDeadline(a: Program, b: Program): number {
   return (a.applyEnd ?? "9999-99-99").localeCompare(b.applyEnd ?? "9999-99-99");
 }
 
+// 특수 자격요건 감지 — 겉 조건이 맞아도 이 키워드가 있으면 '확인 필요'로 강등 + ⚠️ 배지
+const SPECIAL_REQS: { re: RegExp; label: (matched: string) => string }[] = [
+  { re: /재창업|재기|폐업/, label: () => "폐업 후 재창업자 대상" },
+  { re: /투자유치|투자실적|투자를 받은/, label: () => "투자유치 실적 필요" },
+  { re: /사회적기업|협동조합|마을기업|자활기업|소셜벤처/, label: () => "사회적경제기업 대상" },
+  { re: /여성\s*한정|청년\s*한정|장애인/, label: (m) => `대상 제한 있음 (${m.replace(/\s+/g, "")})` },
+];
+export function findCautions(p: Program): string[] {
+  const hay = `${p.title} ${p.summary} ${p.target}`;
+  const out: string[] = [];
+  for (const s of SPECIAL_REQS) {
+    const m = hay.match(s.re);
+    if (m) out.push(s.label(m[0]));
+  }
+  return out;
+}
+
+// 업력 선택지 → 대조형 짧은 라벨
+function yearsShort(years: string): string {
+  if (years.startsWith("예비")) return "예비창업";
+  if (years.includes("3년 이내")) return "창업 3년 이내";
+  if (years.includes("4~7")) return "창업 4~7년";
+  return "업력 7년 이상";
+}
+
 export interface ButtonMatchResult {
   recommendations: Recommendation[];
   relaxed: boolean; // 지원유형 일치가 0건이라 유형 조건을 완화해 보여주는 상태
@@ -101,48 +132,48 @@ export interface ButtonMatchResult {
 export function matchByButtons(programs: Program[], profile: ButtonProfile): ButtonMatchResult {
   const typeRe = TYPE_KEYWORDS[profile.supportType];
   const sectorRe = profile.sector ? SECTOR_KEYWORDS[profile.sector] : null;
-  const regionLabel = profile.region.includes("전국") ? "전국(중앙부처)" : `${profile.region}·전국`;
+  const userSido = profile.region.includes("전국") ? null : profile.region.slice(0, 2);
 
   const scored = programs
     .map((p) => {
-      if (!regionOk(p, profile.region)) return null;
+      if (!regionOk(p, profile.region)) return null; // 핵심 조건(지역) 불일치 → 리스트 제외
       const yearsJudge = judgeYears(p, profile.years);
-      if (yearsJudge === "exclude") return null;
+      if (yearsJudge === "exclude") return null; // 핵심 조건(업력) 불일치 → 리스트 제외
       const hay = `${p.supportField} ${p.title}`;
       const typeHit = typeRe ? typeRe.test(hay) : false;
       const sectorHit = sectorRe ? sectorRe.test(hay) : false;
-      return { p, typeHit, sectorHit, yearsJudge };
+      const cautions = findCautions(p);
+      // 조건 충족(초록): 지역·업력·유형 전부 일치 + 특수 자격요건 없음
+      const eligible = yearsJudge === "match" && typeHit && cautions.length === 0;
+      return { p, typeHit, sectorHit, yearsJudge, cautions, eligible };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
     .sort((a, b) => {
-      if (a.typeHit !== b.typeHit) return a.typeHit ? -1 : 1;
+      // 1차: 조건 충족 그룹 우선 · (분야 특화는 그룹 내 위로) · 2차: 마감 임박순
+      if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
       if (a.sectorHit !== b.sectorHit) return a.sectorHit ? -1 : 1;
-      if ((a.yearsJudge === "match") !== (b.yearsJudge === "match"))
-        return a.yearsJudge === "match" ? -1 : 1;
       return byDeadline(a.p, b.p);
     });
 
   const relaxed = scored.length > 0 && !scored.some((s) => s.typeHit);
 
   const recommendations: Recommendation[] = scored.slice(0, 30).map((s) => {
-    const parts: string[] = [];
-    parts.push(
-      s.typeHit
-        ? `찾으시는 ‘${profile.supportType}’ 지원이에요`
-        : `‘${profile.supportType}’과 정확히 일치하진 않지만 조건에 맞는 공고예요`,
+    // 조건 원문 덤프 대신 '사용자 조건 대조형' 표시 (✓ 일치 / ⚠️ 주의)
+    const conditions: string[] = [];
+    if (userSido) conditions.push(s.p.region.includes(userSido) ? `✓ ${userSido}` : "✓ 전국 공고");
+    else conditions.push("✓ 전국");
+    conditions.push(
+      s.yearsJudge === "match" ? `✓ ${yearsShort(profile.years)}` : "업력 조건은 공고에서 확인",
     );
-    if (s.sectorHit && profile.sector) parts.push(`‘${profile.sector}’ 분야 특화`);
-    parts.push(`${regionLabel} 대상`);
-    parts.push(
-      s.yearsJudge === "match"
-        ? `업력(${profile.years}) 조건 충족`
-        : "업력 조건은 공고 원문에서 한 번 확인해 주세요",
-    );
+    if (s.typeHit) conditions.push(`✓ ${profile.supportType}`);
+    if (s.sectorHit && profile.sector) conditions.push(`✓ ${profile.sector} 분야`);
+    for (const c of s.cautions) conditions.push(`⚠️ ${c}`);
     return {
       program: s.p,
       whatItIs: "",
-      fitReason: parts.join(" · "),
-      eligibility: s.typeHit && s.yearsJudge === "match" ? "가능성 높음" : "확인 필요",
+      fitReason: conditions.join(" · "),
+      eligibility: s.eligible ? "조건 충족" : "확인 필요",
+      conditions,
     };
   });
 
