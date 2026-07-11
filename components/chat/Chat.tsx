@@ -1138,8 +1138,8 @@ export default function Chat() {
     const data = await res.json().catch(() => ({}));
     if (data?.ok) {
       setPaid(true);
-      // GA4 퍼널: 주문번호 인증 완료 = 유료 전환 확정
-      track("order_verified", { price: PRICE_KRW });
+      // GA4 퍼널: 주문번호 인증 완료 = 유료 전환 확정 (QA 테스트 세션은 측정 제외)
+      if (!data.isQa) track("order_verified", { price: PRICE_KRW });
       return { ok: true };
     }
     return { ok: false, error: String(data?.error || "확인에 실패했어요. 다시 시도해 주세요.") };
@@ -2383,14 +2383,16 @@ function Paywall({
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
 
-  const orderDigits = entered.replace(/\D/g, "");
-  const formatOk = /^\d{18}$/.test(orderDigits);
+  // QA 우회 형식("QA"+16자리, QA_MODE 배포 한정)도 서버로 보낼 수 있게 영숫자를 남긴다
+  const orderCleaned = entered.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const orderDigits = orderCleaned.replace(/\D/g, "");
+  const formatOk = /^\d{18}$/.test(orderCleaned) || /^QA\d{16}$/.test(orderCleaned);
 
   async function submit() {
     if (!formatOk || checking) return;
     setChecking(true);
     setError("");
-    const r = await verifyOrder(orderDigits);
+    const r = await verifyOrder(orderCleaned);
     setChecking(false);
     if (r.ok) {
       setDone(true);

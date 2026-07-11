@@ -37,6 +37,14 @@ export interface ValidOrder {
 export const MAX_ORDER_TRIES = 5; // 계정당 주문번호 입력 시도 제한
 export const ORDER_NO_RE = /^\d{18}$/; // 그로블 주문번호 형식 (예: 202607090949499786)
 
+// ── QA 우회 (2026-07-12) — 결제 없이 유료 구간 전체 테스트용 ──────────────
+// 환경변수 QA_MODE=true 인 배포에서만 "QA"+숫자 16자리(총 18자) 주문번호가 통과한다.
+// 프로덕션은 QA_MODE 미설정(기본) → 무조건 거절. 하드코딩 마스터키 없음 — env 토글이 전부.
+export const QA_ORDER_RE = /^QA\d{16}$/;
+export function isQaOrder(orderNo: string): boolean {
+  return process.env.QA_MODE === "true" && QA_ORDER_RE.test(orderNo);
+}
+
 export interface AuthedUser {
   id: string;
   email: string;
@@ -65,6 +73,7 @@ export interface PaidRecord {
   orderNo: string;
   email: string;
   verifiedAt: string;
+  isQa?: boolean; // QA 우회로 인증된 테스트 세션 — 실주문과 구분
 }
 
 export async function getPaidRecord(userId: string): Promise<PaidRecord | null> {
