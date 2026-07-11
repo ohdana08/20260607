@@ -42,10 +42,41 @@ export async function GET(req: Request) {
   const redis = new Redis({ url: redisUrl, token: redisToken });
   const supabase = createAdminClient();
 
-  // ① Redis 리드 전체
+  // ⓪ 전체 키 스캔 — 리드가 어떤 키에 들어있는지 투명하게 보고 (판단 근거)
+  const allKeys: string[] = [];
+  let cursor = "0";
+  do {
+    const [next, keys] = await redis.scan(cursor, { match: "*", count: 1000 });
+    allKeys.push(...keys);
+    cursor = String(next);
+  } while (cursor !== "0" && allKeys.length < 5000);
+
+  // ① 리드 소스 1: 회원가입 리드 (gp:leads 세트 → gp:lead:{id})
   const ids = ((await redis.smembers("gp:leads")) ?? []) as string[];
   const raw = await Promise.all(ids.map((id) => redis.get<RedisLead>(`gp:lead:${id}`)));
-  const leads = raw.filter((l): l is RedisLead => Boolean(l && l.contact));
+  const signupLeads = raw.filter((l): l is RedisLead => Boolean(l && l.contact));
+
+  // ① 리드 소스 2: (구) 진단 이메일 캡처 (gp:diag_leads 리스트, GAS 폴백 저장분)
+  interface DiagLead {
+    email?: string;
+    timestamp?: number;
+    marketingConsent?: boolean;
+  }
+  const diagRaw = ((await redis.lrange("gp:diag_leads", 0, -1)) ?? []) as (string | DiagLead)[];
+  const diagLeads: RedisLead[] = diagRaw
+    .map((item) => {
+      const o: DiagLead = typeof item === "string" ? (JSON.parse(item) as DiagLead) : item;
+      if (!o?.email) return null;
+      return {
+        id: `diag:${o.email}`,
+        name: "(이메일 캡처)",
+        contact: String(o.email),
+        createdAt: Number(o.timestamp ?? 0),
+      };
+    })
+    .filter((l): l is RedisLead => l !== null);
+
+  const leads = [...signupLeads, ...diagLeads];
 
   // ② 연락처 기준 중복 제거 — 최초(createdAt 가장 이른) 1건만
   const byContact = new Map<string, RedisLead>();
@@ -72,7 +103,10 @@ export async function GET(req: Request) {
   const toInsert = unique.filter((l) => !existing.has(normContact(l.contact)));
 
   const report = {
-    redis_set: ids.length,
+    redis_keys: allKeys.sort(),
+    redis_signup_set: ids.length,
+    redis_signup_valid: signupLeads.length,
+    redis_diag_list: diagLeads.length,
     redis_valid: leads.length,
     redis_unique_contacts: unique.length,
     supabase_before: beforeCount,
