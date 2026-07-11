@@ -19,12 +19,25 @@ export type GaEvent =
   | "start_diagnosis" // 7단계 자가진단 시작
   | "view_diagnosis_result" // 진단 결과 화면(맛보기) 도달
   | "view_diagnosis_report" // (구) 진단 리포트 도달 — 호환 유지
-  | "click_pay" // 49,900원 버튼 클릭
+  | "click_pay" // 유료 초안 버튼 클릭 (price 파라미터에 당시 판매가 — 2026-07-11부터 39,900원)
   | "complete_payment" // 결제 완료 (// TODO: PG연동 후)
   | "complete_draft" // 유료 초안 생성 완료
   | "review_prompt_shown" // 후기 팝업 노출
   | "review_submitted" // 후기 작성 완료
-  | "review_public_consent"; // 후기 공개 동의
+  | "review_public_consent" // 후기 공개 동의
+  // 유료 전환 파이프(2026-07-09 ③ 결정, G-5TN5XW0T2J 속성에서 측정)
+  | "sign_up" // 진입 회원가입 완료 (가입 전환율)
+  | "groble_click" // 그로블 결제 링크 버튼 클릭
+  | "order_verified" // 주문번호 인증 완료 (is_paid 전환)
+  // 합격 가능성 진단(2026-07-10 확정 설계)
+  | "evidence_check" // 실적 체크 제출 — items(콤마 문자열)·count. 체크 조합이 곧 시장 데이터
+  | "no_evidence_view" // 실적 없는(pre) 전용 화면 노출 — 재료 없는 유입 비율 측정
+  // 무료→유료 전환 구조 개선(2026-07-11 디자인수정) — 단계별 이탈 측정
+  | "scope_intro_view" // 진입 시 무료·유료 범위 안내 화면 노출
+  | "diagnosis_start" // 무료·유료 안내에서 '무료 진단 시작하기' 클릭
+  | "draft_preview_click" // 무료 결과에서 '초안 목차 보기' 클릭
+  | "draft_preview_view" // 초안 목차 미리보기 화면 도달
+  | "checkout_start"; // 미리보기에서 결제 화면 진입 (click_pay와 함께 발화)
 
 type GtagWindow = Window & {
   dataLayer?: Record<string, unknown>[];

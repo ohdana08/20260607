@@ -1,5 +1,5 @@
 import { Document, HeadingLevel, ImageRun, Packer, Paragraph, TextRun } from "docx";
-import { checkCodeForProgram } from "@/lib/plan/access";
+import { checkDraftAccess, paymentRequiredResponse } from "@/lib/plan/paidAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,10 +32,9 @@ export async function POST(req: Request) {
     charts?: Chart[];
   };
 
-  const codeCheck = await checkCodeForProgram(code, programId);
-  if (!codeCheck.ok) {
-    return Response.json({ error: "이용권 코드 확인이 필요해요." }, { status: 402 });
-  }
+  // 유료 관문(2026-07-09): 주문번호 인증(is_paid) 또는 마스터 코드
+  const access = await checkDraftAccess(req, code);
+  if (!access.ok) return paymentRequiredResponse(access.reason);
   if (!Array.isArray(sections) || sections.length === 0) {
     return Response.json({ error: "내보낼 내용이 없어요." }, { status: 400 });
   }

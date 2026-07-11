@@ -1,4 +1,5 @@
 import type { Program } from "@/lib/match/types";
+import { isStillOpen } from "./openFilter";
 
 // 기업마당(bizinfo) 지원사업정보 API. 중앙부처+지자체+공공기관 통합.
 const BIZINFO_ENDPOINT = "https://www.bizinfo.go.kr/uss/rss/bizinfoApi.do";
@@ -52,10 +53,9 @@ function regionOf(hashtags: string | undefined): string {
   return found.join("·");
 }
 
+// KST 기준 마감 판정 — UTC 비교 버그(전날 마감이 오전에 통과) 수정, openFilter 공용 사용
 function isOpen(endDate: string | null): boolean {
-  if (!endDate) return true; // 기간 불명확 → 일단 포함
-  const today = new Date().toISOString().slice(0, 10);
-  return endDate >= today;
+  return isStillOpen(endDate);
 }
 
 function normalize(it: BizItem): Program | null {

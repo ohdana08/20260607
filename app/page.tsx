@@ -13,17 +13,17 @@ export default function Home() {
         <p className="mb-3 text-sm font-medium text-blue-600">
           예비창업자를 위한 정부지원사업 도우미
         </p>
+        {/* 첫 화면 카피 — 2026-07-10 진단 재설계 확정안 */}
         <h1 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
-          흩어진 정부지원사업,
+          사업은 잘하고 있는데,
           <br />
-          대화 한 번으로 나에게 맞는 걸 찾고
-          <br />
-          사업계획서 초안까지.
+          사업계획서만 막히시나요?
         </h1>
         <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-zinc-600">
-          어려운 용어는 몰라도 괜찮아요. 편하게 대화하듯 답하면, 나에게 맞는
-          지원사업을 추천하고 공고문·양식을 찾아 사업계획서 초안까지 만들어
-          드려요.
+          이미 가진 매출·고객·거래처가 심사위원의 점수가 되도록.
+        </p>
+        <p className="mt-3 text-sm font-semibold text-emerald-600">
+          결제 없이 진단까지 무료
         </p>
         <div className="mt-8 flex justify-center">
           <Link

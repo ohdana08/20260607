@@ -1,6 +1,6 @@
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
-import { checkCodeForProgram } from "@/lib/plan/access";
+import { checkDraftAccess, paymentRequiredResponse } from "@/lib/plan/paidAccess";
 import { maintenanceGate } from "@/lib/config";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 
@@ -30,18 +30,9 @@ export async function POST(req: Request) {
   // rate limit을 코드 검증보다 먼저 — 코드 추측 시도도 제한에 걸리게(점검표 문제 3)
   const rl = await checkRateLimit(req, "planDraft");
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
-  const codeCheck = await checkCodeForProgram(code, program?.id);
-  if (!codeCheck.ok) {
-    return Response.json(
-      {
-        error:
-          codeCheck.reason === "used_elsewhere"
-            ? "이 코드는 다른 사업계획서에 이미 사용됐어요. 다른 지원사업은 새로 결제해 주세요."
-            : "이용권 코드가 필요해요.",
-      },
-      { status: 402 },
-    );
-  }
+  // 유료 관문(2026-07-09): 주문번호 인증(is_paid) 또는 마스터 코드
+  const access = await checkDraftAccess(req, code);
+  if (!access.ok) return paymentRequiredResponse(access.reason);
   if (!Array.isArray(messages) || !section?.heading) {
     return Response.json({ error: "필요한 정보가 부족해요." }, { status: 400 });
   }

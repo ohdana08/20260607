@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { GROBLE_CHECKOUT_URL } from "@/lib/config";
 
 export const metadata: Metadata = {
   title: "정부지원사업 사업계획서 도우미 — 소개",
@@ -6,8 +7,8 @@ export const metadata: Metadata = {
     "13년·380개 공공기관 심사 노하우를 학습한 AI가 지원사업 찾기부터 사업계획서 초안까지 대신해 드립니다.",
 };
 
-// 그로블 결제창 링크. 아직 발급 전이라 비어 있음 — 발급되면 여기에 넣는다.
-const CHECKOUT_URL = "";
+// 그로블 결제창 링크 — lib/config.ts 의 단일 상수를 공유한다 (결제 모달과 동일 링크).
+const CHECKOUT_URL = GROBLE_CHECKOUT_URL;
 
 export default function Landing() {
   return (
@@ -49,7 +50,7 @@ export default function Landing() {
         <div className="mt-10">
           <p className="text-sm text-zinc-500">이용 가격</p>
           <p className="mt-1 text-3xl font-bold tracking-tight">
-            49,900<span className="text-lg font-semibold">원</span>
+            39,900<span className="text-lg font-semibold">원</span>
           </p>
         </div>
 

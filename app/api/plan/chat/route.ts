@@ -1,6 +1,6 @@
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
-import { checkCodeForProgram } from "@/lib/plan/access";
+import { checkDraftAccess, paymentRequiredResponse } from "@/lib/plan/paidAccess";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
 
@@ -16,17 +16,7 @@ interface ProgInfo {
   supportField?: string;
 }
 
-function codeErr(reason?: string): Response {
-  return Response.json(
-    {
-      error:
-        reason === "used_elsewhere"
-          ? "이 코드는 다른 사업계획서에 이미 사용됐어요. 다른 지원사업은 새로 결제해 주세요."
-          : "이용권 코드가 필요해요.",
-    },
-    { status: 402 },
-  );
-}
+
 
 function systemFor(p: ProgInfo): string {
   const title = p.title || "이 지원사업";
@@ -133,8 +123,9 @@ export async function POST(req: Request) {
   // rate limit을 코드 검증보다 먼저 — 코드 추측 시도도 제한에 걸리게(점검표 문제 3)
   const rl = await checkRateLimit(req, "planChat");
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
-  const codeCheck = await checkCodeForProgram(code, program?.id);
-  if (!codeCheck.ok) return codeErr(codeCheck.reason);
+  // 유료 관문(2026-07-09): 주문번호 인증(is_paid) 또는 마스터 코드
+  const access = await checkDraftAccess(req, code);
+  if (!access.ok) return paymentRequiredResponse(access.reason);
 
   const provider = parseProvider(rawProvider);
   if (!isProviderConfigured(provider)) {
