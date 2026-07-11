@@ -15,6 +15,7 @@ import {
   DraftPreviewCard,
   PreStageCard,
 } from "@/components/chat/EvidenceDiagnosis";
+import DiagnosisWizard, { type WizardStart, type WizPayload } from "@/components/chat/DiagnosisWizard";
 import {
   buildSheet,
   isPreStage,
@@ -185,10 +186,13 @@ export default function Chat() {
   const [evResult, setEvResult] = useState<EvidenceResult | null>(null);
   const [evPrograms, setEvPrograms] = useState<Program[] | null>(null); // pre: 실적 만드는 공고
   const [evProgramsLoading, setEvProgramsLoading] = useState(false);
-  // 초안 미리보기(2026-07-11 디자인수정) — 무료 결과와 결제 사이의 전환 화면
+  // 초안 미리보기(2026-07-11 디자인수정) — 무료 결과와 결제 사이의 전환 화면 (구 대화 호환용)
   const [previewOpen, setPreviewOpen] = useState(false);
-  // 화면 0(무료·유료 범위 안내) — '무료 진단 시작하기'를 누르기 전까지 3문항 폼 대신 노출
-  const [scopeStarted, setScopeStarted] = useState(false);
+  // 진단 위저드(2026-07-12 전면 적용) — null이면 챗 화면, 아니면 해당 시작 지점의 전체 화면 흐름
+  const [wizardStart, setWizardStart] = useState<WizardStart | null>(null);
+  // 위저드에서 올린 공고·양식의 AI 분석(스트리밍 상태) — 결과 화면 '이 공고의 핵심' 블록에 표시
+  const [wizAnalysis, setWizAnalysis] = useState<{ text: string; busy: boolean }>({ text: "", busy: false });
+  const wizardActive = wizardStart !== null;
   // 후기 수집 팝업
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewDone, setReviewDone] = useState(false);
@@ -332,9 +336,9 @@ export default function Chat() {
     if (recent) {
       setMessages(recent.messages.map((m) => ({ role: m.role, content: m.content })));
       setConvoId(recent.id);
-      setScopeStarted(true); // 이미 진행하던 대화 — 화면 0(범위 안내)은 건너뛴다
     } else {
       setConvoId(genId());
+      setWizardStart("scope"); // 첫 방문 — 화면 0(무료·유료 범위 안내)부터 위저드로
     }
   }, []);
 
@@ -355,7 +359,8 @@ export default function Chat() {
 
   function newChat() {
     setMessages([{ role: "assistant", content: GREETING }]);
-    setScopeStarted(false); // 새 대화는 화면 0(무료·유료 범위 안내)부터
+    setWizardStart("scope"); // 새 대화는 화면 0(무료·유료 범위 안내)부터
+    setWizAnalysis({ text: "", busy: false });
     setRecs(null);
     setDraft(null);
     setCharts(null);
@@ -377,7 +382,8 @@ export default function Chat() {
         ? c.messages.map((m) => ({ role: m.role, content: m.content }))
         : [{ role: "assistant", content: GREETING }],
     );
-    setScopeStarted(true); // 기존 대화 열람 — 화면 0은 건너뛴다
+    setWizardStart(null); // 기존 대화 열람 — 챗 화면으로
+    setWizAnalysis({ text: "", busy: false });
     setRecs(null);
     setDraft(null);
     setCharts(null);
@@ -442,11 +448,12 @@ export default function Chat() {
     });
   }
 
-  async function handleFiles(files: FileList | null) {
-    if (!files) return;
+  // 첨부 변환(사진/PDF/워드 → 전송 가능한 형태) — 챗 입력창과 진단 위저드가 공용으로 쓴다
+  async function convertFiles(files: FileList | null): Promise<WizPayload> {
     const imgs: ChatImage[] = [];
     const pdfs: ChatFile[] = [];
     const wordDocs: ChatDoc[] = [];
+    if (!files) return { imgs, pdfs, docs: wordDocs };
     for (const f of Array.from(files).slice(0, 3)) {
       const lower = f.name.toLowerCase();
       const isImage = f.type.startsWith("image/");
@@ -490,9 +497,14 @@ export default function Chat() {
       if (isImage) imgs.push({ mediaType: f.type, data });
       else pdfs.push({ mediaType: "application/pdf", data, name: f.name });
     }
+    return { imgs, pdfs, docs: wordDocs };
+  }
+
+  async function handleFiles(files: FileList | null) {
+    const { imgs, pdfs, docs } = await convertFiles(files);
     if (imgs.length) setPendingImages((p) => [...p, ...imgs].slice(0, 3));
     if (pdfs.length) setPendingFiles((p) => [...p, ...pdfs].slice(0, 3));
-    if (wordDocs.length) setPendingDocs((p) => [...p, ...wordDocs].slice(0, 3));
+    if (docs.length) setPendingDocs((p) => [...p, ...docs].slice(0, 3));
   }
 
   // 회원 정보 + 비회원이 본 공고(임시) 불러오기
@@ -856,7 +868,6 @@ export default function Chat() {
 
   // 적합도 확인에서 "이건 말고 맞는 사업 찾아줘" → 추천 흐름으로 전환
   function switchToFind() {
-    setScopeStarted(true);
     setMode("intake");
     setSelectedProgram(null);
     setRecs(null);
@@ -872,10 +883,8 @@ export default function Chat() {
     focusInput();
   }
 
-  // 추천을 거치지 않고, 사용자가 가진 공고문/양식으로 바로 시작 (무료 확인 → 결제 → 작성)
-  function startDirect() {
-    setScopeStarted(true); // 화면 0을 지나 직접 경로로 진입
-    track("plan_writing_started", { program: "직접 올린 공고문·양식" });
+  // '직접 올린 공고' 프로그램 세팅 — 위저드 도움 방식 2(정한 공고 진단)의 공통 준비
+  function makeCustomProgram() {
     const custom: Program = {
       id: `custom:${genId()}`,
       title: "직접 올린 공고문·양식",
@@ -892,37 +901,35 @@ export default function Chat() {
     setMode("fitcheck");
     setDraft(null);
     setCharts(null);
+    resetEvidence();
+    setWizAnalysis({ text: "", busy: false });
     setMessages((m) => {
       setPlanStartIdx(m.length);
-      return [
-        ...m,
-        {
-          role: "assistant",
-          content: `좋아요! 이미 쓰고 싶은 사업이 있으시군요. 👍\n\n📎로 **그 사업의 공고문**과 **사업계획서 양식**을 올려주세요. (사진·PDF·워드 OK)\n\n제가 먼저 **무료로** 내용을 읽고, 사장님 사업과 맞는지·어떤 항목을 써야 하는지 알려드릴게요. 작성은 마음에 드실 때 결제하시면 돼요!\n\n(공고문이 없으면, 어떤 사업에 낼 건지 말씀해 주셔도 돼요.)`,
-        },
-      ];
+      return m;
     });
-    focusInput();
   }
 
-  // ① (무료) 공고문/양식 첨부 → 내 사업과 맞는지 확인
+  // 추천을 거치지 않고, 사용자가 가진 공고문/양식으로 바로 시작 → 위저드 '공고 입력'부터
+  function startDirect() {
+    track("plan_writing_started", { program: "직접 올린 공고문·양식" });
+    makeCustomProgram();
+    setWizardStart("notice");
+  }
+
+  // ① (무료) 추천에서 공고 선택 → 위저드 '공고 입력'부터 (2026-07-12 단계형 전환)
   function chooseProgram(p: Program) {
     track("plan_writing_started", { program: p.title ?? "" });
     setSelectedProgram(p);
     setMode("fitcheck");
     setDraft(null);
     setCharts(null);
+    resetEvidence();
+    setWizAnalysis({ text: "", busy: false });
     setMessages((m) => {
       setPlanStartIdx(m.length); // 이 사업 단계의 시작점
-      return [
-        ...m,
-        {
-          role: "assistant",
-          content: `'${p.title}'를 고르셨네요! 👍\n\n**사업계획서는 곧 써드려요!** 합격을 위해 딱 두 가지만 먼저 할게요 — ① 이 사업이 사장님과 맞는지 확인 → ② 떨어질 약점 빠른 진단. 그래야 '쓰고 나서 탈락'을 막아요. 😊\n\n📎로 아래를 올려주세요:\n1️⃣ 이 사업의 **공고문** (방금 '공고 원문 보기'에서 받은 것)\n2️⃣ **사업계획서 양식** 파일\n\n📷 사진·PDF·워드 다 돼요! 제가 꼼꼼히 읽고 **사장님 아이템과 맞는지 / 자격(업력·지역·나이)이 되는지** 알려드릴게요.\n\n💡 **양식 파일이 없거나, 홈페이지에서 바로 지원하는 사업(자유양식·IR)이어도 괜찮아요!** 그럴 땐 공고 페이지의 '지원내용/평가방법' 부분만 캡처해 올려주시거나, 그냥 사업을 한두 줄로 말씀해 주세요.`,
-        },
-      ];
+      return m;
     });
-    focusInput();
+    setWizardStart("notice");
   }
 
   // ── 합격 가능성 진단 (2026-07-10 확정 설계) ──────────────────────────
@@ -944,6 +951,57 @@ export default function Chat() {
       setEvMap(d.rows as EvidenceRow[]);
     } catch {
       setEvMapError(true);
+    }
+  }
+
+  // 위저드가 열리면 매핑표를 미리 불러둔다 (진단 단계 도달 전에 준비)
+  useEffect(() => {
+    if (wizardActive && !evMap) void loadEvidenceMap();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wizardActive]);
+
+  // 위저드 화면 2~3에서 모은 공고문·양식을 AI가 읽는다 (스트리밍).
+  // 대화 기록(messages)에도 그대로 남겨서, 결제 후 사업계획서 작성이 이 맥락을 이어받는다.
+  async function wizardAnalyze(payload: WizPayload, note: string) {
+    const base =
+      "첨부한 공고문과 양식을 읽고 알려주세요: ① 이 공고가 무엇을 중요하게 평가하는지 ② 제 사업과 맞는지·자격(업력·지역·나이)이 되는지 ③ 어떤 항목을 써야 하는지. 간결하게 핵심만 부탁해요.";
+    const content = note.trim() ? `[공고 링크/설명] ${note.trim()}\n\n${base}` : base;
+    const userMsg: Msg = {
+      role: "user",
+      content,
+      ...(payload.imgs.length > 0 ? { images: payload.imgs } : {}),
+      ...(payload.pdfs.length > 0 ? { files: payload.pdfs } : {}),
+      ...(payload.docs.length > 0 ? { docs: payload.docs } : {}),
+    };
+    const history = [...messages, userMsg];
+    setMessages([...history, { role: "assistant", content: "" }]);
+    setWizAnalysis({ text: "", busy: true });
+    try {
+      const res = await fetch("/api/plan/fitcheck", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
+        body: JSON.stringify({ messages: foldDocs(history), program: selectedProgram, provider }),
+      });
+      if (!res.ok || !res.body) {
+        const fail = "공고 분석에 실패했어요. 진단 결과는 그대로 확인할 수 있고, 결제 전 대화에서 다시 올려주시면 돼요.";
+        replaceLast(fail);
+        setWizAnalysis({ text: "", busy: false });
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        replaceLast(acc);
+        setWizAnalysis({ text: acc, busy: true });
+      }
+      setWizAnalysis({ text: acc, busy: false });
+    } catch {
+      replaceLast("공고 분석 중 연결이 끊겼어요.");
+      setWizAnalysis((prev) => ({ ...prev, busy: false }));
     }
   }
 
@@ -971,6 +1029,11 @@ export default function Chat() {
   function doSubmitEvidence(revenue: string, items: string[]) {
     // 체크 조합이 곧 시장 데이터 (GA4 이벤트 파라미터는 스칼라만 — 콤마 문자열로)
     const realItems = items.filter((i) => i !== "해당 없음");
+    // 진단 답변을 대화 기록에 남긴다 — 결제 후 사업계획서 작성이 이 정보를 이어받는다
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: `[합격 가능성 진단] 월 평균 매출: ${revenue} / 확보 실적: ${items.join(", ")}` },
+    ]);
     track("evidence_check", {
       items: items.join(","),
       count: realItems.length,
@@ -1033,6 +1096,7 @@ export default function Chat() {
   function enterPlanMode(p: Program) {
     // 결제 완료 측정 — 현재는 코드 검증 통과 시점. (// TODO: PG 연동 후 실제 결제 완료로 교체)
     track("complete_payment", { program: p.title ?? "", price: PRICE_KRW });
+    setWizardStart(null); // 위저드 종료 → 결제 후 작성은 챗에서 이어간다
     setMode("plan");
     setDraft(null);
     setCharts(null);
@@ -1302,13 +1366,13 @@ export default function Chat() {
         </div>
       </header>
 
-      {mode === "fitcheck" && (
+      {mode === "fitcheck" && !wizardActive && (
         <div className="border-b border-amber-100 bg-amber-50 px-5 py-2.5 text-xs font-semibold text-amber-800">
           🔎 적합도 확인 · <span className="text-amber-900">{selectedProgram?.title}</span> — 공고문·양식을
           올리면 내 사업과 맞는지 알려드려요
         </div>
       )}
-      {mode === "diagnose" && (
+      {mode === "diagnose" && !wizardActive && (
         <div className="border-b border-emerald-100 bg-emerald-50 px-5 py-2.5 text-xs font-semibold text-emerald-800">
           📋 합격 가능성 진단 · <span className="text-emerald-900">{selectedProgram?.title}</span> — 이미
           가진 실적을 합격 근거로 정리해드려요 (결제 전, 무료)
@@ -1553,6 +1617,35 @@ export default function Chat() {
         </div>
       )}
 
+      {/* 진단 위저드 (2026-07-12) — 시안 그대로 한 화면 한 단계. 활성 시 챗 영역 전체를 대체 */}
+      {wizardActive && (
+        <div className="min-h-0 flex-1 overflow-y-auto bg-zinc-50 p-4 sm:p-6">
+          <DiagnosisWizard
+            key={convoId + (wizardStart ?? "")}
+            start={wizardStart ?? "scope"}
+            program={selectedProgram}
+            evMap={evMap}
+            evMapError={evMapError}
+            onRetryMap={() => void loadEvidenceMap()}
+            evResult={evResult}
+            evPrograms={evPrograms}
+            evProgramsLoading={evProgramsLoading}
+            analysis={wizAnalysis}
+            convertFiles={convertFiles}
+            onFindPrograms={() => {
+              setWizardStart(null);
+              // 신규 진입(intake)이면 3문항 폼이 바로 뜨고, 진단 도중 이탈이면 찾기 대화로 전환
+              if (mode !== "intake") switchToFind();
+            }}
+            onDirectProgram={makeCustomProgram}
+            onAnalyze={(payload, note) => void wizardAnalyze(payload, note)}
+            onSubmitEvidence={submitEvidence}
+            onPay={clickPay}
+          />
+        </div>
+      )}
+
+      {!wizardActive && (
       <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
         {/* 1단계: 인테이크 대화 (+추천) — 사업 선택 후에도 위에 그대로 보임 */}
         {(programStage ? messages.slice(0, planStartIdx) : messages).map((m, i) =>
@@ -1569,19 +1662,8 @@ export default function Chat() {
           ),
         )}
 
-        {/* 화면 0: 무료·유료 범위 안내 — 진입하자마자 경계를 고지 (2026-07-11 디자인수정 1순위) */}
-        {profileFormVisible && !scopeStarted && (
-          <ScopeIntro
-            onStart={() => {
-              track("diagnosis_start");
-              setScopeStarted(true);
-            }}
-            onDirect={startDirect}
-          />
-        )}
-
         {/* 인테이크 앞단 3문항 — 버튼/선택지 (LLM 호출 0회) */}
-        {profileFormVisible && scopeStarted && <IntakeProfileForm onSubmit={submitProfile} />}
+        {profileFormVisible && <IntakeProfileForm onSubmit={submitProfile} />}
 
         {recommending && (
           <div className="mr-auto rounded-2xl bg-zinc-100 px-4 py-3 text-sm text-zinc-600">
@@ -1671,8 +1753,9 @@ export default function Chat() {
           />
         )}
       </div>
+      )}
 
-      {mode !== "paywall" && (
+      {mode !== "paywall" && !wizardActive && (
         <>
           {/* 캘린더 저장(가입) 배너 — 추천 탐색 중에만. 진단·작성 중에는 노출하지 않는다 (§12) */}
           {mode === "intake" && !lead && !nudgeDismissed && calItems.length > 0 && (
@@ -1713,7 +1796,7 @@ export default function Chat() {
               )}
             </div>
           )}
-          {mode === "intake" && !recs && scopeStarted && (
+          {mode === "intake" && !recs && (
             <div className="px-4 pt-2 space-y-2">
               {/* 진행 단계 목차 — 처음 온 사람이 '어떻게 흘러가는지' 한눈에 (책 목차처럼) */}
               <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2.5">
@@ -1898,9 +1981,7 @@ export default function Chat() {
                 disabled={profileFormVisible}
                 placeholder={
                   profileFormVisible
-                    ? scopeStarted
-                      ? "먼저 위에서 세 가지를 골라주세요 👆"
-                      : "먼저 위에서 '무료 진단 시작하기'를 눌러주세요 👆"
+                    ? "먼저 위에서 세 가지를 골라주세요 👆"
                     : "여기에 답을 입력하세요… (📎로 사진·PDF·워드 첨부)"
                 }
                 className="max-h-32 flex-1 resize-none rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm outline-none focus:border-blue-500 disabled:bg-zinc-50"
@@ -1923,67 +2004,6 @@ export default function Chat() {
         </>
       )}
     </main>
-  );
-}
-
-// 화면 0: 무료·유료 범위 안내 (2026-07-11 디자인수정 1순위)
-// 진입하자마자 "추천·진단은 무료 / 초안 생성은 39,900원" 경계를 고지한다.
-// 도움 방식 두 갈래(지원사업 찾기 / 정한 공고 진단)도 여기서 나눈다.
-function ScopeIntro({ onStart, onDirect }: { onStart: () => void; onDirect: () => void }) {
-  useEffect(() => {
-    track("scope_intro_view");
-  }, []);
-  return (
-    <div className="mr-auto w-full max-w-[95%] rounded-2xl border border-zinc-200 bg-white p-4 sm:p-5">
-      <h2 className="text-lg font-extrabold leading-7 text-zinc-900">
-        내 사업에 맞는 정부지원사업을
-        <br />
-        무료로 진단해보세요
-      </h2>
-      <p className="mt-1 text-[13px] text-zinc-500">
-        추천과 진단은 무료입니다. 사업계획서 초안 생성만 유료예요.
-      </p>
-      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3.5">
-          <p className="text-[11px] font-extrabold tracking-wide text-emerald-700">무료로 받는 결과</p>
-          <ul className="mt-1.5 space-y-1 text-[13px] leading-5 text-zinc-700">
-            <li>✓ 지원사업 추천</li>
-            <li>✓ 공고 적합도 진단</li>
-            <li>✓ 공고 핵심 요약</li>
-            <li>✓ 현재 사업의 강점과 보완점</li>
-          </ul>
-        </div>
-        <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3.5">
-          <p className="text-[11px] font-extrabold tracking-wide text-amber-700">유료로 받는 결과</p>
-          <p className="mt-1.5 text-[13px] font-bold leading-5 text-zinc-800">
-            사업계획서 초안 자동 작성 · 1회 {PRICE_LABEL}
-          </p>
-          <ul className="mt-1 space-y-1 text-[13px] leading-5 text-zinc-700">
-            <li>· 내 사업 정보 반영</li>
-            <li>· 선택한 공고 기준 반영</li>
-            <li>· 복사·수정 가능한 초안 제공</li>
-          </ul>
-        </div>
-      </div>
-      <button
-        onClick={onStart}
-        className="mt-4 w-full rounded-xl bg-blue-600 py-3.5 text-base font-bold text-white transition-colors hover:bg-blue-700"
-      >
-        무료 진단 시작하기
-      </button>
-      <p className="mt-1.5 text-center text-xs text-zinc-400">
-        사업계획서 초안 생성은 1회 {PRICE_LABEL}입니다.
-      </p>
-      <button
-        onClick={onDirect}
-        className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/40"
-      >
-        <span className="block text-sm font-bold text-zinc-800">이미 정한 공고 진단하기</span>
-        <span className="mt-0.5 block text-xs text-zinc-500">
-          공고문·양식을 올리면 지원 가능한지 무료로 확인해드려요.
-        </span>
-      </button>
-    </div>
   );
 }
 

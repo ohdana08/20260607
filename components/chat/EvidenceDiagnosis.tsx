@@ -19,7 +19,7 @@ import {
 // 사람 분석이 아니라 사업 분석 — 타이핑 없이 버튼만으로 끝난다 (LLM 호출 0회).
 
 // 진행 표시 pill — 무료 구간은 초록, 유료 구간은 주황으로 경계를 색으로도 구분
-function StagePill({ paidLabel, children }: { paidLabel?: boolean; children: React.ReactNode }) {
+export function StagePill({ paidLabel, children }: { paidLabel?: boolean; children: React.ReactNode }) {
   return (
     <span
       className={`inline-block rounded-full px-3 py-1 text-xs font-bold ${
@@ -32,7 +32,7 @@ function StagePill({ paidLabel, children }: { paidLabel?: boolean; children: Rea
 }
 
 // 카드형 선택지 — 작은 칩 대신 체크 원이 있는 큰 카드 버튼 (PC 2열 / 모바일 1열)
-function OptionCard({
+export function OptionCard({
   on,
   onClick,
   children,
@@ -159,13 +159,32 @@ export function EvidenceDiagnosisForm({
 
 // ── 진단지 — 전부 무료 공개. 여기서는 결제를 요구하지 않는다 ────────────
 // 마지막에 "여기까지는 무료" 경계를 명시하고, 다음 행동은 '초안 목차 보기' 하나만 노출.
-export function EvidenceSheetCard({ sheet, onPreview }: { sheet: EvidenceSheet; onPreview: () => void }) {
+// analysis: 위저드에서 공고문을 올렸을 때의 AI 분석(블록 A — 공고를 실제로 읽었다는 증거)
+export function EvidenceSheetCard({
+  sheet,
+  onPreview,
+  analysis,
+}: {
+  sheet: EvidenceSheet;
+  onPreview: () => void;
+  analysis?: { text: string; busy: boolean };
+}) {
   return (
     <div className="mr-auto w-full max-w-[95%] rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
       <StagePill>무료 진단 4/4 · 결과</StagePill>
       <h3 className="mt-2.5 text-lg font-extrabold leading-7 text-zinc-900">
         사장님 사업 합격 가능성 진단지
       </h3>
+
+      {analysis && (analysis.text || analysis.busy) && (
+        <div className="mt-3 rounded-xl border border-blue-200 bg-white p-3.5">
+          <p className="text-xs font-bold text-blue-700">이 공고의 핵심</p>
+          <p className="mt-1.5 whitespace-pre-wrap text-sm leading-6 text-zinc-700">
+            {analysis.text || "올려주신 공고문을 읽고 있어요…"}
+            {analysis.busy ? " ▌" : ""}
+          </p>
+        </div>
+      )}
 
       {sheet.strengths.length > 0 && (
         <div className="mt-3 rounded-xl border border-emerald-200 bg-white p-3.5">
