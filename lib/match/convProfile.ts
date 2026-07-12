@@ -56,9 +56,13 @@ export function violatesFoundingCutoff(p: Program, foundDate: Date | null): bool
 }
 
 // 업력 하드 필터 — 어느 추천 경로든 최종 출력 전에 이 검사를 통과해야 한다.
+// judgeYears는 target 필드만 보지만, "3년 미만" 같은 조건이 제목에만 적힌 공고가 실재해
+// (예: 팁스타운 입주기업 모집) 제목·요약까지 합친 텍스트로 한 번 더 검사한다.
 export function passesHardYears(p: Program, conv: ConvYears | null): boolean {
   if (!conv) return true;
   if (judgeYears(p, conv.bucket) === "exclude") return false;
+  const widened: Program = { ...p, target: `${p.target} / ${p.title} / ${p.summary}` };
+  if (judgeYears(widened, conv.bucket) === "exclude") return false;
   if (violatesFoundingCutoff(p, conv.foundDate)) return false;
   return true;
 }
