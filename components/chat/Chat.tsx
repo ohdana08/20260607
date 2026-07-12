@@ -88,6 +88,23 @@ type EvidenceResult =
   | { kind: "sheet"; sheet: EvidenceSheet }
   | { kind: "pre" };
 
+// ── 신청 자격 판정 (2026-07-12) ──────────────────────────────────────────
+// 공고 분석(fitcheck)이 [자격요건]JSON[/자격요건] 마커로 요건을 구조화해 보내고,
+// 결제 후 인터뷰(plan)는 [자격판정:충족|불확실|미충족] 마커로 판정을 보낸다.
+// 마커는 화면에서 숨기고, 판정 전/미충족/불확실 상태에선 초안 생성을 게이트한다.
+interface EligReqs {
+  found?: boolean;
+  required?: string[];
+  disqualifiers?: string[];
+  obligations?: string[];
+}
+type EligStatus = "충족" | "불확실" | "미충족";
+const ELIG_REQ_RE = /\[자격요건\]([\s\S]*?)\[\/자격요건\]/;
+const ELIG_JUDGE_G_RE = /\[자격판정:(충족|불확실|미충족)\]/g;
+function stripEligMarks(text: string): string {
+  return text.replace(ELIG_REQ_RE, "").replace(ELIG_JUDGE_G_RE, "").trimEnd();
+}
+
 const GREETING =
   "안녕하세요! 사장님께 맞는 정부지원사업을 같이 찾아볼게요. 😊\n무료로 어디까지 받을 수 있는지 아래에서 먼저 확인해 주세요!";
 // 인테이크 앞단 3문항(단계·지역·연령) — 버튼/선택지로 받아 LLM 호출 없이 수집 (점검표 문제 8)
@@ -188,6 +205,10 @@ export default function Chat() {
   const [evProgramsLoading, setEvProgramsLoading] = useState(false);
   // 초안 미리보기(2026-07-11 디자인수정) — 무료 결과와 결제 사이의 전환 화면 (구 대화 호환용)
   const [previewOpen, setPreviewOpen] = useState(false);
+  // 신청 자격 판정(2026-07-12) — 요건(공고 분석에서 추출)·판정(인터뷰에서 갱신)·강행 여부
+  const [eligReqs, setEligReqs] = useState<EligReqs | null>(null);
+  const [eligStatus, setEligStatus] = useState<EligStatus | null>(null);
+  const [eligOverride, setEligOverride] = useState(false);
   // 진단 위저드(2026-07-12 전면 적용) — null이면 챗 화면, 아니면 해당 시작 지점의 전체 화면 흐름
   const [wizardStart, setWizardStart] = useState<WizardStart | null>(null);
   // 위저드에서 올린 공고·양식의 AI 분석(스트리밍 상태) — 결과 화면 '이 공고의 핵심' 블록에 표시
@@ -361,6 +382,7 @@ export default function Chat() {
     setMessages([{ role: "assistant", content: GREETING }]);
     setWizardStart("scope"); // 새 대화는 화면 0(무료·유료 범위 안내)부터
     setWizAnalysis({ text: "", busy: false });
+    resetEligibility();
     setRecs(null);
     setDraft(null);
     setCharts(null);
@@ -384,6 +406,7 @@ export default function Chat() {
     );
     setWizardStart(null); // 기존 대화 열람 — 챗 화면으로
     setWizAnalysis({ text: "", busy: false });
+    resetEligibility();
     setRecs(null);
     setDraft(null);
     setCharts(null);
@@ -417,6 +440,32 @@ export default function Chat() {
       copy[copy.length - 1] = { role: "assistant", content };
       return copy;
     });
+  }
+
+  function resetEligibility() {
+    setEligReqs(null);
+    setEligStatus(null);
+    setEligOverride(false);
+  }
+
+  // 어시스턴트 응답에서 자격 마커를 읽어 상태를 갱신하고, 화면용으로 마커를 제거한 텍스트를 돌려준다
+  function absorbEligMarkers(text: string): string {
+    const req = text.match(ELIG_REQ_RE);
+    if (req) {
+      try {
+        const parsed = JSON.parse(req[1]) as EligReqs;
+        setEligReqs(parsed);
+      } catch {
+        /* JSON 깨짐 — 요건 없음으로 둔다 */
+      }
+    }
+    let judge: EligStatus | null = null;
+    for (const m of text.matchAll(ELIG_JUDGE_G_RE)) judge = m[1] as EligStatus;
+    if (judge) {
+      setEligStatus(judge);
+      if (judge === "충족") setEligOverride(false); // 충족되면 강행 상태 해제
+    }
+    return stripEligMarks(text);
   }
 
   // 스트림 오류 복구 문구는 다음 턴 LLM 입력에서 제외 — 토큰 낭비 방지 (점검표 문제 10)
@@ -746,7 +795,7 @@ export default function Chat() {
             : "/api/chat";
     const payload =
       mode === "plan"
-        ? { messages: foldDocs(history), code, program: selectedProgram, provider }
+        ? { messages: foldDocs(history), code, program: selectedProgram, eligibility: eligReqs, provider }
         : mode === "fitcheck"
           ? { messages: foldDocs(history), program: selectedProgram, provider }
           : mode === "diagnose"
@@ -792,6 +841,11 @@ export default function Chat() {
         if (done) break;
         acc += decoder.decode(value, { stream: true });
         replaceLast(acc);
+      }
+      // 자격 마커 흡수(2026-07-12) — 판정 상태 갱신 + 화면에서 마커 제거
+      if (mode === "plan" || mode === "fitcheck") {
+        const clean = absorbEligMarkers(acc);
+        if (clean !== acc) replaceLast(clean);
       }
       // GA4: 검증 질문까지 마쳐 추천 준비 완료(1막+1.5막 통과 신호) — 세션당 1회
       if (mode === "intake" && !validationFiredRef.current && acc.includes(READY_MARK)) {
@@ -897,6 +951,7 @@ export default function Chat() {
     setDraft(null);
     setCharts(null);
     resetEvidence();
+    resetEligibility();
     setWizAnalysis({ text: "", busy: false });
     setMessages((m) => {
       setPlanStartIdx(m.length);
@@ -919,6 +974,7 @@ export default function Chat() {
     setDraft(null);
     setCharts(null);
     resetEvidence();
+    resetEligibility();
     setWizAnalysis({ text: "", busy: false });
     setMessages((m) => {
       setPlanStartIdx(m.length); // 이 사업 단계의 시작점
@@ -993,7 +1049,10 @@ export default function Chat() {
         replaceLast(acc);
         setWizAnalysis({ text: acc, busy: true });
       }
-      setWizAnalysis({ text: acc, busy: false });
+      // 자격요건 마커 흡수(2026-07-12) — 구조화 요건 저장 + 화면 텍스트에서 제거
+      const clean = absorbEligMarkers(acc);
+      if (clean !== acc) replaceLast(clean);
+      setWizAnalysis({ text: clean, busy: false });
     } catch {
       replaceLast("공고 분석 중 연결이 끊겼어요.");
       setWizAnalysis((prev) => ({ ...prev, busy: false }));
@@ -1256,6 +1315,18 @@ export default function Chat() {
 
   async function downloadDocx() {
     if (!draft || !(paid || code)) return;
+    // 자격 미충족·불확실 강행 시 — 문서 맨 앞에도 경고 섹션을 넣는다 (2026-07-12)
+    const eligWarnSections: DraftSection[] =
+      eligOverride && (eligStatus === "미충족" || eligStatus === "불확실")
+        ? [
+            {
+              heading: "⚠️ 신청 자격 확인 필요",
+              content: `이 초안은 신청 자격이 ${
+                eligStatus === "미충족" ? "충족되지 않은" : "확인되지 않은"
+              } 상태에서 작성되었습니다. 제출 전에 공고문의 신청 자격 요건(업력·매출·투자 실적·추천서 등)을 반드시 직접 확인하세요.`,
+            },
+          ]
+        : [];
     const res = await fetch("/api/plan/docx", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
@@ -1263,7 +1334,7 @@ export default function Chat() {
         code,
         programId: selectedProgram?.id,
         title: draft.title,
-        sections: draft.sections,
+        sections: [...eligWarnSections, ...draft.sections],
         charts: charts ?? [],
       }),
     });
@@ -1746,6 +1817,9 @@ export default function Chat() {
             drafting={drafting}
             charts={charts}
             onDownload={downloadDocx}
+            eligWarn={
+              eligOverride && (eligStatus === "미충족" || eligStatus === "불확실") ? eligStatus : null
+            }
           />
         )}
       </div>
@@ -1875,21 +1949,71 @@ export default function Chat() {
           )}
           {mode === "plan" && (
             <div className="border-t border-zinc-100 px-4 pt-3">
-              <button
-                onClick={generateDraft}
-                disabled={drafting || busy || planUserTurns < PLAN_MIN_TURNS}
-                className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-              >
-                {drafting
-                  ? "초안과 도식을 만드는 중이에요…"
-                  : planUserTurns < PLAN_MIN_TURNS
-                    ? `📄 초안 만들기 — 대화를 조금 더 해주세요 (${planUserTurns}/${PLAN_MIN_TURNS})`
-                    : "📄 사업계획서 초안 만들기"}
-              </button>
-              {planUserTurns < PLAN_MIN_TURNS && (
-                <p className="mt-1.5 text-center text-[11px] text-zinc-400">
-                  질문에 충분히 답할수록 사업계획서가 좋아져요. 위 대화를 이어가 주세요.
-                </p>
+              {/* 신청 자격 게이트(2026-07-12) — 판정 전·미충족·불확실 상태에선 초안 진행을 막는다 */}
+              {eligStatus === "미충족" && !eligOverride ? (
+                <>
+                  <div className="mb-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-800">
+                    ❌ 현재 정보로는 이 공고의 <b>신청 자격에 해당하지 않아</b> 초안 생성을 잠시
+                    막아뒀어요. 자격이 생기는 정보(투자·매출·지원금 실적 등)가 있다면 위 대화에서
+                    알려주세요 — 판정이 갱신돼요.
+                  </div>
+                  <button
+                    onClick={switchToFind}
+                    className="w-full rounded-xl bg-blue-600 py-3 text-base font-bold text-white transition-colors hover:bg-blue-700"
+                  >
+                    🔄 조건이 맞는 다른 지원사업 찾아보기
+                  </button>
+                  <button
+                    onClick={() => setEligOverride(true)}
+                    className="mt-1.5 w-full py-1 text-center text-[11px] text-zinc-400 underline underline-offset-2 hover:text-zinc-600"
+                  >
+                    자격 미충족을 알고도 초안을 진행할게요 (초안에 확인 필요 표시가 들어가요)
+                  </button>
+                </>
+              ) : eligStatus === "불확실" && !eligOverride ? (
+                <>
+                  <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-800">
+                    ⚠️ <b>신청 자격이 아직 확실하지 않아요.</b> 위 안내(투자·지원금 실적, 추천기관
+                    추천서 등)를 확인해 대화에서 답해 주시면 판정이 갱신되고 초안을 진행할 수 있어요.
+                  </div>
+                  <button
+                    onClick={() => setEligOverride(true)}
+                    className="w-full rounded-xl border border-amber-300 bg-white py-2.5 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-50"
+                  >
+                    확인했어요 — 그래도 초안 진행하기 (초안에 확인 필요 표시가 들어가요)
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={generateDraft}
+                    disabled={
+                      drafting ||
+                      busy ||
+                      planUserTurns < PLAN_MIN_TURNS ||
+                      (Boolean(eligReqs?.found) && eligStatus === null)
+                    }
+                    className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {drafting
+                      ? "초안과 도식을 만드는 중이에요…"
+                      : Boolean(eligReqs?.found) && eligStatus === null
+                        ? "📄 초안 만들기 — 먼저 신청 자격 확인 질문에 답해 주세요"
+                        : planUserTurns < PLAN_MIN_TURNS
+                          ? `📄 초안 만들기 — 대화를 조금 더 해주세요 (${planUserTurns}/${PLAN_MIN_TURNS})`
+                          : "📄 사업계획서 초안 만들기"}
+                  </button>
+                  {planUserTurns < PLAN_MIN_TURNS && (
+                    <p className="mt-1.5 text-center text-[11px] text-zinc-400">
+                      질문에 충분히 답할수록 사업계획서가 좋아져요. 위 대화를 이어가 주세요.
+                    </p>
+                  )}
+                  {eligStatus === "충족" && (
+                    <p className="mt-1.5 text-center text-[11px] text-emerald-600">
+                      ✅ 신청 자격이 확인된 공고예요.
+                    </p>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -2162,7 +2286,7 @@ function Bubble({ m, busy, onEdit }: { m: Msg; busy: boolean; onEdit?: () => voi
             ))}
           </div>
         )}
-        {renderBold(m.content.replace(READY_MARK, "").trimEnd()) || (busy ? "…" : "")}
+        {renderBold(stripEligMarks(m.content.replace(READY_MARK, ""))) || (busy ? "…" : "")}
       </div>
       {isUser && onEdit && !busy && (
         <button
@@ -2532,14 +2656,30 @@ function DraftView({
   drafting,
   charts,
   onDownload,
+  eligWarn,
 }: {
   draft: Draft;
   drafting: boolean;
   charts: Chart[] | null;
   onDownload: () => void;
+  eligWarn?: "미충족" | "불확실" | null;
 }) {
   return (
     <div className="rounded-2xl border border-zinc-200 p-4">
+      {/* 자격 미충족·불확실 강행 시 상단 경고 (2026-07-12) */}
+      {eligWarn && (
+        <div
+          className={`mb-3 rounded-xl border px-3 py-2.5 text-xs leading-5 ${
+            eligWarn === "미충족"
+              ? "border-red-200 bg-red-50 text-red-800"
+              : "border-amber-200 bg-amber-50 text-amber-800"
+          }`}
+        >
+          <b>⚠️ 신청 자격 확인 필요</b> — 이 초안은 신청 자격이{" "}
+          {eligWarn === "미충족" ? "충족되지 않은" : "확인되지 않은"} 상태에서 작성됐어요. 제출 전에
+          공고문의 자격 요건을 반드시 직접 확인하세요.
+        </div>
+      )}
       <h3 className="text-sm font-bold text-zinc-900">{draft.title}</h3>
       <div className="mt-2 space-y-3">
         {draft.sections.map((s, i) => (

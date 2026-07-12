@@ -16,9 +16,48 @@ interface ProgInfo {
   supportField?: string;
 }
 
+// 공고 분석(fitcheck) 단계에서 구조화된 신청 자격 요건 — 인터뷰 자격 판정의 기준
+interface EligReqs {
+  found?: boolean;
+  required?: string[];
+  disqualifiers?: string[];
+  obligations?: string[];
+}
 
+// 자격 판정 모듈 (2026-07-12) — 판정 없이 "써드릴게요"로 넘어가는 경로를 막는다.
+function eligibilitySection(elig: EligReqs | null | undefined): string {
+  const hasData =
+    elig?.found &&
+    ((elig.required?.length ?? 0) > 0 || (elig.disqualifiers?.length ?? 0) > 0);
+  if (!hasData) {
+    return `[신청 자격 확인 — 자동 확인 불가 공고]
+이 공고는 자격 요건이 자동으로 확인되지 않았어요. 대화 초반(첫 두 응답 안)에 반드시 한 번, 정확히 이 취지로 안내하세요:
+"이 공고는 신청 자격 요건을 자동으로 확인하지 못했습니다. 공고문에서 자격 요건(업력·매출·투자 실적 등)을 직접 확인해 주세요."
+그 뒤에는 일반 진행을 하되, 사용자가 자격 관련 정보를 주면 공고의 지원대상 정보와 대조해 아는 범위에서 솔직하게 짚어주세요.`;
+  }
+  const lines = [
+    ...(elig.required?.length ? [`· 필수 자격: ${elig.required.join(" / ")}`] : []),
+    ...(elig.disqualifiers?.length ? [`· 신청 불가: ${elig.disqualifiers.join(" / ")}`] : []),
+    ...(elig.obligations?.length ? [`· 선정 후 의무: ${elig.obligations.join(" / ")}`] : []),
+  ].join("\n");
 
-function systemFor(p: ProgInfo): string {
+  return `[신청 자격 판정 — 본격 작성 전에 반드시 (★최우선)]
+이 공고의 신청 자격 요건:
+${lines}
+
+- **작성 질문을 시작하기 전에** 위 요건과 관련된 사용자 정보(업력, 최근 1년 매출/투자/지원금 실적, 추천서 가능 여부, 입주이력 등)를 확인하세요. 앞 대화([합격 가능성 진단] 답변 포함)에 이미 있으면 다시 묻지 말고 그것으로 판정하세요.
+- 자격 관련 답을 받으면 **절대 그냥 넘어가지 말고, 반드시 아래 셋 중 하나로 판정을 출력**하세요. 판정 문장 뒤 응답 맨 끝 줄에 마커를 붙이세요(마커는 화면에서 숨겨져요):
+  · 충족 → "✅ 이 조건으로 신청 자격이 확인됩니다" + 어떤 요건을 어떻게 충족하는지 한 줄 → 이어서 다음 질문 진행. 마커: [자격판정:충족]
+  · 불확실 → "⚠️"로 시작해, 어떤 기준에 왜 못 미치는지 **숫자로 환산해** 보여주고(예: "월매출 500~1,000만원은 연 환산 시 최대 1.2억으로, 공고 기준(최근 1년 3억)에 미달합니다"), 무엇을 확인하면 되는지(투자·지원금 실적, 추천기관 추천서 등) 구체적으로 안내한 뒤 "확인해 주시기 전까지는 초안 작성을 잠시 보류할게요."라고 마무리. 마커: [자격판정:불확실]
+  · 미충족 → "❌ 현재 정보로는 이 공고의 신청 자격에 해당하지 않습니다. 조건이 맞는 다른 공고를 찾아드릴까요?" 마커: [자격판정:미충족]
+- 신청 불가 사유(입주이력 등)에 해당하면 다른 조건이 좋아도 '미충족'입니다.
+- 판정이 '충족'이 되기 전에는 "이제 써드릴게요 / 초안 만들기 버튼을 눌러주세요" 같은 안내를 **절대 하지 마세요.**
+- 사용자가 새 정보(예: "투자 1억 받았어요")를 주면 판정을 갱신해 다시 판정 문장+마커를 출력하세요.
+- 사용자가 미충족·불확실 상태로도 진행을 원하면 막지는 말되, "초안에 자격 확인 필요 표시가 들어가요"라고 알리고 진행하세요.
+- 선정 후 의무(주소 이전 등)는 판정과 별개로 한 번 안내만 하세요.`;
+}
+
+function systemFor(p: ProgInfo, elig?: EligReqs | null): string {
   const title = p.title || "이 지원사업";
   const ctx = [
     `- 사업명: ${title}`,
@@ -33,6 +72,8 @@ function systemFor(p: ProgInfo): string {
 
 [이 지원사업 정보]
 ${ctx}
+
+${eligibilitySection(elig)}
 
 당신의 임무: 이 사업의 '사업계획서 양식'이 요구하는 항목·순서에 맞춰, 정부지원사업 심사위원처럼 코칭하며 사용자에게서 필요한 내용을 "충분히·구체적으로" 끌어내는 거예요.
 
@@ -99,7 +140,7 @@ ${ctx}
 [질문 의무화 — "알아서 해줘" 대응]
 - 사용자가 짧게 답하거나 "알아서 해줘"라고 해도 절대 임의로 지어 채우지 마세요. "이건 심사에서 가장 중요한 부분이라, 사장님만 아는 답이 필요해요"라며 구체적 질문 1개를 던져 반드시 답을 받아내세요.
 
-- 양식의 모든 항목(또는 위 일반 주제)을 충분히·구체적으로 다 들었다고 판단될 때만: "이제 충분히 들었어요! 아래 '사업계획서 초안 만들기' 버튼을 눌러주세요 😊" 라고 안내하세요. 그 전엔 계속 질문하세요.`;
+- 양식의 모든 항목(또는 위 일반 주제)을 충분히·구체적으로 다 들었고, **신청 자격 판정이 끝났을 때만**(충족이거나, 사용자가 미충족·불확실을 인지하고 진행을 원할 때): "이제 충분히 들었어요! 아래 '사업계획서 초안 만들기' 버튼을 눌러주세요 😊" 라고 안내하세요. 그 전엔 계속 질문하세요.`;
 }
 
 export async function POST(req: Request) {
@@ -110,11 +151,12 @@ export async function POST(req: Request) {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
 
-  const { messages, code, program, programTitle, provider: rawProvider } = (body ?? {}) as {
+  const { messages, code, program, programTitle, eligibility, provider: rawProvider } = (body ?? {}) as {
     messages?: ChatMsg[];
     code?: string;
     program?: ProgInfo;
     programTitle?: string;
+    eligibility?: EligReqs | null;
     provider?: unknown;
   };
 
@@ -155,7 +197,7 @@ export async function POST(req: Request) {
     async start(controller) {
       try {
         for await (const chunk of llm.streamText({
-          system: systemFor(program ?? { title: programTitle }),
+          system: systemFor(program ?? { title: programTitle }, eligibility),
           messages: trimmed,
           maxTokens: 1024,
         })) {
