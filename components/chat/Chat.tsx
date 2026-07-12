@@ -101,9 +101,13 @@ interface EligReqs {
 type EligStatus = "충족" | "불확실" | "미충족";
 const ELIG_REQ_RE = /\[자격요건\]([\s\S]*?)\[\/자격요건\]/;
 const ELIG_JUDGE_G_RE = /\[자격판정:(충족|불확실|미충족)\]/g;
+// 작성요약(2026-07-12): 공고 분석이 남기는 공고·양식 핵심 요약 — 결제 후 대화에서 원본 파일을 대체
+const DOC_SUM_RE = /\[작성요약\]([\s\S]*?)\[\/작성요약\]/;
 function stripEligMarks(text: string): string {
-  return text.replace(ELIG_REQ_RE, "").replace(ELIG_JUDGE_G_RE, "").trimEnd();
+  return text.replace(ELIG_REQ_RE, "").replace(DOC_SUM_RE, "").replace(ELIG_JUDGE_G_RE, "").trimEnd();
 }
+const SUMMARY_PREFIX =
+  "[공고·양식 요약] 아래는 사용자가 올린 공고문·양식의 요약입니다. 원본 파일 대신 이 요약을 기준으로 진행하세요. 특히 '양식 목차'가 있으면 그 항목명·순서를 그대로 따르세요.\n\n";
 
 const GREETING =
   "안녕하세요! 사장님께 맞는 정부지원사업을 같이 찾아볼게요. 😊\n무료로 어디까지 받을 수 있는지 아래에서 먼저 확인해 주세요!";
@@ -211,6 +215,8 @@ export default function Chat() {
   const [eligOverride, setEligOverride] = useState(false);
   // 스트리밍이 빈 응답/끊김으로 끝났을 때 재시도 버튼 노출 (2026-07-12 "..." 멈춤 버그)
   const [retryable, setRetryable] = useState(false);
+  // 공고·양식 작성요약(2026-07-12) — 있으면 결제 후 대화에서 문서 원본 대신 이걸 보낸다 (프롬프트 69K→수천 토큰)
+  const [docSummary, setDocSummary] = useState<string | null>(null);
   // 진단 위저드(2026-07-12 전면 적용) — null이면 챗 화면, 아니면 해당 시작 지점의 전체 화면 흐름
   const [wizardStart, setWizardStart] = useState<WizardStart | null>(null);
   // 위저드에서 올린 공고·양식의 AI 분석(스트리밍 상태) — 결과 화면 '이 공고의 핵심' 블록에 표시
@@ -450,9 +456,20 @@ export default function Chat() {
     setEligReqs(null);
     setEligStatus(null);
     setEligOverride(false);
+    setDocSummary(null);
   }
 
-  // 어시스턴트 응답에서 자격 마커를 읽어 상태를 갱신하고, 화면용으로 마커를 제거한 텍스트를 돌려준다
+  // 결제 후 대화 경량화(2026-07-12): 작성요약이 있으면 문서 원본(base64 PDF·추출 텍스트) 대신
+  // 요약을 첫 사용자 턴으로 넣는다. 요약이 없으면(마커 미수신) 기존대로 원본을 보낸다 — 안전 폴백.
+  function summaryHead(): Msg[] {
+    return docSummary ? [{ role: "user", content: `${SUMMARY_PREFIX}${docSummary}` }] : [];
+  }
+  function lightenForPlan(ms: Msg[]): Msg[] {
+    if (!docSummary) return foldDocs(ms);
+    return [...summaryHead(), ...stripImages(ms)];
+  }
+
+  // 어시스턴트 응답에서 자격·요약 마커를 읽어 상태를 갱신하고, 화면용으로 마커를 제거한 텍스트를 돌려준다
   function absorbEligMarkers(text: string): string {
     const req = text.match(ELIG_REQ_RE);
     if (req) {
@@ -463,6 +480,8 @@ export default function Chat() {
         /* JSON 깨짐 — 요건 없음으로 둔다 */
       }
     }
+    const sum = text.match(DOC_SUM_RE);
+    if (sum && sum[1].trim().length >= 40) setDocSummary(sum[1].trim());
     let judge: EligStatus | null = null;
     for (const m of text.matchAll(ELIG_JUDGE_G_RE)) judge = m[1] as EligStatus;
     if (judge) {
@@ -771,7 +790,7 @@ export default function Chat() {
             : "/api/chat";
     const payload =
       mode === "plan"
-        ? { messages: foldDocs(history), code, program: selectedProgram, eligibility: eligReqs, provider }
+        ? { messages: lightenForPlan(history), code, program: selectedProgram, eligibility: eligReqs, provider }
         : mode === "fitcheck"
           ? { messages: foldDocs(history), program: selectedProgram, provider }
           : mode === "diagnose"
@@ -1265,7 +1284,7 @@ export default function Chat() {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
         body: JSON.stringify({
-          messages: foldDocs(history),
+          messages: lightenForPlan(history),
           code,
           program: p,
           eligibility: eligReqs,
@@ -1362,7 +1381,8 @@ export default function Chat() {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
           body: JSON.stringify({
-            messages: stripImages(messages),
+            // 작성요약(양식 목차 포함)을 앞에 실어 초안이 공고·양식 맥락을 유지하게 (2026-07-12)
+            messages: [...summaryHead(), ...stripImages(messages)],
             code,
             program: selectedProgram,
             section: { heading: sec.heading, guide: sec.guide },
@@ -1401,7 +1421,7 @@ export default function Chat() {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
         body: JSON.stringify({
-          messages: stripImages(messages),
+          messages: [...summaryHead(), ...stripImages(messages)],
           code,
           program: selectedProgram,
           provider,
