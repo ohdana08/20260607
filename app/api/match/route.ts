@@ -4,6 +4,7 @@ import type { ChatMsg } from "@/lib/llm/provider";
 import type { Program, RankedPick, Recommendation } from "@/lib/match/types";
 import { prefilterPrograms, type MatchProfile } from "@/lib/match/prefilter";
 import { matchByButtons, type ButtonProfile } from "@/lib/match/buttonFilter";
+import { deriveConvYears, passesHardYears } from "@/lib/match/convProfile";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
 
@@ -146,10 +147,17 @@ export async function POST(req: Request) {
   const base = fetched.programs.filter(
     (p) => !excludeSet.has(p.id) && !TRAINEE.test(p.title),
   );
-  // LLM 투입 전 규칙 기반 사전 필터: 지역·연령·업력 + 마감 임박순 상위 45건 (점검표 문제 7)
-  const programs = prefilterPrograms(base, profile);
+  // 대화 중 갱신된 업력(예: "2020.07 설립", "업력 6년")을 규칙으로 파생 — 사용자 발화만 사용 (2026-07-12)
+  const userText = messages
+    .filter((m) => m.role === "user")
+    .map((m) => m.content)
+    .join("\n");
+  const convYears = deriveConvYears(userText);
+
+  // LLM 투입 전 규칙 기반 사전 필터: 지역·연령·업력(3문항+대화 파생) + 마감 임박순 (점검표 문제 7)
+  const programs = prefilterPrograms(base, profile).filter((p) => passesHardYears(p, convYears));
   console.log(
-    `[/api/match] 후보 ${programs.length}건 (필터 전 ${base.length}건, 지역=${profile?.region ?? "-"}, 단계=${profile?.stage ?? "-"}, 연령=${profile?.ageGroup ?? "-"})`,
+    `[/api/match] 후보 ${programs.length}건 (필터 전 ${base.length}건, 지역=${profile?.region ?? "-"}, 단계=${profile?.stage ?? "-"}, 대화업력=${convYears?.bucket ?? "-"})`,
   );
   if (programs.length === 0) {
     // 필터 결과 0건 — 조건 무관 마감 임박순 2~3건을 '근접 공고'로 반환 (리드 수집 흐름용)
@@ -165,11 +173,11 @@ export async function POST(req: Request) {
     .map((m) => `${m.role === "user" ? "사용자" : "상담사"}: ${m.content}`)
     .join("\n");
 
-  // 첫 추천은 집중도·비용 때문에 최대 2개. "더 추천받기"(excludeIds 있음)일 때만 폭넓게.
+  // 역할 분리(2026-07-12): 후보 선정은 규칙(위 programs 전체), LLM은 상위권 '정렬·설명'만 담당.
+  // LLM이 소수만 골라도 최종 목록은 규칙 매칭 전체를 유지한다 (재추천 축소 버그 수정).
   const isMore = excludeIds.length > 0;
-  const moreNote = isMore
-    ? "\n\n[개수] 사용자가 '다른 사업을 더' 보고 싶어해요. 사용자 사업과 관련 있는 지원사업을 최대 5개 더 골라주세요. 완벽히 딱 맞지 않아도 도움될 만하면 포함하세요. 단, 교육생·수강생·참가자 모집/강좌/행사/세미나, 그리고 사용자 사업과 무관한 공고는 절대 포함하지 마세요."
-    : "\n\n[개수] 가장 잘 맞는 1~2개만 골라주세요. 절대 3개 이상 고르지 마세요. (집중도·비용 때문)";
+  const moreNote =
+    "\n\n[개수] 사용자 사업과 가장 잘 맞는 순서로 최대 5개를 골라 설명해 주세요. 나머지 후보는 시스템이 목록으로 함께 보여주니, 억지로 채우지 말고 설명할 가치가 있는 것만 고르세요. 단, 교육생·수강생·참가자 모집/강좌/행사/세미나, 사용자 사업과 무관한 공고는 절대 포함하지 마세요.";
   const llm = getLlm(provider, "fast");
   const programsJson = JSON.stringify(programs.map(programForPrompt), null, 2);
   // [개수] 지시문을 공고 목록 '뒤' 별도 턴으로 배치 — 대화+목록 프리픽스 끝에 캐시
@@ -205,7 +213,7 @@ export async function POST(req: Request) {
   }
 
   const byId = new Map(programs.map((p) => [p.id, p]));
-  const recommendations: Recommendation[] = picks
+  const annotated: Recommendation[] = picks
     .map((pick): Recommendation | null => {
       const program = byId.get(pick.id);
       if (!program) return null;
@@ -217,9 +225,27 @@ export async function POST(req: Request) {
       };
     })
     .filter((r): r is Recommendation => r !== null)
-    .slice(0, isMore ? 5 : 2);
+    // 후처리 검증(2026-07-12): LLM이 무엇을 고르든 업력 하드 필터를 코드로 한 번 더 통과시킨다.
+    // (byId가 이미 필터된 후보만 담지만, LLM 경로 변경에도 무너지지 않게 명시적으로 재검사)
+    .filter((r) => passesHardYears(r.program, convYears))
+    .slice(0, 5);
+
+  // 규칙 매칭 전체를 목록으로 유지 — LLM 설명이 붙은 것 먼저, 나머지는 마감 임박순 그대로 (최대 30건)
+  const annotatedIds = new Set(annotated.map((r) => r.program.id));
+  const rest: Recommendation[] = programs
+    .filter((p) => !annotatedIds.has(p.id))
+    .slice(0, Math.max(0, 30 - annotated.length))
+    .map((p) => ({
+      program: p,
+      whatItIs: "",
+      fitReason: convYears
+        ? `지역·업력(${convYears.bucket}) 조건에 맞는 모집 중 공고예요`
+        : "지역·단계 조건에 맞는 모집 중 공고예요",
+      eligibility: "확인 필요" as const,
+    }));
+  const recommendations = [...annotated, ...rest];
 
   // 추천 0건이면: 조건에 가장 근접했던 공고(필터 통과분 마감 임박순) 2~3건 — 리드 수집 흐름용
   const nearMisses = recommendations.length === 0 ? programs.slice(0, 3) : [];
-  return Response.json({ recommendations, nearMisses, usingSample, relaxed });
+  return Response.json({ recommendations, nearMisses, usingSample, relaxed, more: isMore });
 }
