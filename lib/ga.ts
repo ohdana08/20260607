@@ -37,7 +37,10 @@ export type GaEvent =
   | "diagnosis_start" // 무료·유료 안내에서 '무료 진단 시작하기' 클릭
   | "draft_preview_click" // 무료 결과에서 '초안 목차 보기' 클릭
   | "draft_preview_view" // 초안 목차 미리보기 화면 도달
-  | "checkout_start"; // 미리보기에서 결제 화면 진입 (click_pay와 함께 발화)
+  | "checkout_start" // 미리보기에서 결제 화면 진입 (click_pay와 함께 발화)
+  // 완성 키트(2026-07-12) — 초안 하단 블록
+  | "prompt_copy_click" // ChatGPT/Gemini 완성 프롬프트 복사
+  | "consult_cta_click"; // 사업계획서 컨설팅 문의(카톡채널) 클릭
 
 type GtagWindow = Window & {
   dataLayer?: Record<string, unknown>[];

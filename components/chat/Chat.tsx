@@ -25,6 +25,7 @@ import { deriveConvYears } from "@/lib/match/convProfile";
 import {
   buildSheet,
   isPreStage,
+  FIXED_GAPS,
   type EvidenceRow,
   type EvidenceSheet,
 } from "@/lib/diagnosis/evidence";
@@ -123,6 +124,35 @@ function stripEligMarks(text: string): string {
   t = t.replace(/\[(?:자격요건|작성요약|자격판정)[^\n]*[\s\S]*$/, "");
   return t.trimEnd();
 }
+// ── 완성 키트 (2026-07-12 설계) — 초안 하단 "완성도 높이기" 블록 ─────────────
+// ⚠️ 프롬프트 본문(첫 단락)은 대표가 직접 작성해 이 상수만 교체하면 됩니다.
+//    {{변수}}는 buildKitPrompt()가 자동 주입 — 자리 이동 자유, 삭제하면 해당 데이터 미포함.
+const KIT_PROMPT_TEMPLATE = `(📌 프롬프트 본문 자리 — 대표 작성 예정. 예: "너는 정부지원사업 심사위원이야. 아래 자료를 근거로 내 사업계획서 초안을 항목별로 다듬어줘.")
+
+[내 진단 결과 요약]
+{{진단요약}}
+
+[공고 필수 자격 요건]
+{{필수요건}}
+
+[자가 채점에서 지적된 TOP 3]
+{{채점지적TOP3}}
+
+[사업계획서 양식 필수 목차]
+{{양식목차}}
+
+[채점 루브릭]
+{{루브릭}}`;
+
+// 채점 루브릭 (30_dev/루브릭_초안채점_260710 확정안)
+const KIT_RUBRIC = `□ 심사위원이 지적할 지점을 명시하는가 (0/1)
+□ 삭감 1순위 비목(광고선전비 등)을 피하는가 (0/1)
+□ '~할 예정입니다' → 과정·결과로 바꾸는가 (문장 3개 중 2개 이상 전환 시 1)
+□ 공고문을 파싱해 평가 항목에 배치하는가 (0/1)`;
+
+// 컨설팅 문의 — 카톡채널 (가격·약속 문구 없음)
+const KAKAO_CONSULT_URL = "https://pf.kakao.com/_xbrxjxkxj/chat";
+
 const SUMMARY_PREFIX =
   "[공고·양식 요약] 아래는 사용자가 올린 공고문·양식의 요약입니다. 원본 파일 대신 이 요약을 기준으로 진행하세요. 특히 '양식 목차'가 있으면 그 항목명·순서를 그대로 따르세요.\n\n";
 
@@ -244,6 +274,8 @@ export default function Chat() {
   const [retryable, setRetryable] = useState(false);
   // 공고·양식 작성요약(2026-07-12) — 있으면 결제 후 대화에서 문서 원본 대신 이걸 보낸다 (프롬프트 69K→수천 토큰)
   const [docSummary, setDocSummary] = useState<string | null>(null);
+  // 완성 키트용 진단지 보존 — evResult는 결제 시 리셋되므로 초안 시점까지 별도 유지 (2026-07-12)
+  const [kitSheet, setKitSheet] = useState<EvidenceSheet | null>(null);
   // 찾기 결과 세션 캐시(2026-07-12) — 공고 선택으로 위저드가 리마운트돼도 추천 목록·조건 유지
   const [findCache, setFindCache] = useState<FindState | null>(null);
   const [seenRecs, setSeenRecs] = useState<Recommendation[]>([]);
@@ -540,6 +572,27 @@ export default function Chat() {
     setEligOverride(false);
     setDocSummary(null);
     setFormToc([]);
+    setKitSheet(null);
+  }
+
+  // 완성 키트 프롬프트 조립 — {{변수}} 자동 주입. 본문 템플릿(KIT_PROMPT_TEMPLATE)은 대표 교체 예정.
+  function buildKitPrompt(): string {
+    const 진단 = kitSheet
+      ? `강점: ${kitSheet.strengths.map((s) => s.sentence).join(" / ") || "(없음)"}\n보완: ${[
+          ...kitSheet.gaps.map((g) => `${g} 근거 부족`),
+          ...FIXED_GAPS,
+        ].join(" / ")}`
+      : "(진단 미실시)";
+    const 요건 = eligReqs?.required?.length
+      ? eligReqs.required.map((r) => `- ${r}`).join("\n")
+      : "(공고에서 자동 확인된 필수 요건 없음 — 공고문에서 직접 확인)";
+    const 채점 = "(자가 채점 기능 연결 예정 — 채점 완료 시 지적 TOP 3가 자동으로 들어갑니다)";
+    const 목차 = formToc.length > 0 ? formToc.join("\n") : "(별도 양식 없음 — 표준 목차 기준)";
+    return KIT_PROMPT_TEMPLATE.replace("{{진단요약}}", 진단)
+      .replace("{{필수요건}}", 요건)
+      .replace("{{채점지적TOP3}}", 채점)
+      .replace("{{양식목차}}", 목차)
+      .replace("{{루브릭}}", KIT_RUBRIC);
   }
 
   // 결제 후 대화 경량화(2026-07-12): 작성요약이 있으면 문서 원본(base64 PDF·추출 텍스트) 대신
@@ -1348,7 +1401,9 @@ export default function Chat() {
         .catch(() => setEvPrograms([]))
         .finally(() => setEvProgramsLoading(false));
     } else {
-      setEvResult({ kind: "sheet", sheet: buildSheet(evMap ?? [], items) });
+      const sheet = buildSheet(evMap ?? [], items);
+      setEvResult({ kind: "sheet", sheet });
+      setKitSheet(sheet); // 완성 키트용 — 결제 후에도 유지
       track("view_diagnosis_result", { program: selectedProgram?.title ?? "" });
     }
     setTimeout(() => {
@@ -2124,6 +2179,7 @@ export default function Chat() {
             eligWarn={
               eligOverride && (eligStatus === "미충족" || eligStatus === "불확실") ? eligStatus : null
             }
+            kitPrompt={buildKitPrompt()}
           />
         )}
       </div>
@@ -2988,13 +3044,26 @@ function DraftView({
   charts,
   onDownload,
   eligWarn,
+  kitPrompt,
 }: {
   draft: Draft;
   drafting: boolean;
   charts: Chart[] | null;
   onDownload: () => void;
   eligWarn?: "미충족" | "불확실" | null;
+  kitPrompt: string;
 }) {
+  const [copied, setCopied] = useState(false);
+  async function copyKitPrompt() {
+    try {
+      await navigator.clipboard.writeText(kitPrompt);
+      setCopied(true);
+      track("prompt_copy_click");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      alert("복사에 실패했어요. 프롬프트를 드래그해서 직접 복사해 주세요.");
+    }
+  }
   return (
     <div className="rounded-2xl border border-zinc-200 p-4">
       {/* 자격 미충족·불확실 강행 시 상단 경고 (2026-07-12) */}
@@ -3053,6 +3122,37 @@ function DraftView({
       >
         {drafting ? "작성이 끝나면 다운로드할 수 있어요…" : "⬇️ Word(.docx)로 다운로드 (도식 포함)"}
       </button>
+
+      {/* ── 완성 키트 (2026-07-12) — 자가 채점 섹션 뒤 위치 예정, 채점 기능 연결 전까지 초안 하단 ── */}
+      {!drafting && (
+        <div className="mt-5 space-y-3 border-t border-zinc-100 pt-4">
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4">
+            <p className="text-sm font-bold text-zinc-800">🤖 ChatGPT/Gemini로 완성도 높이기</p>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">
+              아래 프롬프트를 복사해 붙여넣으면, 내 진단 결과·공고 요건·양식 목차·채점 루브릭이
+              반영된 상태로 초안을 다듬을 수 있어요.
+            </p>
+            <pre className="mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-100 bg-white p-3 text-[11px] leading-5 text-zinc-600">
+              {kitPrompt}
+            </pre>
+            <button
+              onClick={() => void copyKitPrompt()}
+              className="mt-2 w-full rounded-xl bg-zinc-800 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700"
+            >
+              {copied ? "✓ 복사됐어요 — ChatGPT/Gemini에 붙여넣으세요" : "📋 프롬프트 복사"}
+            </button>
+          </div>
+          <a
+            href={KAKAO_CONSULT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => track("consult_cta_click")}
+            className="block w-full rounded-xl border border-yellow-300 bg-yellow-50 py-3 text-center text-sm font-semibold text-yellow-900 transition-colors hover:bg-yellow-100"
+          >
+            💬 사업계획서 컨설팅 문의 (카카오톡 채널)
+          </a>
+        </div>
+      )}
     </div>
   );
 }
