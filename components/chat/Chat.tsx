@@ -4,7 +4,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import type { Recommendation, Program } from "@/lib/match/types";
-import { PLAN_SECTIONS } from "@/lib/plan/sections";
+import {
+  PLAN_SECTIONS,
+  ensureFormTableNotice,
+  formTocToPlanSections,
+  sanitizeFormToc,
+} from "@/lib/plan/sections";
 import { track } from "@/lib/ga";
 import { captureUtm, getLeadSource } from "@/lib/utm";
 import { useAuth, authedHeaders, forceRefreshToken, AuthModal } from "@/components/auth/AuthGate";
@@ -1297,7 +1302,7 @@ export default function Chat() {
     // 양식 목차 결정적 추출 — 역할이 지정된 양식 파일에서, 없으면 업로드된 문서 전체에서
     const roleM = note.match(/'([^']+)'\s*파일이 사업계획서 양식/);
     const formDocs = roleM ? payload.docs.filter((d) => d.name === roleM[1]) : payload.docs;
-    const toc = formDocs.flatMap((d) => extractFormHeadings(d.text));
+    const toc = sanitizeFormToc(formDocs.flatMap((d) => extractFormHeadings(d.text)));
     if (toc.length >= 3) setFormToc(toc);
 
     const base =
@@ -1554,14 +1559,13 @@ export default function Chat() {
     setDrafting(true);
     setCharts(null);
     const title = `${selectedProgram.title} 사업계획서`;
-    // TODO(양식 매핑 고도화): 현재 초안은 표준 PSST 5항목 골격(PLAN_SECTIONS)으로 생성됨.
-    //   대화 단계(plan/chat)는 첨부 양식의 항목·순서를 그대로 따르지만, 자동 .docx 초안은
-    //   아직 PSST 골격을 씀. 첨부 양식의 항목을 추출해 그 목차대로 생성하려면, 업로드 양식에서
-    //   항목 리스트를 뽑는 단계(LLM 추출)를 추가하고 이 루프를 그 리스트로 구동해야 함.
+    const formSections = formTocToPlanSections(formToc);
+    const draftPlanSections = formSections ?? PLAN_SECTIONS;
+    const draftFormToc = formSections?.map((s) => s.heading) ?? [];
     const sections: DraftSection[] = [];
     setDraft({ title, sections: [] });
 
-    for (const sec of PLAN_SECTIONS) {
+    for (const sec of draftPlanSections) {
       sections.push({ heading: sec.heading, content: "" });
       setDraft({ title, sections: [...sections] });
       try {
@@ -1574,6 +1578,7 @@ export default function Chat() {
             code,
             program: selectedProgram,
             section: { heading: sec.heading, guide: sec.guide },
+            formToc: draftFormToc.length > 0 ? draftFormToc : undefined,
             provider,
           }),
         });
@@ -1594,11 +1599,16 @@ export default function Chat() {
           const { done, value } = await reader.read();
           if (done) break;
           acc += decoder.decode(value, { stream: true });
-          sections[sections.length - 1].content = acc;
+          sections[sections.length - 1].content = ensureFormTableNotice(sec.heading, acc);
           setDraft({ title, sections: [...sections] });
         }
+        sections[sections.length - 1].content = ensureFormTableNotice(sec.heading, acc);
+        setDraft({ title, sections: [...sections] });
       } catch {
-        sections[sections.length - 1].content = "(이 항목 작성 중 연결이 끊겼어요.)";
+        sections[sections.length - 1].content = ensureFormTableNotice(
+          sec.heading,
+          "(이 항목 작성 중 연결이 끊겼어요.)",
+        );
         setDraft({ title, sections: [...sections] });
       }
     }
