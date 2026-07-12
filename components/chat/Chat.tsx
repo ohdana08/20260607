@@ -508,20 +508,36 @@ export default function Chat() {
       const isImage = f.type.startsWith("image/");
       const isPdf = f.type === "application/pdf" || lower.endsWith(".pdf");
       const isWord = lower.endsWith(".docx");
-      const isHwp = lower.endsWith(".hwp") || lower.endsWith(".hwpx");
-      if (isHwp) {
-        alert(
-          `${f.name}: 한글(HWP) 파일은 아직 바로 못 읽어요.\n한글에서 '파일 → PDF로 저장(또는 인쇄→PDF)' 한 뒤 그 PDF를 올려주세요. (또는 화면 캡처)`,
-        );
-        continue;
-      }
-      if (!isImage && !isPdf && !isWord) {
-        alert(`${f.name}: 사진(JPG/PNG), PDF, 워드(.docx)만 첨부할 수 있어요.`);
+      const isHwpx = lower.endsWith(".hwpx");
+      const isHwp = lower.endsWith(".hwp");
+      if (!isImage && !isPdf && !isWord && !isHwp && !isHwpx) {
+        alert(`${f.name}: 사진(JPG/PNG), PDF, 워드(.docx), 한글(.hwp/.hwpx)만 첨부할 수 있어요.`);
         continue;
       }
       if (f.size > 3 * 1024 * 1024) {
         alert(`${f.name}: 파일은 3MB 이하만 가능해요. (크면 필요한 페이지만 캡처해서 사진으로 올려주세요.)`);
         continue;
+      }
+      // 한글(HWP/HWPX) — 업로드를 받고 텍스트 추출을 시도. 실패해도 조용히 버리지 않고 안내한다 (2026-07-12)
+      if (isHwpx || isHwp) {
+        try {
+          const { extractHwpxText, extractHwpText } = await import("@/lib/hwp/extract");
+          const buf = await f.arrayBuffer();
+          const text = isHwpx ? await extractHwpxText(buf) : await extractHwpText(buf);
+          if (text.trim().length >= 30) {
+            wordDocs.push({ name: f.name, text });
+            continue;
+          }
+          throw new Error("추출된 글자가 너무 적음");
+        } catch {
+          alert(
+            `${f.name}: 한글 파일을 읽지 못했어요. 다음 중 하나로 올려주세요:\n` +
+              `① 한글에서 [파일 → PDF로 저장] 후 PDF 업로드 (가장 정확)\n` +
+              `② 공고 페이지의 '지원내용·평가방법' 부분 화면 캡처\n` +
+              `③ 공고 링크 붙여넣기`,
+          );
+          continue;
+        }
       }
       if (isWord) {
         // 워드는 브라우저에서 글자만 뽑아 텍스트로 전송 (용량·API 제약 회피)
@@ -2023,7 +2039,7 @@ export default function Chat() {
           <div className="border-t border-zinc-100 p-4">
             {programStage && (
               <p className="mb-2 text-center text-[11px] leading-4 text-zinc-400">
-                💡 사진·PDF·워드(📎)를 올리면 진단과 사업계획서가 더 정확해져요 (공고문·양식·매출/예약 캡처 등)
+                💡 사진·PDF·워드·한글(hwpx) 모두 괜찮아요 — 📎로 올리면 진단과 사업계획서가 더 정확해져요
               </p>
             )}
             {(pendingImages.length > 0 || pendingFiles.length > 0 || pendingDocs.length > 0) && (
@@ -2084,7 +2100,7 @@ export default function Chat() {
                 📎
                 <input
                   type="file"
-                  accept="image/*,application/pdf,.pdf,.docx"
+                  accept="image/*,application/pdf,.pdf,.docx,.hwp,.hwpx"
                   multiple
                   className="hidden"
                   onChange={(e) => {
@@ -2104,7 +2120,7 @@ export default function Chat() {
                 placeholder={
                   profileFormVisible
                     ? "먼저 위에서 세 가지를 골라주세요 👆"
-                    : "여기에 답을 입력하세요… (📎로 사진·PDF·워드 첨부)"
+                    : "여기에 답을 입력하세요… (📎로 사진·PDF·워드·한글 첨부)"
                 }
                 className="max-h-32 flex-1 resize-none rounded-2xl border border-zinc-200 px-4 py-2.5 text-sm outline-none focus:border-blue-500 disabled:bg-zinc-50"
               />

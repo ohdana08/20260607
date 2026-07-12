@@ -11,6 +11,13 @@ const nextConfig: NextConfig = {
   // Native module: keep external so its prebuilt .node binary is traced into
   // the serverless function (otherwise SVG→PNG fails at runtime on Vercel).
   serverExternalPackages: ["@resvg/resvg-js"],
+  // hwp.js(내부 cfb)가 'fs'를 정적 import — 브라우저 번들에서는 빈 셔임으로 대체.
+  // (한글 파일은 ArrayBuffer로만 파싱하므로 fs는 런타임에 쓰이지 않는다. 2026-07-12)
+  turbopack: {
+    resolveAlias: {
+      fs: { browser: "./lib/shims/empty.ts" },
+    },
+  },
   async headers() {
     return [
       {

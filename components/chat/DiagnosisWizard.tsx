@@ -65,7 +65,7 @@ type Step =
   | "handoff"
   | "preview";
 
-const ACCEPT = "image/*,application/pdf,.pdf,.docx";
+const ACCEPT = "image/*,application/pdf,.pdf,.docx,.hwp,.hwpx";
 
 // 마감일 → 사람이 읽는 라벨 (Chat.tsx deadlineLabel과 동일 규칙)
 function ddayLabel(applyEnd: string | null): { text: string; urgent: boolean } {
@@ -650,7 +650,7 @@ export default function DiagnosisWizard({
             onClick={() => noticeInputRef.current?.click()}
             className="mt-5 w-full rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/50 px-4 py-9 text-center text-[15px] text-zinc-600 transition-colors hover:bg-blue-50"
           >
-            📎 <b className="text-blue-700">파일 올리기</b> — 사진·PDF·워드 모두 괜찮아요
+            📎 <b className="text-blue-700">파일 올리기</b> — 사진·PDF·워드·한글(hwpx) 모두 괜찮아요
           </button>
           {chips.length > 0 && (
             <div className="mt-2.5 flex flex-wrap gap-2">
