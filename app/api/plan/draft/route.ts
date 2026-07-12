@@ -3,7 +3,7 @@ import type { ChatMsg } from "@/lib/llm/provider";
 import { checkDraftAccess, paymentRequiredResponse } from "@/lib/plan/paidAccess";
 import { maintenanceGate } from "@/lib/config";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
-import { MISSING_INFO_PLACEHOLDER, REGION_INFO_PLACEHOLDER, sanitizeFormToc } from "@/lib/plan/sections";
+import { MISSING_INFO_PLACEHOLDER, sanitizeFormToc } from "@/lib/plan/sections";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -96,7 +96,7 @@ ${MISSING_INFO_PLACEHOLDER}
 - 실제 매출, 인원, 일정, 투자금액, 고객 수, 인증, 특허, 수출, 계약 같은 사실은 사용자 발화나 첨부 자료에 있을 때만 쓰세요.
 - 사업 소재지는 사용자가 실제 입력한 지역만 쓰세요. 지역을 확인할 수 있으면 "사업 소재지: 사용자가 실제 입력한 지역" 형식으로, 확인할 수 없으면 "사업 소재지: 아직 입력하지 않음"이라고 쓰세요.
 - 지역 자격은 업로드한 공고문이 요구하는 본사·사업장·공장 등의 소재지 기준에 맞춰 판단하세요.
-- 지역 정보가 부족하면 임의로 추정하지 말고 ${REGION_INFO_PLACEHOLDER} 표시를 남기세요.
+- 지역 정보가 부족하면 임의로 추정하지 마세요. 단, 화면에 보이는 소재지 보완 문구는 시스템이 신청현황/일반현황 중 한 곳에만 조건부로 표시하므로 다른 항목에 반복하지 마세요.
 - 이 항목에 해당하는 내용만 쓰세요(제목은 다시 쓰지 말 것). 분량은 2~4문단.
 
 [심사위원 시선 필터 — 작성하며 반드시 점검]

@@ -19,6 +19,10 @@ const TABLE_ENTRY_HEADINGS = [
   "□ 일반현황",
   "□ 창업아이템 개요(요약)",
 ];
+const REGION_NOTICE_TARGET_HEADINGS = ["□ 일반현황", "□ 신청현황"];
+const NON_CAPITAL_REGIONS = ["부산", "대구", "광주", "대전", "울산", "세종", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"];
+const CAPITAL_REGIONS = ["서울", "경기", "인천"];
+const SIDO_REGIONS = [...CAPITAL_REGIONS, ...NON_CAPITAL_REGIONS];
 
 export const PLAN_SECTIONS: PlanSection[] = [
   {
@@ -80,11 +84,71 @@ export function isFormTableEntryHeading(heading: string): boolean {
   return TABLE_ENTRY_HEADINGS.includes(heading.trim());
 }
 
+export function isRegionNoticeTargetHeading(heading: string): boolean {
+  return REGION_NOTICE_TARGET_HEADINGS.includes(heading.trim());
+}
+
+export function preferredRegionNoticeHeading(headings: string[]): string | null {
+  for (const h of REGION_NOTICE_TARGET_HEADINGS) {
+    if (headings.some((x) => x.trim() === h)) return h;
+  }
+  return null;
+}
+
 export function ensureFormTableNotice(heading: string, content: string): string {
   if (!isFormTableEntryHeading(heading)) return content;
   const body = content.trim();
   if (body.startsWith(FORM_TABLE_ENTRY_NOTICE)) return body;
   return body ? `${FORM_TABLE_ENTRY_NOTICE}\n\n${body}` : FORM_TABLE_ENTRY_NOTICE;
+}
+
+export function ensureConditionalRegionNotice(
+  heading: string,
+  content: string,
+  notice: string | null,
+  targetHeading: string | null,
+): string {
+  const cleaned = content.replace(new RegExp(escapeRegExp(REGION_INFO_PLACEHOLDER), "g"), "").replace(/\n{3,}/g, "\n\n").trim();
+  if (!notice || !targetHeading || heading.trim() !== targetHeading.trim()) return cleaned;
+  if (cleaned.includes(notice)) return cleaned;
+  return cleaned ? `${cleaned}\n\n${notice}` : notice;
+}
+
+export function extractBusinessRegion(text: string, fallback?: string | null): string | null {
+  const candidates = [fallback ?? "", text].join("\n");
+  if (/전국/.test(fallback ?? "")) return null;
+  for (const region of SIDO_REGIONS) {
+    if (new RegExp(`(사업\\s*소재지|소재지|사업장|본사|공장|지역)\\s*[:：]?\\s*[^\\n]{0,12}${region}`).test(candidates)) {
+      return region;
+    }
+  }
+  if (fallback && fallback.trim()) return fallback.trim().slice(0, 2);
+  return null;
+}
+
+export function buildRegionNotice(requirementText: string, userRegion: string | null): string | null {
+  const text = requirementText.replace(/\s+/g, " ");
+  const basis = regionBasis(text);
+  const nonCapital = /비수도권|수도권\s*(외|제외)|서울[·,\s]*경기[·,\s]*인천\s*제외|서울·경기·인천\s*제외/.test(text);
+  if (nonCapital) {
+    if (!userRegion) return `[보완 필요: 신청 마감일 기준 ${basis} 비수도권에 소재하는지 확인할 정보를 입력해 주세요.]`;
+    if (CAPITAL_REGIONS.includes(userRegion)) {
+      return `[지역 자격 확인 필요: 입력한 사업 소재지(${userRegion})가 비수도권 요건을 충족하지 못할 수 있습니다. 공고의 ${basis} 소재지 기준을 확인해 주세요.]`;
+    }
+    return null;
+  }
+
+  const specific = specificRegionRequirement(text);
+  if (specific) {
+    if (!userRegion) return `[보완 필요: 신청 마감일 기준 ${basis} ${specific}에 소재하는지 확인할 정보를 입력해 주세요.]`;
+    if (userRegion !== specific) {
+      return `[지역 자격 확인 필요: 입력한 사업 소재지(${userRegion})가 ${specific} 소재 요건을 충족하는지 확인해 주세요.]`;
+    }
+    return null;
+  }
+
+  if (/전국/.test(text)) return null;
+  return null;
 }
 
 function formTocGuide(heading: string, index: number, total: number): string {
@@ -98,6 +162,24 @@ function formTocGuide(heading: string, index: number, total: number): string {
     ...base,
     "이 항목은 장문 본문이 아니라 공식 양식 표에 옮겨 적을 간결한 입력 초안입니다.",
     "사업자등록일, 매출, 투자금액, 직원 수, 고객 수 등 입력에 없는 숫자는 절대 만들지 마세요.",
-    `사업 소재지는 사용자가 실제 입력한 지역만 쓰고, 지역 정보가 부족하면 ${REGION_INFO_PLACEHOLDER} 표시를 남기세요.`,
+    "사업 소재지는 사용자가 실제 입력한 지역만 쓰고, 지역 자격 보완 문구는 시스템이 별도로 한 번만 표시합니다.",
   ].join(" ");
+}
+
+function regionBasis(text: string): string {
+  const found = ["본사", "사업장", "공장"].filter((word) => text.includes(word));
+  if (found.length > 0) return `${found.join(" 또는 ")}이`;
+  return "본사 또는 사업장이";
+}
+
+function specificRegionRequirement(text: string): string | null {
+  for (const region of SIDO_REGIONS) {
+    const re = new RegExp(`${region}(광역시|특별시|특별자치시|특별자치도|도)?[^\\n]{0,20}(소재|본사|사업장|공장|기업|창업기업|중소기업|대상|한정)`);
+    if (re.test(text)) return region;
+  }
+  return null;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

@@ -6,8 +6,12 @@ import "driver.js/dist/driver.css";
 import type { Recommendation, Program } from "@/lib/match/types";
 import {
   PLAN_SECTIONS,
+  buildRegionNotice,
   ensureFormTableNotice,
+  ensureConditionalRegionNotice,
+  extractBusinessRegion,
   formTocToPlanSections,
+  preferredRegionNoticeHeading,
   sanitizeFormToc,
 } from "@/lib/plan/sections";
 import { track } from "@/lib/ga";
@@ -1562,6 +1566,20 @@ export default function Chat() {
     const formSections = formTocToPlanSections(formToc);
     const draftPlanSections = formSections ?? PLAN_SECTIONS;
     const draftFormToc = formSections?.map((s) => s.heading) ?? [];
+    const userTextForRegion = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+    const regionRequirementText = [
+      docSummary ?? "",
+      selectedProgram.target,
+      selectedProgram.summary,
+      ...(eligReqs?.required ?? []),
+      ...(eligReqs?.disqualifiers ?? []),
+      ...(eligReqs?.obligations ?? []),
+    ].join("\n");
+    const regionNotice = buildRegionNotice(
+      regionRequirementText,
+      extractBusinessRegion(userTextForRegion, profile?.region ?? null),
+    );
+    const regionNoticeHeading = preferredRegionNoticeHeading(draftPlanSections.map((s) => s.heading));
     const sections: DraftSection[] = [];
     setDraft({ title, sections: [] });
 
@@ -1599,15 +1617,27 @@ export default function Chat() {
           const { done, value } = await reader.read();
           if (done) break;
           acc += decoder.decode(value, { stream: true });
-          sections[sections.length - 1].content = ensureFormTableNotice(sec.heading, acc);
+          sections[sections.length - 1].content = ensureConditionalRegionNotice(
+            sec.heading,
+            ensureFormTableNotice(sec.heading, acc),
+            regionNotice,
+            regionNoticeHeading,
+          );
           setDraft({ title, sections: [...sections] });
         }
-        sections[sections.length - 1].content = ensureFormTableNotice(sec.heading, acc);
+        sections[sections.length - 1].content = ensureConditionalRegionNotice(
+          sec.heading,
+          ensureFormTableNotice(sec.heading, acc),
+          regionNotice,
+          regionNoticeHeading,
+        );
         setDraft({ title, sections: [...sections] });
       } catch {
-        sections[sections.length - 1].content = ensureFormTableNotice(
+        sections[sections.length - 1].content = ensureConditionalRegionNotice(
           sec.heading,
-          "(이 항목 작성 중 연결이 끊겼어요.)",
+          ensureFormTableNotice(sec.heading, "(이 항목 작성 중 연결이 끊겼어요.)"),
+          regionNotice,
+          regionNoticeHeading,
         );
         setDraft({ title, sections: [...sections] });
       }
