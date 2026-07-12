@@ -166,7 +166,7 @@ export async function POST(req: Request) {
   const rl = await checkRateLimit(req, "planChat");
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
   // 유료 관문(2026-07-09): 주문번호 인증(is_paid) 또는 마스터 코드
-  const access = await checkDraftAccess(req, code);
+  const access = await checkDraftAccess(req, code, (program as ProgInfo | undefined)?.id);
   if (!access.ok) return paymentRequiredResponse(access.reason);
 
   const provider = parseProvider(rawProvider);

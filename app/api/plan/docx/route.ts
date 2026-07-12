@@ -20,10 +20,9 @@ export async function POST(req: Request) {
     sections?: PlanDocxSection[];
     charts?: PlanDocxChart[];
   };
-  void programId;
 
   // 유료 관문(2026-07-09): 주문번호 인증(is_paid) 또는 마스터 코드
-  const access = await checkDraftAccess(req, code);
+  const access = await checkDraftAccess(req, code, programId);
   if (!access.ok) return paymentRequiredResponse(access.reason);
   if (!Array.isArray(sections) || sections.length === 0) {
     return Response.json({ error: "내보낼 내용이 없어요." }, { status: 400 });

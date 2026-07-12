@@ -1,6 +1,6 @@
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
 import type { ChatMsg } from "@/lib/llm/provider";
-import { checkDraftAccess, paymentRequiredResponse } from "@/lib/plan/paidAccess";
+import { checkDraftAccess, markCreditUsed, paymentRequiredResponse } from "@/lib/plan/paidAccess";
 import { maintenanceGate } from "@/lib/config";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { MISSING_INFO_PLACEHOLDER, sanitizeFormToc } from "@/lib/plan/sections";
@@ -33,7 +33,11 @@ export async function POST(req: Request) {
   const rl = await checkRateLimit(req, "planDraft");
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
   // 유료 관문(2026-07-09): 주문번호 인증(is_paid) 또는 마스터 코드
-  const access = await checkDraftAccess(req, code);
+  const access = await checkDraftAccess(req, code, program?.id);
+  if (access.ok && access.user && program?.id) {
+    // 이용권 소진(2026-07-13): 첫 초안 생성 시점에 이 공고에 바인딩 (이미 바인딩됐으면 유지)
+    await markCreditUsed(access.user.id, program.id);
+  }
   if (!access.ok) return paymentRequiredResponse(access.reason);
   if (!Array.isArray(messages) || !section?.heading) {
     return Response.json({ error: "필요한 정보가 부족해요." }, { status: 400 });

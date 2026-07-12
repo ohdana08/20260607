@@ -1139,7 +1139,13 @@ export default function Chat() {
         return;
       }
       if (res.status === 402) {
-        replaceLast("이 기능은 결제 확인이 필요해요. 상단 [💳 결제 확인]에서 그로블 주문번호를 입력해 주세요.");
+        // 서버가 사유(이용권 소진 등)를 보내면 그대로 노출 (2026-07-13)
+        const d = (await res.json().catch(() => null)) as { error?: string } | null;
+        replaceLast(
+          typeof d?.error === "string"
+            ? d.error
+            : "이 기능은 결제 확인이 필요해요. 상단 [💳 결제 확인]에서 그로블 주문번호를 입력해 주세요.",
+        );
         return;
       }
       if (!res.ok || !res.body) {
@@ -1499,11 +1505,22 @@ export default function Chat() {
 
   // 결제 트리거 — 39,900원 버튼. 초안 미리보기를 확인한 뒤에만 도달한다. (// TODO: PG 연동 자리)
   // 이메일은 진단 전 게이트에서 이미 받았으므로 결제 단계에선 추가 가입을 받지 않는다.
-  function clickPay() {
+  async function clickPay() {
     track("click_pay", { program: selectedProgram?.title ?? "", price: PRICE_KRW });
     track("checkout_start", { program: selectedProgram?.title ?? "", price: PRICE_KRW });
-    // 이미 결제 확인(is_paid)된 계정이면 바로 작성 시작
+    // 이미 결제 확인(is_paid)된 계정: 이용권 소진 상태를 확인하고 진입 (2026-07-13)
+    // 이용권 1건 = 초안 1건 — 다른 공고에 이미 사용했으면 추가 결제(paywall)로 라우팅.
     if (paid && selectedProgram) {
+      try {
+        const res = await fetch("/api/order/verify", { headers: await authedHeaders() });
+        const d = (await res.json().catch(() => ({}))) as { usedProgramId?: string | null };
+        if (d?.usedProgramId && d.usedProgramId !== selectedProgram.id) {
+          setMode("paywall");
+          return;
+        }
+      } catch {
+        /* 조회 실패 시엔 일단 진입 — 서버 관문(checkDraftAccess)이 최종 차단한다 */
+      }
       enterPlanMode(selectedProgram);
       return;
     }
@@ -1557,6 +1574,11 @@ export default function Chat() {
         }),
       });
       if (!res.ok || !res.body) {
+        if (res.status === 402) {
+          const d = (await res.json().catch(() => null)) as { error?: string } | null;
+          replaceLast(typeof d?.error === "string" ? d.error : "결제 확인이 필요해요.");
+          return;
+        }
         replaceLast(
           "앞에서 올려주신 공고문·양식 기준으로 이어갈게요. 어떤 제품·서비스인지 한 문장으로 먼저 말씀해 주시겠어요?",
         );
@@ -1670,6 +1692,14 @@ export default function Chat() {
         });
         if (res.status === 429) {
           sections[sections.length - 1].content = "(잠시 너무 많이 사용했어요. 잠깐 후 다시 시도해 주세요.)";
+          setDraft({ title, sections: [...sections] });
+          break;
+        }
+        if (res.status === 402) {
+          // 이용권 소진 등 — 서버 사유를 그대로 보여주고 중단 (2026-07-13)
+          const d = (await res.json().catch(() => null)) as { error?: string } | null;
+          sections[sections.length - 1].content =
+            typeof d?.error === "string" ? `(${d.error})` : "(추가 이용권 결제가 필요해요.)";
           setDraft({ title, sections: [...sections] });
           break;
         }
@@ -2288,6 +2318,10 @@ export default function Chat() {
               eligOverride && (eligStatus === "미충족" || eligStatus === "불확실") ? eligStatus : null
             }
             kitPrompt={buildKitPrompt()}
+            onRepurchase={() => {
+              track("repurchase_cta_click", { price: PRICE_KRW });
+              setPayOpen(true);
+            }}
           />
         )}
       </div>
@@ -3158,6 +3192,7 @@ function DraftView({
   onDownload,
   eligWarn,
   kitPrompt,
+  onRepurchase,
 }: {
   draft: Draft;
   drafting: boolean;
@@ -3165,6 +3200,7 @@ function DraftView({
   onDownload: () => void;
   eligWarn?: "미충족" | "불확실" | null;
   kitPrompt: string;
+  onRepurchase: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   async function copyKitPrompt() {
@@ -3270,6 +3306,21 @@ function DraftView({
           >
             💬 사업계획서 컨설팅 문의 (카카오톡 채널)
           </a>
+
+          {/* 추가 이용권 (2026-07-13 소진 정책) — 완료 후엔 추천이 아니라 재구매 CTA가 가격 정책과 정합 */}
+          <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 text-center">
+            <p className="text-sm font-bold text-zinc-800">다른 공고의 사업계획서도 필요하세요?</p>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">
+              이용권 1건은 사업계획서 초안 1건에 사용돼요. 새 공고의 초안은 추가 이용권으로 만들 수
+              있어요. (공고 찾기·무료 진단은 계속 무료입니다)
+            </p>
+            <button
+              onClick={onRepurchase}
+              className="mt-2.5 w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+            >
+              추가 이용권 결제 · {PRICE}
+            </button>
+          </div>
         </div>
       )}
     </div>

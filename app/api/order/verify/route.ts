@@ -24,12 +24,17 @@ function getRedis(): Redis | null {
   return new Redis({ url, token });
 }
 
-// GET — 내 결제 확인 상태 (로그인 필요)
+// GET — 내 결제 확인 상태 (로그인 필요). usedProgramId = 이용권이 바인딩된 공고 (소진 여부)
 export async function GET(req: Request) {
   const user = await getAuthedUser(req);
   if (!user) return Response.json({ paid: false, loggedIn: false });
   const paid = await getPaidRecord(user.id);
-  return Response.json({ paid: Boolean(paid), loggedIn: true, orderNo: paid?.orderNo ?? null });
+  return Response.json({
+    paid: Boolean(paid),
+    loggedIn: true,
+    orderNo: paid?.orderNo ?? null,
+    usedProgramId: paid?.usedProgramId ?? null,
+  });
 }
 
 // POST — 주문번호 인증: 형식 검증 → 시도 제한 → 재사용 차단 → is_paid
@@ -73,7 +78,22 @@ export async function POST(req: Request) {
 
   // 이미 인증된 계정이면 그대로 통과 (멱등)
   const already = await getPaidRecord(user.id);
-  if (already) return Response.json({ ok: true, orderNo: already.orderNo, isQa: Boolean(already.isQa) });
+  if (already) {
+    // 이용권 소진 후 "새" QA 주문번호 → 새 이용권으로 교체 (QA_MODE 한정 — 소진 로직 반복 테스트용).
+    // 실주문 재구매의 verify 갱신은 그로블 상품 구조 확인 후 다음 커밋 (지금은 소진 차단까지만).
+    if (already.usedProgramId && qa && orderNo !== already.orderNo) {
+      const renewed = { orderNo, email: user.email, verifiedAt: new Date().toISOString(), isQa: true };
+      await r.set(PAID_KEY(user.id), renewed);
+      console.log(`[order/verify] QA 이용권 갱신: ${orderNo} (user: ${user.id})`);
+      return Response.json({ ok: true, orderNo, isQa: true, renewed: true });
+    }
+    return Response.json({
+      ok: true,
+      orderNo: already.orderNo,
+      isQa: Boolean(already.isQa),
+      usedProgramId: already.usedProgramId ?? null,
+    });
+  }
 
   // ── QA 우회 (QA_MODE=true 배포 한정) — 원장 검증·재사용 차단 없이 테스트 통과 ──
   // 기록에는 전부 is_qa 표기를 남겨 실주문·실리드와 절대 섞이지 않게 한다.
