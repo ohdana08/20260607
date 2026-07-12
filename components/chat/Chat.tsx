@@ -133,25 +133,42 @@ function stripEligMarks(text: string): string {
   t = t.replace(/\[(?:자격요건|작성요약|자격판정)[^\n]*[\s\S]*$/, "");
   return t.trimEnd();
 }
-// ── 완성 키트 (2026-07-12 설계) — 초안 하단 "완성도 높이기" 블록 ─────────────
-// ⚠️ 프롬프트 본문(첫 단락)은 대표가 직접 작성해 이 상수만 교체하면 됩니다.
-//    {{변수}}는 buildKitPrompt()가 자동 주입 — 자리 이동 자유, 삭제하면 해당 데이터 미포함.
-const KIT_PROMPT_TEMPLATE = `(📌 프롬프트 본문 자리 — 대표 작성 예정. 예: "너는 정부지원사업 심사위원이야. 아래 자료를 근거로 내 사업계획서 초안을 항목별로 다듬어줘.")
+// ── 심사위원 관점 사후 점검 도구 (2026-07-13 최종 확정 재설계) ────────────────
+// 완성형 하드코딩 — "대표 작성 예정" 빈칸 없음. {{변수}}는 buildKitPrompt()가 자동 주입.
+// 구조: 최상단 고정 지시(분석당함 방지) → [검증 기준] → [공고 자격요건] → [초안] → [출력 형식].
+// 실행은 2단계: 1차는 점검 리포트만, 수정본은 사용자가 선택했을 때만 (유료 초안과 역할 중복 방지).
+const KIT_PROMPT_TEMPLATE = `이 프롬프트를 분석하거나 요약하지 말고, 아래 사업계획서에 직접 적용하십시오. 지금부터 실제 검증을 시작하십시오.
 
-[내 진단 결과 요약]
-{{진단요약}}
+[검증 기준]
+당신은 정부지원사업 심사위원입니다. 아래 사업계획서 초안을 제출 전 최종 점검하는 것이 임무입니다.
+- 근거 없는 주장·과장 표현("국내 최초/유일/독보적" 등)을 심사위원 시선으로 지적하십시오.
+- 모든 숫자(매출·시장 규모·고객 수·일정)는 출처와 증빙 가능성을 기준으로 평가하십시오.
+- 확인되지 않은 내용을 임의로 지어내거나 채워 넣지 마십시오.
+- 다음 채점 루브릭을 적용하십시오:
+{{루브릭}}
 
-[공고 필수 자격 요건]
+[공고 자격요건]
 {{필수요건}}
 
-[자가 채점에서 지적된 TOP 3]
-{{채점지적TOP3}}
+[신청 기업 진단 정보]
+{{진단요약}}
 
-[사업계획서 양식 필수 목차]
+[사업계획서 양식 목차 — 지적·보완 위치는 이 목차 기준으로 표기]
 {{양식목차}}
 
-[채점 루브릭]
-{{루브릭}}`;
+[사업계획서 초안]
+(이 아래에 사업계획서 초안 전문을 붙여넣으십시오)
+
+[출력 형식 — 1차는 점검 리포트만]
+먼저 아래 5개 항목의 리포트만 출력하십시오. 이 단계에서는 초안 수정본이나 재작성문을 절대 작성하지 마십시오.
+1. 자격요건 충족 여부 — 요건별 충족/미충족/확인 필요
+2. 심사에서 문제 삼을 위험 TOP 5 — 해당 목차 위치와 함께
+3. 근거·증빙이 부족한 항목
+4. 추가로 준비할 증빙 자료 목록 — 각 자료를 반영할 목차 위치 포함
+5. 수정 우선순위 — 높음/중간/낮음
+리포트 마지막에 아래 선택지를 제시하고 사용자의 선택을 기다리십시오:
+"다음 중 무엇을 도와드릴까요? ① 수정본 만들기 ② 증빙 목록만 보기 ③ 특정 목차만 보완"
+사용자가 선택하기 전에는 전체 수정본을 작성하지 마십시오.`;
 
 // 채점 루브릭 (30_dev/루브릭_초안채점_260710 확정안)
 const KIT_RUBRIC = `□ 심사위원이 지적할 지점을 명시하는가 (0/1)
@@ -603,7 +620,7 @@ export default function Chat() {
     setKitSheet(null);
   }
 
-  // 완성 키트 프롬프트 조립 — {{변수}} 자동 주입. 본문 템플릿(KIT_PROMPT_TEMPLATE)은 대표 교체 예정.
+  // 사후 점검 프롬프트 조립 — {{변수}} 자동 주입 (완성형 템플릿, 빈칸 없음)
   function buildKitPrompt(): string {
     const 진단 = kitSheet
       ? `강점: ${kitSheet.strengths.map((s) => s.sentence).join(" / ") || "(없음)"}\n보완: ${[
@@ -614,11 +631,9 @@ export default function Chat() {
     const 요건 = eligReqs?.required?.length
       ? eligReqs.required.map((r) => `- ${r}`).join("\n")
       : "(공고에서 자동 확인된 필수 요건 없음 — 공고문에서 직접 확인)";
-    const 채점 = "(자가 채점 기능 연결 예정 — 채점 완료 시 지적 TOP 3가 자동으로 들어갑니다)";
     const 목차 = formToc.length > 0 ? formToc.join("\n") : "(별도 양식 없음 — 표준 목차 기준)";
     return KIT_PROMPT_TEMPLATE.replace("{{진단요약}}", 진단)
       .replace("{{필수요건}}", 요건)
-      .replace("{{채점지적TOP3}}", 채점)
       .replace("{{양식목차}}", 목차)
       .replace("{{루브릭}}", KIT_RUBRIC);
   }
@@ -3282,20 +3297,39 @@ function DraftView({
       {!drafting && (
         <div className="mt-5 space-y-3 border-t border-zinc-100 pt-4">
           <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4">
-            <p className="text-sm font-bold text-zinc-800">🤖 ChatGPT/Gemini로 완성도 높이기</p>
-            <p className="mt-1 text-xs leading-5 text-zinc-500">
-              아래 프롬프트를 복사해 붙여넣으면, 내 진단 결과·공고 요건·양식 목차·채점 루브릭이
-              반영된 상태로 초안을 다듬을 수 있어요.
+            <p className="text-sm font-bold text-zinc-800">🔍 심사위원 관점 사후 점검 도구</p>
+            {/* 선언문 — 통계·증빙 안내보다 먼저: 초안은 이미 완성됐음을 못박는다 (2026-07-13) */}
+            <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
+              ✅ 사업계획서 초안 작성은 <b>완료</b>되었습니다. 아래는 초안을 다시 작성하는 도구가
+              아니라, 이후 새 자료·증빙이 준비됐을 때 심사위원 관점으로 다시 점검하는{" "}
+              <b>사후 검증 도구</b>입니다.
             </p>
-            <pre className="mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-100 bg-white p-3 text-[11px] leading-5 text-zinc-600">
+            <p className="mt-2 text-xs leading-5 text-zinc-600">
+              작성 과정에서 아직 확보 못 한 통계·성과 수치·계약서·매출 자료가 발견될 수 있습니다.
+              저희는 확인 안 된 내용을 임의로 지어내지 않습니다. 대신 자료가 준비됐을 때 대표님이
+              직접 다시 점검하도록 이 도구를 함께 드립니다.
+            </p>
+            <ul className="mt-1.5 grid grid-cols-1 gap-x-3 gap-y-0.5 text-xs leading-5 text-zinc-600 sm:grid-cols-2">
+              <li>· 심사위원이 문제 삼을 부분</li>
+              <li>· 근거·증빙 부족 항목</li>
+              <li>· 추가로 준비할 자료</li>
+              <li>· 자료를 넣을 목차</li>
+              <li>· 제출 전 재확인할 자격·숫자</li>
+            </ul>
+            <pre className="mt-2.5 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-100 bg-white p-3 text-[11px] leading-5 text-zinc-600">
               {kitPrompt}
             </pre>
             <button
               onClick={() => void copyKitPrompt()}
               className="mt-2 w-full rounded-xl bg-zinc-800 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700"
             >
-              {copied ? "✓ 복사됐어요 — ChatGPT/Gemini에 붙여넣으세요" : "📋 프롬프트 복사"}
+              {copied ? "✓ 복사됐어요" : "📋 프롬프트 복사"}
             </button>
+            <ol className="mt-2 space-y-0.5 text-[11px] leading-4 text-zinc-500">
+              <li>① 프롬프트 복사</li>
+              <li>② ChatGPT·Gemini·Claude에 붙여넣기</li>
+              <li>③ 내 초안 함께 넣고 전송</li>
+            </ol>
           </div>
           <a
             href={KAKAO_CONSULT_URL}
