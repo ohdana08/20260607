@@ -109,6 +109,15 @@ function stripEligMarks(text: string): string {
 const SUMMARY_PREFIX =
   "[공고·양식 요약] 아래는 사용자가 올린 공고문·양식의 요약입니다. 원본 파일 대신 이 요약을 기준으로 진행하세요. 특히 '양식 목차'가 있으면 그 항목명·순서를 그대로 따르세요.\n\n";
 
+// 양식 목차 결정적 추출(2026-07-12) — LLM 요약이 목차를 압축·누락할 수 있어(검증에서 확인됨),
+// 업로드된 양식 텍스트에서 항목 라인(□, n., n-n.)을 코드로 직접 뽑아 요약에 원문 그대로 결합한다.
+function extractFormHeadings(text: string): string[] {
+  return text
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length >= 2 && l.length <= 60 && /^(□|■|[0-9]{1,2}(-[0-9]{1,2})?\.\s*\S)/.test(l));
+}
+
 const GREETING =
   "안녕하세요! 사장님께 맞는 정부지원사업을 같이 찾아볼게요. 😊\n무료로 어디까지 받을 수 있는지 아래에서 먼저 확인해 주세요!";
 // 인테이크 앞단 3문항(단계·지역·연령) — 버튼/선택지로 받아 LLM 호출 없이 수집 (점검표 문제 8)
@@ -217,6 +226,8 @@ export default function Chat() {
   const [retryable, setRetryable] = useState(false);
   // 공고·양식 작성요약(2026-07-12) — 있으면 결제 후 대화에서 문서 원본 대신 이걸 보낸다 (프롬프트 69K→수천 토큰)
   const [docSummary, setDocSummary] = useState<string | null>(null);
+  // 양식 목차 원문(코드 추출) — LLM 요약의 목차 압축·누락을 막는 결정적 보강
+  const [formToc, setFormToc] = useState<string[]>([]);
   // 진단 위저드(2026-07-12 전면 적용) — null이면 챗 화면, 아니면 해당 시작 지점의 전체 화면 흐름
   const [wizardStart, setWizardStart] = useState<WizardStart | null>(null);
   // 위저드에서 올린 공고·양식의 AI 분석(스트리밍 상태) — 결과 화면 '이 공고의 핵심' 블록에 표시
@@ -457,12 +468,19 @@ export default function Chat() {
     setEligStatus(null);
     setEligOverride(false);
     setDocSummary(null);
+    setFormToc([]);
   }
 
   // 결제 후 대화 경량화(2026-07-12): 작성요약이 있으면 문서 원본(base64 PDF·추출 텍스트) 대신
   // 요약을 첫 사용자 턴으로 넣는다. 요약이 없으면(마커 미수신) 기존대로 원본을 보낸다 — 안전 폴백.
+  // 양식 목차는 코드 추출본(formToc)을 항상 함께 실어 원문 항목명·순서를 보존한다.
   function summaryHead(): Msg[] {
-    return docSummary ? [{ role: "user", content: `${SUMMARY_PREFIX}${docSummary}` }] : [];
+    if (!docSummary) return [];
+    const tocBlock =
+      formToc.length > 0
+        ? `\n\n■ 양식 목차(원문에서 그대로 추출 — 반드시 이 항목명·순서로 작성):\n${formToc.join("\n")}`
+        : "";
+    return [{ role: "user", content: `${SUMMARY_PREFIX}${docSummary}${tocBlock}` }];
   }
   function lightenForPlan(ms: Msg[]): Msg[] {
     if (!docSummary) return foldDocs(ms);
@@ -1114,6 +1132,12 @@ export default function Chat() {
   // 위저드 화면 2~3에서 모은 공고문·양식을 AI가 읽는다 (스트리밍).
   // 대화 기록(messages)에도 그대로 남겨서, 결제 후 사업계획서 작성이 이 맥락을 이어받는다.
   async function wizardAnalyze(payload: WizPayload, note: string) {
+    // 양식 목차 결정적 추출 — 역할이 지정된 양식 파일에서, 없으면 업로드된 문서 전체에서
+    const roleM = note.match(/'([^']+)'\s*파일이 사업계획서 양식/);
+    const formDocs = roleM ? payload.docs.filter((d) => d.name === roleM[1]) : payload.docs;
+    const toc = formDocs.flatMap((d) => extractFormHeadings(d.text));
+    if (toc.length >= 3) setFormToc(toc);
+
     const base =
       "첨부한 공고문과 양식을 읽고 알려주세요: ① 이 공고가 무엇을 중요하게 평가하는지 ② 제 사업과 맞는지·자격(업력·지역·나이)이 되는지 ③ 어떤 항목을 써야 하는지. 간결하게 핵심만 부탁해요.";
     const content = note.trim() ? `[공고 링크/설명] ${note.trim()}\n\n${base}` : base;
