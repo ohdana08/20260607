@@ -199,7 +199,8 @@ export async function POST(req: Request) {
         for await (const chunk of llm.streamText({
           system: systemFor(program ?? { title: programTitle }, eligibility),
           messages: trimmed,
-          maxTokens: 1024,
+          // 1024에서 자격 판정 표+질문이 단어 중간에 잘리던 문제 (2026-07-12 통합진단 ⓒ)
+          maxTokens: 2000,
         })) {
           controller.enqueue(encoder.encode(chunk));
         }

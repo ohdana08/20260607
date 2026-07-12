@@ -126,7 +126,8 @@ ${MISSING_INFO_PLACEHOLDER}
             { role: "assistant", content: "네, 대화 내용을 확인했어요. 작성할 항목을 알려주세요." },
             { role: "user", content: sectionMsg },
           ],
-          maxTokens: 1200,
+          // 1200에서 섹션이 문장 중간에 잘리던 문제 (2026-07-12 통합진단 ⓒ)
+          maxTokens: 2200,
         })) {
           controller.enqueue(encoder.encode(chunk));
         }

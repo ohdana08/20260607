@@ -256,6 +256,7 @@ export default function Chat() {
   const chatStartedRef = useRef(false);
   const validationFiredRef = useRef(false);
   const recommendingRef = useRef(false); // 추천 이중 실행 방지 (state보다 빠른 동기 가드)
+  const turnBusyRef = useRef(false); // 대화 턴(send/retry) 이중 전송 방지 — 연타 시 busy state 갱신 전 레이스 차단
 
   const [provider, setProvider] = useState<"claude" | "openai">("claude");
   const [mode, setMode] = useState<Mode>("intake");
@@ -617,7 +618,27 @@ export default function Chat() {
   }
   function lightenForPlan(ms: Msg[]): Msg[] {
     if (!docSummary) return foldDocs(ms);
-    return [...summaryHead(), ...stripImages(ms)];
+    // 마지막 사용자 턴의 첨부만 원본 유지(2026-07-12 통합진단 ⓐ) — 인터뷰 중간 첨부가
+    // 경량화에 떼여 빈 메시지(Anthropic 400)가 되거나 조용히 유실되던 버그 수정.
+    // 이전 턴 첨부는 요약이 대신하므로 프롬프트 비대는 재발하지 않는다.
+    let lastUser = -1;
+    for (let i = ms.length - 1; i >= 0; i--) {
+      if (ms[i].role === "user") {
+        lastUser = i;
+        break;
+      }
+    }
+    const lightened: Msg[] = ms.map((m, i) => {
+      if (i === lastUser) {
+        const folded = foldDocs([m])[0]; // 문서 텍스트는 content로 합치고 이미지·PDF는 유지
+        return { ...folded, content: folded.content || "(첨부 파일 참고)" };
+      }
+      return {
+        role: m.role,
+        content: m.content.replace(RECOVERY_RE, "") || "(첨부 파일 참고)",
+      };
+    });
+    return [...summaryHead(), ...lightened];
   }
 
   // 어시스턴트 응답에서 자격·요약 마커를 읽어 상태를 갱신하고, 화면용으로 마커를 제거한 텍스트를 돌려준다
@@ -684,12 +705,34 @@ export default function Chat() {
       const isWord = lower.endsWith(".docx");
       const isHwpx = lower.endsWith(".hwpx");
       const isHwp = lower.endsWith(".hwp");
-      if (!isImage && !isPdf && !isWord && !isHwp && !isHwpx) {
-        alert(`${f.name}: 사진(JPG/PNG), PDF, 워드(.docx), 한글(.hwp/.hwpx)만 첨부할 수 있어요.`);
+      // 텍스트 파일(2026-07-12 ⓓ): 사업 소개·강의안·메모를 .txt/.md로 들고 오는 경우가 흔함
+      const isText =
+        lower.endsWith(".txt") ||
+        lower.endsWith(".md") ||
+        f.type === "text/plain" ||
+        f.type === "text/markdown";
+      if (!isImage && !isPdf && !isWord && !isHwp && !isHwpx && !isText) {
+        alert(
+          `${f.name}: 사진(JPG/PNG), PDF, 워드(.docx), 한글(.hwp/.hwpx), 텍스트(.txt/.md)만 첨부할 수 있어요.`,
+        );
         continue;
       }
       if (f.size > 3 * 1024 * 1024) {
         alert(`${f.name}: 파일은 3MB 이하만 가능해요. (크면 필요한 페이지만 캡처해서 사진으로 올려주세요.)`);
+        continue;
+      }
+      if (isText) {
+        // 기존 문서 텍스트 추출 경로(docs) 재사용 — 워드·한글 추출본과 동일하게 전송된다
+        try {
+          const text = (await f.text()).trim();
+          if (!text) {
+            alert(`${f.name}: 파일에서 글자를 읽지 못했어요.`);
+            continue;
+          }
+          wordDocs.push({ name: f.name, text: text.slice(0, 50000) });
+        } catch {
+          alert(`${f.name}: 파일을 읽는 중 문제가 생겼어요.`);
+        }
         continue;
       }
       // 한글(HWP/HWPX) — 업로드를 받고 텍스트 추출을 시도. 실패해도 조용히 버리지 않고 안내한다 (2026-07-12)
@@ -964,7 +1007,7 @@ export default function Chat() {
 
   // 응답이 끊긴 마지막 턴을 다시 시도 — 오류 말풍선을 걷어내고 같은 요청을 재실행 (2026-07-12)
   async function retryLast() {
-    if (busy) return;
+    if (busy || turnBusyRef.current) return;
     const hist = [...messages];
     while (hist.length > 0 && hist[hist.length - 1].role === "assistant") hist.pop();
     if (hist.length === 0 || hist[hist.length - 1].role !== "user") return;
@@ -973,6 +1016,7 @@ export default function Chat() {
 
   // 주어진 대화(마지막이 사용자 턴)를 기준으로 어시스턴트 응답을 새로 생성 — 재시도·메시지 수정 공용
   async function regenerateFrom(hist: Msg[]) {
+    turnBusyRef.current = true;
     setRetryable(false);
     setMessages([...hist, { role: "assistant", content: "" }]);
     setBusy(true);
@@ -1008,6 +1052,7 @@ export default function Chat() {
       replaceLast("응답이 끊겼어요. 다시 시도해 주세요.");
       setRetryable(true);
     } finally {
+      turnBusyRef.current = false;
       setBusy(false);
     }
   }
@@ -1020,9 +1065,11 @@ export default function Chat() {
         pendingFiles.length === 0 &&
         pendingDocs.length === 0) ||
       busy ||
+      turnBusyRef.current || // 연타 이중 전송 차단 (2026-07-12 통합진단 ⓑ)
       mode === "paywall"
     )
       return;
+    turnBusyRef.current = true;
     // intake(추천 초기 대화)는 첨부를 모델에 보내지 않는다(stripImages 가 PDF/이미지 제거).
     // PDF·이미지만 올리면 빈 메시지가 돼 API 가 거부하므로, 에러 대신 안내하고 첨부는 떼어낸다.
     if (mode === "intake" && (pendingFiles.length > 0 || pendingImages.length > 0)) {
@@ -1036,6 +1083,7 @@ export default function Chat() {
       ]);
       setPendingFiles([]);
       setPendingImages([]);
+      turnBusyRef.current = false;
       return;
     }
     const userMsg: Msg = {
@@ -1123,6 +1171,7 @@ export default function Chat() {
       replaceLast("응답이 끊겼어요. 다시 시도해 주세요.");
       setRetryable(true);
     } finally {
+      turnBusyRef.current = false;
       setBusy(false);
     }
   }
@@ -2496,7 +2545,7 @@ export default function Chat() {
                 📎
                 <input
                   type="file"
-                  accept="image/*,application/pdf,.pdf,.docx,.hwp,.hwpx"
+                  accept="image/*,application/pdf,.pdf,.docx,.hwp,.hwpx,.txt,.md"
                   multiple
                   className="hidden"
                   onChange={(e) => {

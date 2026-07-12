@@ -127,6 +127,12 @@ export function createAnthropicClient(model: string = INTAKE_MODEL): LlmClient {
         if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
           yield event.delta.text;
         }
+        // 잘림 관측용(2026-07-12): stop_reason=max_tokens 면 응답이 한도에 잘린 것
+        if (event.type === "message_delta") {
+          console.log(
+            `[stop] ${model} reason=${event.delta.stop_reason ?? "?"} out=${event.usage?.output_tokens ?? 0}`,
+          );
+        }
       }
     },
 
