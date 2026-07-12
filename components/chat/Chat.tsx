@@ -786,10 +786,22 @@ export default function Chat() {
   function saveEdit() {
     if (editingIndex == null) return;
     const idx = editingIndex;
-    const text = editingText;
-    setMessages((prev) => prev.map((m, i) => (i === idx ? { ...m, content: text } : m)));
+    const text = editingText.trim();
     setEditingIndex(null);
     setEditingText("");
+    if (!text) return;
+    // 결제 모달 상태 등 LLM 턴이 없는 화면에서는 내용만 교체 (기존 동작)
+    if (mode === "paywall" || busy) {
+      setMessages((prev) => prev.map((m, i) => (i === idx ? { ...m, content: text } : m)));
+      return;
+    }
+    // 표준 채팅 UX(2026-07-12): 수정한 메시지 이후 대화를 잘라내고, 수정 내용 기준으로 응답 재생성.
+    // 첨부(이미지·파일·문서)는 원래 메시지 것을 그대로 유지한다.
+    const base = messages
+      .slice(0, idx + 1)
+      .map((m, i) => (i === idx ? { ...m, content: text } : m));
+    if (idx + 1 < planStartIdx) setPlanStartIdx(idx + 1); // 단계 구분선이 잘린 지점 뒤로 남지 않게
+    void regenerateFrom(base);
   }
   function cancelEdit() {
     setEditingIndex(null);
@@ -823,6 +835,11 @@ export default function Chat() {
     const hist = [...messages];
     while (hist.length > 0 && hist[hist.length - 1].role === "assistant") hist.pop();
     if (hist.length === 0 || hist[hist.length - 1].role !== "user") return;
+    await regenerateFrom(hist);
+  }
+
+  // 주어진 대화(마지막이 사용자 턴)를 기준으로 어시스턴트 응답을 새로 생성 — 재시도·메시지 수정 공용
+  async function regenerateFrom(hist: Msg[]) {
     setRetryable(false);
     setMessages([...hist, { role: "assistant", content: "" }]);
     setBusy(true);
@@ -2421,7 +2438,7 @@ function EditBox({
           onClick={onSave}
           className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
         >
-          저장
+          저장하고 다시 답변받기
         </button>
       </div>
     </div>
