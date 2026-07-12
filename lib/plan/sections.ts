@@ -10,6 +10,7 @@ export const MISSING_INFO_PLACEHOLDER =
   "[보완 필요: 이 항목을 작성할 실제 정보를 입력해 주세요.\n예: 실제 일정, 자금 사용 계획, 담당 인력 등 확인된 정보를 입력]";
 
 export const FORM_TABLE_ENTRY_NOTICE = "[안내: 이 내용은 공식 양식의 해당 표에 옮겨 적어야 합니다.]";
+export const REGION_INFO_PLACEHOLDER = "[보완 필요: 공고에서 요구하는 소재지 정보를 입력해 주세요]";
 
 const MAX_FORM_TOC_ITEMS = 80;
 const MAX_FORM_TOC_HEADING_LENGTH = 120;
@@ -97,5 +98,6 @@ function formTocGuide(heading: string, index: number, total: number): string {
     ...base,
     "이 항목은 장문 본문이 아니라 공식 양식 표에 옮겨 적을 간결한 입력 초안입니다.",
     "사업자등록일, 매출, 투자금액, 직원 수, 고객 수 등 입력에 없는 숫자는 절대 만들지 마세요.",
+    `사업 소재지는 사용자가 실제 입력한 지역만 쓰고, 지역 정보가 부족하면 ${REGION_INFO_PLACEHOLDER} 표시를 남기세요.`,
   ].join(" ");
 }
