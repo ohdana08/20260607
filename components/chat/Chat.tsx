@@ -111,7 +111,11 @@ const ELIG_JUDGE_G_RE = /\[자격판정:(충족|불확실|미충족)\]/g;
 // 작성요약(2026-07-12): 공고 분석이 남기는 공고·양식 핵심 요약 — 결제 후 대화에서 원본 파일을 대체
 const DOC_SUM_RE = /\[작성요약\]([\s\S]*?)\[\/작성요약\]/;
 function stripEligMarks(text: string): string {
-  let t = text.replace(ELIG_REQ_RE, "").replace(DOC_SUM_RE, "").replace(ELIG_JUDGE_G_RE, "");
+  // 전역 치환 — 재요청으로 같은 블록이 두 번 실릴 수 있어 모든 완성 블록을 제거 (2026-07-12)
+  let t = text
+    .replace(/\[자격요건\][\s\S]*?\[\/자격요건\]/g, "")
+    .replace(/\[작성요약\][\s\S]*?\[\/작성요약\]/g, "")
+    .replace(ELIG_JUDGE_G_RE, "");
   // 스트리밍 중이거나 토큰 한도로 잘려 닫는 태그가 없는 블록도 사용자에게 노출하지 않는다 (QA #6).
   // 완성 블록 제거 후에도 여는 마커가 남아 있으면 그 지점부터 끝까지 잘라낸다.
   t = t.replace(/\[(?:자격요건|작성요약|자격판정)[^\n]*[\s\S]*$/, "");

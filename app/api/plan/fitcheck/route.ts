@@ -108,20 +108,53 @@ export async function POST(req: Request) {
 
   const llm = getLlm(provider, "fast");
   const encoder = new TextEncoder();
+  const system = systemFor(program ?? {});
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let acc = "";
       try {
         for await (const chunk of llm.streamText({
-          system: systemFor(program ?? {}),
+          system,
           messages,
           // 분석 본문 + [작성요약](양식 목차 원문 전체) + [자격요건] 까지 잘리지 않게 (2026-07-12)
           maxTokens: 5000,
         })) {
+          acc += chunk;
           controller.enqueue(encoder.encode(chunk));
+        }
+        // ── 마커 미수신 1회 재요청 (2026-07-12 QA E2E에서 발견된 변동성 보강) ──
+        // 모델이 기계 판독 블록을 생략하면 자격 게이트가 '자동 확인 불가' 폴백으로 약화된다.
+        // 같은 대화 맥락으로(프롬프트 캐시 재사용) 누락 블록만 뽑아 스트림 끝에 이어 붙인다.
+        const hasSummary = /\[작성요약\][\s\S]*?\[\/작성요약\]/.test(acc);
+        const hasElig = /\[자격요건\][\s\S]*?\[\/자격요건\]/.test(acc);
+        if (!hasSummary || !hasElig) {
+          console.log(`[/api/plan/fitcheck] 마커 누락 재요청 (작성요약=${hasSummary}, 자격요건=${hasElig})`);
+          const missing = [
+            ...(!hasSummary ? ["[작성요약]…[/작성요약]"] : []),
+            ...(!hasElig ? ["[자격요건]{…}[/자격요건]"] : []),
+          ].join(" 그리고 ");
+          let fix = "";
+          for await (const chunk of llm.streamText({
+            system,
+            messages: [
+              ...messages,
+              { role: "assistant", content: acc.slice(-3000) || "(분석 완료)" },
+              {
+                role: "user",
+                content: `방금 응답에서 기계 판독 블록이 누락되었습니다. 다른 설명 없이, 누락된 ${missing} 블록만 시스템 지시의 형식 그대로 출력하세요. 이미 출력한 블록은 다시 쓰지 마세요.`,
+              },
+            ],
+            maxTokens: 2500,
+          })) {
+            fix += chunk;
+          }
+          if (fix.trim()) controller.enqueue(encoder.encode(`\n\n${fix.trim()}`));
         }
       } catch (err) {
         console.error("[/api/plan/fitcheck] stream error", err);
-        controller.enqueue(encoder.encode("\n\n(죄송해요, 잠시 문제가 생겼어요. 다시 보내주시겠어요?)"));
+        if (!acc) {
+          controller.enqueue(encoder.encode("\n\n(죄송해요, 잠시 문제가 생겼어요. 다시 보내주시겠어요?)"));
+        }
       } finally {
         controller.close();
       }
