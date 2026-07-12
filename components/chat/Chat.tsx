@@ -211,6 +211,17 @@ interface SavedConvo {
   title: string;
   updatedAt: number;
   messages: { role: Role; content: string }[];
+  // 진행 단계 영속화(2026-07-13 T3): 미복원 시 작성 세션이 intake로 리셋돼
+  // 추천 버튼(userTurns 폴백)·/api/chat 오라우팅이 열리는 구멍(P0-2 실사고 경로)이 생긴다
+  mode?: Mode;
+  planStartIdx?: number;
+}
+
+// 복원 시 안전한 단계로 매핑 — diagnose(버튼 UI 상태 의존)·paywall(모달)은 fitcheck로
+function restoreMode(saved?: Mode): Mode {
+  if (saved === "plan" || saved === "fitcheck") return saved;
+  if (saved === "diagnose" || saved === "paywall") return "fitcheck";
+  return "intake";
 }
 function loadConvos(): SavedConvo[] {
   if (typeof window === "undefined") return [];
@@ -468,6 +479,9 @@ export default function Chat() {
     if (recent) {
       setMessages(recent.messages.map((m) => ({ role: m.role, content: m.content })));
       setConvoId(recent.id);
+      // 진행 단계 복원(2026-07-13 T3) — 작성 세션이 intake로 리셋돼 추천이 다시 열리던 구멍 봉쇄
+      setMode(restoreMode(recent.mode));
+      setPlanStartIdx(Math.min(recent.planStartIdx ?? 0, recent.messages.length));
     } else {
       setConvoId(genId());
       setWizardStart("scope"); // 첫 방문 — 화면 0(무료·유료 범위 안내)부터 위저드로
@@ -496,11 +510,14 @@ export default function Chat() {
     const stripped = messages.map((m) => ({ role: m.role, content: m.content }));
     setConvos((prev) => {
       const others = prev.filter((c) => c.id !== convoId);
-      const next = [{ id: convoId, title, updatedAt: Date.now(), messages: stripped }, ...others].slice(0, 50);
+      const next = [
+        { id: convoId, title, updatedAt: Date.now(), messages: stripped, mode, planStartIdx },
+        ...others,
+      ].slice(0, 50);
       persistConvos(next);
       return next;
     });
-  }, [messages, convoId]);
+  }, [messages, convoId, mode, planStartIdx]);
 
   function newChat() {
     setMessages([{ role: "assistant", content: GREETING }]);
@@ -545,7 +562,8 @@ export default function Chat() {
     setDraft(null);
     setCharts(null);
     setSelectedProgram(null);
-    setMode("intake");
+    setMode(restoreMode(c.mode)); // 진행 단계 복원(2026-07-13 T3)
+    setPlanStartIdx(Math.min(c.planStartIdx ?? 0, c.messages.length));
     resetEvidence();
     setReviewOpen(false);
     setReviewDone(false);
