@@ -209,6 +209,8 @@ export default function Chat() {
   const [eligReqs, setEligReqs] = useState<EligReqs | null>(null);
   const [eligStatus, setEligStatus] = useState<EligStatus | null>(null);
   const [eligOverride, setEligOverride] = useState(false);
+  // 스트리밍이 빈 응답/끊김으로 끝났을 때 재시도 버튼 노출 (2026-07-12 "..." 멈춤 버그)
+  const [retryable, setRetryable] = useState(false);
   // 진단 위저드(2026-07-12 전면 적용) — null이면 챗 화면, 아니면 해당 시작 지점의 전체 화면 흐름
   const [wizardStart, setWizardStart] = useState<WizardStart | null>(null);
   // 위저드에서 올린 공고·양식의 AI 분석(스트리밍 상태) — 결과 화면 '이 공고의 핵심' 블록에 표시
@@ -383,6 +385,7 @@ export default function Chat() {
     setWizardStart("scope"); // 새 대화는 화면 0(무료·유료 범위 안내)부터
     setWizAnalysis({ text: "", busy: false });
     resetEligibility();
+    setRetryable(false);
     setRecs(null);
     setDraft(null);
     setCharts(null);
@@ -407,6 +410,7 @@ export default function Chat() {
     setWizardStart(null); // 기존 대화 열람 — 챗 화면으로
     setWizAnalysis({ text: "", busy: false });
     resetEligibility();
+    setRetryable(false);
     setRecs(null);
     setDraft(null);
     setCharts(null);
@@ -755,6 +759,72 @@ export default function Chat() {
     setEditingText("");
   }
 
+  // 현재 모드에 맞는 대화 턴 요청 — send()와 retryLast()가 공용으로 사용
+  function turnRequest(history: Msg[]): { endpoint: string; payload: unknown } {
+    const endpoint =
+      mode === "plan"
+        ? "/api/plan/chat"
+        : mode === "fitcheck"
+          ? "/api/plan/fitcheck"
+          : mode === "diagnose"
+            ? "/api/plan/diagnose"
+            : "/api/chat";
+    const payload =
+      mode === "plan"
+        ? { messages: foldDocs(history), code, program: selectedProgram, eligibility: eligReqs, provider }
+        : mode === "fitcheck"
+          ? { messages: foldDocs(history), program: selectedProgram, provider }
+          : mode === "diagnose"
+            ? { messages: foldDocs(history), program: selectedProgram, kind: "chat", provider }
+            : { messages: stripImages(history), provider }; // 추천(intake)은 가벼운 텍스트만
+    return { endpoint, payload };
+  }
+
+  // 응답이 끊긴 마지막 턴을 다시 시도 — 오류 말풍선을 걷어내고 같은 요청을 재실행 (2026-07-12)
+  async function retryLast() {
+    if (busy) return;
+    const hist = [...messages];
+    while (hist.length > 0 && hist[hist.length - 1].role === "assistant") hist.pop();
+    if (hist.length === 0 || hist[hist.length - 1].role !== "user") return;
+    setRetryable(false);
+    setMessages([...hist, { role: "assistant", content: "" }]);
+    setBusy(true);
+    const { endpoint, payload } = turnRequest(hist);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok || !res.body) {
+        replaceLast("응답이 끊겼어요. 다시 시도해 주세요.");
+        setRetryable(true);
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        replaceLast(acc);
+      }
+      if (!acc.trim()) {
+        replaceLast("응답이 끊겼어요. 다시 시도해 주세요.");
+        setRetryable(true);
+        return;
+      }
+      const clean = absorbEligMarkers(acc);
+      if (clean !== acc) replaceLast(clean);
+    } catch {
+      replaceLast("응답이 끊겼어요. 다시 시도해 주세요.");
+      setRetryable(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function send() {
     const text = input.trim();
     if (
@@ -800,23 +870,9 @@ export default function Chat() {
     setPendingFiles([]);
     setPendingDocs([]);
     setBusy(true);
+    setRetryable(false);
 
-    const endpoint =
-      mode === "plan"
-        ? "/api/plan/chat"
-        : mode === "fitcheck"
-          ? "/api/plan/fitcheck"
-          : mode === "diagnose"
-            ? "/api/plan/diagnose"
-            : "/api/chat";
-    const payload =
-      mode === "plan"
-        ? { messages: foldDocs(history), code, program: selectedProgram, eligibility: eligReqs, provider }
-        : mode === "fitcheck"
-          ? { messages: foldDocs(history), program: selectedProgram, provider }
-          : mode === "diagnose"
-            ? { messages: foldDocs(history), program: selectedProgram, kind: "chat", provider }
-            : { messages: stripImages(history), provider }; // 추천(intake)은 가벼운 텍스트만
+    const { endpoint, payload } = turnRequest(history);
 
     try {
       const res = await fetch(endpoint, {
@@ -826,6 +882,7 @@ export default function Chat() {
       });
       if (res.status === 429) {
         replaceLast("잠시 너무 많이 사용했어요. 잠깐 쉬었다가 다시 해주세요 🙏");
+        setRetryable(true);
         return;
       }
       if (res.status === 402) {
@@ -847,6 +904,7 @@ export default function Chat() {
           return;
         }
         replaceLast(serverMsg ?? "죄송해요, 답변을 가져오지 못했어요. 다시 시도해 주세요.");
+        setRetryable(true);
         return;
       }
       const reader = res.body.getReader();
@@ -857,6 +915,12 @@ export default function Chat() {
         if (done) break;
         acc += decoder.decode(value, { stream: true });
         replaceLast(acc);
+      }
+      // 빈 응답으로 정상 종료(스트림 중단·무응답) — "..."로 멈춰 보이던 버그 (2026-07-12)
+      if (!acc.trim()) {
+        replaceLast("응답이 끊겼어요. 다시 시도해 주세요.");
+        setRetryable(true);
+        return;
       }
       // 자격 마커 흡수(2026-07-12) — 판정 상태 갱신 + 화면에서 마커 제거
       if (mode === "plan" || mode === "fitcheck") {
@@ -869,7 +933,8 @@ export default function Chat() {
         track("validation_answered");
       }
     } catch {
-      replaceLast("연결이 끊겼어요. 잠시 후 다시 시도해 주세요.");
+      replaceLast("응답이 끊겼어요. 다시 시도해 주세요.");
+      setRetryable(true);
     } finally {
       setBusy(false);
     }
@@ -1221,6 +1286,11 @@ export default function Chat() {
         if (done) break;
         acc += decoder.decode(value, { stream: true });
         replaceLast(acc);
+      }
+      if (!acc.trim()) {
+        replaceLast("응답이 끊겼어요. 다시 시도해 주세요.");
+        setRetryable(true);
+        return;
       }
       const clean = absorbEligMarkers(acc);
       if (clean !== acc) replaceLast(clean);
@@ -1896,6 +1966,17 @@ export default function Chat() {
 
       {mode !== "paywall" && !wizardActive && (
         <div className="mx-auto w-full max-w-[820px]">
+          {/* 응답 끊김 재시도 (2026-07-12) — "..."로 조용히 멈추는 대신 원인 안내 + 원클릭 재시도 */}
+          {retryable && !busy && (
+            <div className="px-4 pt-2">
+              <button
+                onClick={() => void retryLast()}
+                className="w-full rounded-xl border border-amber-300 bg-amber-50 py-2.5 text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+              >
+                🔁 응답이 끊겼어요 — 다시 시도하기
+              </button>
+            </div>
+          )}
           {/* 캘린더 저장(가입) 배너 — 추천 탐색 중에만. 진단·작성 중에는 노출하지 않는다 (§12) */}
           {mode === "intake" && !lead && !nudgeDismissed && calItems.length > 0 && (
             <div className="mx-4 mt-2 flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
