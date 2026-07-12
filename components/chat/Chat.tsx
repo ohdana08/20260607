@@ -2574,7 +2574,12 @@ export default function Chat() {
                 disabled={
                   busy ||
                   profileFormVisible ||
-                  (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0)
+                  // 첨부만 있어도 전송 가능해야 함 — pendingDocs 누락으로 문서 계열(워드·한글·txt)
+                  // 단독 첨부 시 버튼이 비활성이던 버그 (2026-07-12)
+                  (!input.trim() &&
+                    pendingImages.length === 0 &&
+                    pendingFiles.length === 0 &&
+                    pendingDocs.length === 0)
                 }
                 data-tour="send"
                 className="shrink-0 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
