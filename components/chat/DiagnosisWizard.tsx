@@ -60,6 +60,7 @@ type Step =
   | "find-results"
   | "notice"
   | "form"
+  | "form-pick"
   | "diagnosis"
   | "result"
   | "handoff"
@@ -264,11 +265,32 @@ export default function DiagnosisWizard({
     }
   }
 
-  // 양식 확인 완료 → 공고·양식 분석을 백그라운드로 시작하고 버튼 진단으로 진행
-  function proceedToDiagnosis() {
-    if (fileCount > 0 || note.trim()) onAnalyze(payload, note);
+  // 양식 확인 완료 → 공고·양식 분석을 백그라운드로 시작하고 버튼 진단으로 진행.
+  // roleNote: 파일 역할(공고문/양식) 구분 정보 — 분석·초안이 양식을 정확히 따르게 한다.
+  function proceedToDiagnosis(roleNote?: string) {
+    if (fileCount > 0 || note.trim())
+      onAnalyze(payload, [note, roleNote].filter(Boolean).join("\n"));
     track("start_diagnosis", { program: program?.title ?? "" });
     setStep("diagnosis");
+  }
+
+  // 공고 입력 완료 → 다음 단계 분기 (2026-07-12: 이중 업로드 인식)
+  // 이미 2개 이상 올렸으면 "양식 있나요?"를 또 묻지 않는다:
+  //   파일명으로 양식이 식별되면 바로 진단으로, 애매하면 어느 것이 양식인지 버튼으로 확인.
+  function afterNotice() {
+    const named = [...payload.pdfs, ...payload.docs].map((f) => f.name);
+    if (fileCount >= 2) {
+      const formLike = named.filter((n) => /양식|서식|신청서|사업\s*계획서/.test(n));
+      if (formLike.length > 0) {
+        proceedToDiagnosis(
+          `[파일 역할] 사업계획서 양식: ${formLike.join(", ")} / 나머지 파일은 공고문입니다.`,
+        );
+        return;
+      }
+      setStep("form-pick");
+      return;
+    }
+    setStep("form");
   }
 
   const chips = [
@@ -678,7 +700,7 @@ export default function DiagnosisWizard({
             className="mt-2.5 w-full rounded-xl border border-zinc-200 px-4 py-3.5 text-[15px] outline-none focus:border-blue-500"
           />
           <button
-            onClick={() => setStep("form")}
+            onClick={afterNotice}
             disabled={fileCount === 0 && !note.trim()}
             className="mt-4 h-14 w-full rounded-xl bg-blue-600 text-lg font-extrabold text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
           >
@@ -710,21 +732,54 @@ export default function DiagnosisWizard({
             multiple
             className="hidden"
             onChange={async (e) => {
+              const formName = e.target.files?.[0]?.name ?? "";
               await addFiles(e.target.files);
               e.target.value = "";
-              proceedToDiagnosis();
+              proceedToDiagnosis(
+                formName ? `[파일 역할] '${formName}' 파일이 사업계획서 양식입니다.` : undefined,
+              );
             }}
           />
           <div className="mt-5 space-y-3">
             <BigChoice
               title="양식 파일 올리기"
-              desc="공고에서 받은 사업계획서 양식(PDF·워드·캡처)을 올립니다."
+              desc="공고에서 받은 사업계획서 양식(한글·PDF·워드·캡처)을 올립니다."
               onClick={() => formInputRef.current?.click()}
             />
             <BigChoice
               title="양식 없이 진행하기"
               desc="표준 목차 기준으로 진단하고, 양식은 나중에 올려도 돼요."
-              onClick={proceedToDiagnosis}
+              onClick={() => proceedToDiagnosis("[파일 역할] 별도 사업계획서 양식은 없습니다.")}
+            />
+          </div>
+          <BackLink onClick={() => setStep("notice")}>← 공고 입력으로</BackLink>
+        </section>
+      )}
+
+      {/* ── 화면 3b: 파일 역할 확인 — 2개 이상 올렸는데 어느 것이 양식인지 애매할 때만 ── */}
+      {step === "form-pick" && (
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
+          <StagePill>무료 진단 1/4</StagePill>
+          <Title>올려주신 파일 중 어느 것이 ‘사업계획서 양식’인가요?</Title>
+          <Sub>공고문과 양식을 구분해두면 초안이 양식 항목 그대로 작성돼요.</Sub>
+          <div className="mt-5 space-y-2.5">
+            {chips.map((c) => (
+              <PickCard
+                key={`${c.kind}-${c.i}`}
+                label={c.label}
+                onClick={() =>
+                  proceedToDiagnosis(
+                    `[파일 역할] '${c.label}' 파일이 사업계획서 양식이고, 나머지는 공고문입니다.`,
+                  )
+                }
+              />
+            ))}
+            <PickCard
+              label="양식은 없어요 — 전부 공고문이에요"
+              sub="표준 목차 기준으로 진단하고, 양식은 나중에 올려도 돼요."
+              onClick={() =>
+                proceedToDiagnosis("[파일 역할] 올린 파일은 모두 공고문이고, 별도 양식은 없습니다.")
+              }
             />
           </div>
           <BackLink onClick={() => setStep("notice")}>← 공고 입력으로</BackLink>

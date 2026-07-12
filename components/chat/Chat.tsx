@@ -1162,7 +1162,9 @@ export default function Chat() {
     setMode("paywall");
   }
 
-  // ③ (결제 후) 본격 작성 시작 — 앞서 올린 문서/대화를 그대로 이어서
+  // ③ (결제 후) 본격 작성 시작 — 앞서 올린 문서/대화를 그대로 이어서.
+  // 정적 안내만 내보내고 끝나면 "답해 주세요"만 나가고 질문이 없다(2026-07-12 버그) —
+  // 반드시 kickoffPlan()으로 서버가 첫 턴(자격 판정 → 첫 질문)을 즉시 생성하게 한다.
   function enterPlanMode(p: Program) {
     // 결제 완료 측정 — 현재는 코드 검증 통과 시점. (// TODO: PG 연동 후 실제 결제 완료로 교체)
     track("complete_payment", { program: p.title ?? "", price: PRICE_KRW });
@@ -1175,10 +1177,60 @@ export default function Chat() {
       ...m,
       {
         role: "assistant",
-        content: `✅ 결제가 확인됐어요! 이제 '${p.title}' 사업계획서를 본격적으로 써드릴게요. 📝\n앞에서 보여주신 공고문·양식과 사업 내용을 바탕으로, 양식이 요구하는 항목 순서대로 하나씩 채워볼게요.\n\n이어서 답해 주세요 👇`,
+        content: `✅ 결제가 확인됐어요! 이제 '${p.title}' 사업계획서를 본격적으로 써드릴게요. 📝`,
       },
     ]);
+    void kickoffPlan(p);
     focusInput();
+  }
+
+  // 결제 직후 첫 턴을 서버가 먼저 시작한다 — 자격 요건이 있으면 판정부터, 없으면 첫 질문부터.
+  // (트리거 지시문은 화면·저장 대화에는 남기지 않는다)
+  async function kickoffPlan(p: Program) {
+    const instruction: Msg = {
+      role: "user",
+      content:
+        "(시작 신호) 결제가 확인되었습니다. 지금까지 올린 공고문·양식과 제 답변을 바탕으로 시작해 주세요. 신청 자격 요건이 있다면 이미 아는 정보로 먼저 판정하거나 자격 확인 질문부터 하고, 그다음 첫 질문을 하나만 해주세요. 더 물어볼 것이 없다면 '사업계획서 초안 만들기' 버튼을 누르라고 안내해 주세요.",
+    };
+    const history = [...messages, instruction];
+    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+    setBusy(true);
+    try {
+      const res = await fetch("/api/plan/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
+        body: JSON.stringify({
+          messages: foldDocs(history),
+          code,
+          program: p,
+          eligibility: eligReqs,
+          provider,
+        }),
+      });
+      if (!res.ok || !res.body) {
+        replaceLast(
+          "앞에서 올려주신 공고문·양식 기준으로 이어갈게요. 어떤 제품·서비스인지 한 문장으로 먼저 말씀해 주시겠어요?",
+        );
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        replaceLast(acc);
+      }
+      const clean = absorbEligMarkers(acc);
+      if (clean !== acc) replaceLast(clean);
+    } catch {
+      replaceLast(
+        "앞에서 올려주신 공고문·양식 기준으로 이어갈게요. 어떤 제품·서비스인지 한 문장으로 먼저 말씀해 주시겠어요?",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   // 결제 화면 닫기 — 진단 결과(미리보기)에서 왔다면 그 화면으로 되돌린다
