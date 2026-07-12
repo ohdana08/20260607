@@ -40,7 +40,7 @@ function toMessages(
 
 export function createOpenAIClient(model: string): LlmClient {
   return {
-    async *streamText({ system, messages, maxTokens = 1024, signal }: StreamTextOptions) {
+    async *streamText({ system, messages, maxTokens = 1024, signal, onStop }: StreamTextOptions) {
       const stream = await client().chat.completions.create(
         {
           model,
@@ -53,6 +53,12 @@ export function createOpenAIClient(model: string): LlmClient {
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta?.content;
         if (delta) yield delta;
+        const finishReason = chunk.choices[0]?.finish_reason;
+        if (finishReason) {
+          onStop?.({
+            reason: finishReason === "length" ? "max_tokens" : finishReason,
+          });
+        }
       }
     },
 

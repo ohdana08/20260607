@@ -40,6 +40,7 @@ export interface StreamTextOptions {
   messages: ChatMsg[];
   maxTokens?: number;
   signal?: AbortSignal;
+  onStop?: (stop: { reason?: string | null; outputTokens?: number }) => void;
 }
 
 export interface JsonOptions {

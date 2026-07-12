@@ -69,6 +69,10 @@ function looksAbruptlyCut(text: string): boolean {
   return false;
 }
 
+function withoutReadyMark(text: string): string {
+  return text.replaceAll("[추천준비완료]", "").trim();
+}
+
 export async function POST(req: Request) {
   const gate = maintenanceGate();
   if (gate) return gate;
@@ -127,35 +131,44 @@ export async function POST(req: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let acc = "";
+      let stopReason: string | null | undefined = null;
       try {
-        let acc = "";
         for await (const chunk of llm.streamText({
           system,
           messages: trimmed,
           maxTokens: 1024,
+          onStop: (stop) => {
+            stopReason = stop.reason;
+          },
         })) {
           acc += chunk;
-          controller.enqueue(encoder.encode(chunk));
         }
         // 백스톱: 상한 도달인데 모델이 신호를 안 붙였으면 서버가 선언을 덧붙여
         // 추천 버튼을 결정적으로 연다 (모델 지시 불이행 대비, v4.1 패치1)
-        if (answerCount >= 3 && !acc.includes("[추천준비완료]")) {
-          if (looksAbruptlyCut(acc)) {
-            controller.enqueue(
-              encoder.encode("\n\n응답이 중간에 끊겼어요. 다시 시도해 주세요."),
-            );
-          } else {
+        if (stopReason === "max_tokens" || looksAbruptlyCut(acc)) {
+          controller.enqueue(
+            encoder.encode(`${withoutReadyMark(acc)}\n\n응답이 중간에 끊겼어요. 다시 시도해 주세요.`),
+          );
+        } else {
+          if (answerCount >= 3 && !acc.includes("[추천준비완료]")) {
             controller.enqueue(
               encoder.encode(
-                "\n\n일단 지금까지 말씀해주신 내용으로 맞는 지원사업을 찾아볼게요! 아래 ‘✨ 추천받기’ 버튼을 눌러주세요 😊 [추천준비완료]",
+                `${acc}\n\n일단 지금까지 말씀해주신 내용으로 맞는 지원사업을 찾아볼게요! 아래 ‘✨ 추천받기’ 버튼을 눌러주세요 😊 [추천준비완료]`,
               ),
             );
+          } else {
+            controller.enqueue(encoder.encode(acc));
           }
         }
       } catch (err) {
         console.error("[/api/chat] stream error", err);
         controller.enqueue(
-          encoder.encode("\n\n(죄송해요, 잠시 문제가 생겼어요. 다시 한 번 보내주시겠어요?)"),
+          encoder.encode(
+            acc
+              ? `${withoutReadyMark(acc)}\n\n응답이 중간에 끊겼어요. 다시 시도해 주세요.`
+              : "\n\n(죄송해요, 잠시 문제가 생겼어요. 다시 한 번 보내주시겠어요?)",
+          ),
         );
       } finally {
         controller.close();
