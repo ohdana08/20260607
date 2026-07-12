@@ -27,6 +27,16 @@ export interface ButtonProfile {
   region: string; // REGION_OPTIONS 중 하나
   supportType: string; // TYPE_OPTIONS 중 하나
   sector?: string; // SECTOR_OPTIONS 중 하나 (선택 — 보너스 매칭)
+  bizDesc?: string; // "무슨 사업 하세요?" 한 줄 (선택) — ⚠️ 정렬(랭킹) 전용, 필터 사용 금지
+}
+
+// 특수목적 공고 감지(2026-07-12) — 특정 기관 자산·인프라 활용 한정 공고
+// (예: 고속도로 무형자산 = 한국도로공사 특허·데이터 활용 기업만 실익).
+// 하드 필터 위반이 아니므로 제외하지 않고 relevance="low"로 하단 접힘 대상만 표시.
+const SPECIAL_PURPOSE_RE =
+  /고속도로|한국도로공사|철도공사|코레일|항만공사|공항공사|원자력|원전|방위산업|국방\s*기술|광해광업|농어촌공사|수자원공사|발전\s*(공기업|자회사)/;
+export function isSpecialPurpose(p: Program): boolean {
+  return SPECIAL_PURPOSE_RE.test(`${p.title} ${p.summary}`);
 }
 
 // 지원유형 → 공고 텍스트(지원분야+제목) 키워드.
@@ -216,6 +226,8 @@ export function matchByButtons(programs: Program[], profile: ButtonProfile): But
       const sectorHit = sectorRe ? sectorRe.test(hay) : false;
       const cautions = findCautions(p);
       const kind = classifyKind(p);
+      // 특수목적(정렬 전용 — 제외 금지): 특정 기관 자산 활용 한정 공고는 하단 접힘 대상
+      const special = isSpecialPurpose(p);
       // 조건 충족(QA #4): 프로필로 확정 가능한 지역(필터 통과)·업력이 충족이고 특수요건이 없으면 충족.
       // 유형 불일치는 '미달'이 아니므로 판정에서 제외 — 정렬로만 반영한다.
       const eligible = yearsJudge === "match" && cautions.length === 0;
@@ -224,12 +236,13 @@ export function matchByButtons(programs: Program[], profile: ButtonProfile): But
         : cautions.length > 0
           ? cautions[0]
           : "업력 조건이 공고에 명시되지 않아 원문 확인 필요";
-      return { p, typeHit, sectorHit, yearsJudge, cautions, eligible, kind, checkReason };
+      return { p, typeHit, sectorHit, yearsJudge, cautions, eligible, kind, checkReason, special };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
     .sort((a, b) => {
-      // 1차: 목표 유형 우선(교육·행사는 뒤) · 2차: 조건 충족 · 3차: 분야 특화 · 4차: 마감 임박순
+      // 1차: 목표 유형 우선(교육·행사는 뒤) · 2차: 특수목적 강등 · 3차: 조건 충족 · 4차: 분야 특화 · 5차: 마감순
       if (kindRank(a.kind) !== kindRank(b.kind)) return kindRank(a.kind) - kindRank(b.kind);
+      if (a.special !== b.special) return a.special ? 1 : -1;
       if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
       if (a.sectorHit !== b.sectorHit) return a.sectorHit ? -1 : 1;
       return byDeadline(a.p, b.p);
@@ -256,6 +269,7 @@ export function matchByButtons(programs: Program[], profile: ButtonProfile): But
       conditions,
       kind: s.kind,
       checkReason: s.checkReason,
+      ...(s.special ? { relevance: "low" as const } : {}),
     };
   });
 

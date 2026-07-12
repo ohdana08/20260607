@@ -22,6 +22,9 @@ export interface Recommendation {
   conditions?: string[]; // 버튼 매칭: 사용자 조건 대조형 칩 ("✓ 부산", "⚠️ 재창업자 대상" 등)
   kind?: "funding" | "facility" | "event" | "other"; // 공고 유형 — 자금지원/시설·공간/교육·행사
   checkReason?: string; // eligibility가 '확인 필요'일 때 무엇을 확인해야 하는지 한 줄
+  // 아이템 적합성(2026-07-12) — 정렬 전용, 필터 금지. "low"는 하단 접힘(제외 아님)
+  relevance?: "high" | "low";
+  bizWhy?: string; // "내 사업과의 연관" 한 줄 — 근거를 못 만들면 생략(빈 값)
 }
 
 // What the LLM returns when ranking (merged back to Program by id).

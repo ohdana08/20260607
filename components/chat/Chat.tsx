@@ -20,6 +20,8 @@ import DiagnosisWizard, {
   type WizPayload,
   type FindState,
 } from "@/components/chat/DiagnosisWizard";
+import { NATIONWIDE } from "@/lib/match/buttonFilter";
+import { deriveConvYears } from "@/lib/match/convProfile";
 import {
   buildSheet,
   isPreStage,
@@ -284,6 +286,22 @@ export default function Chat() {
   // 회원이면 서버 저장본, 비회원이면 본 공고 임시목록
   const calItems = lead ? saved : viewed;
   const collectedIds = new Set(calItems.map((s) => s.id));
+
+  // 단일 userProfile 동기화(2026-07-12): 대화에서 정정한 업력·3문항 지역을 버튼 플로우 프리필로
+  const derivedYearsBucket = (() => {
+    try {
+      const t = messages
+        .filter((m) => m.role === "user")
+        .map((m) => m.content)
+        .join("\n");
+      return deriveConvYears(t)?.bucket ?? null;
+    } catch {
+      return null;
+    }
+  })();
+  const prefillRegionVal =
+    findCache?.region ??
+    (profile?.region ? (profile.region.includes("전국") ? NATIONWIDE : profile.region) : null);
 
   const [convoId, setConvoId] = useState<string>("");
   const [convos, setConvos] = useState<SavedConvo[]>([]);
@@ -1064,6 +1082,7 @@ export default function Chat() {
           provider,
           excludeIds,
           profile: profile ?? undefined, // 사전 필터용(지역·단계·연령)
+          buttonYears: findCache?.years, // 버튼 플로우에서 확정한 업력 — 대화 경로도 같은 프로필을 읽는다
         }),
       });
       const data = await res.json();
@@ -1989,6 +2008,8 @@ export default function Chat() {
             initialFind={findCache}
             seenRecs={seenRecs}
             onFindResults={saveFindResults}
+            derivedYears={derivedYearsBucket}
+            prefillRegion={prefillRegionVal}
           />
         </div>
       )}

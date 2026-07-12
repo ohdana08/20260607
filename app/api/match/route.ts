@@ -10,6 +10,7 @@ import {
   extractAmount,
   findCautions,
   judgeYears,
+  YEARS_OPTIONS,
   type ButtonProfile,
   type ProgramKind,
 } from "@/lib/match/buttonFilter";
@@ -108,8 +109,61 @@ export async function POST(req: Request) {
       supportType: bp.supportType,
       sector: typeof bp.sector === "string" ? bp.sector : undefined,
     });
+
+    // ── 아이템 적합성 랭킹 (2026-07-12) — bizDesc는 "정렬 전용", 필터 사용 금지 ──
+    // 절대 규칙: 입력 전후 추천 건수 동일. LLM은 상/하 연관도와 근거 한 줄만 판정하고,
+    // 실패·누락 시 규칙 순서를 그대로 유지한다. (검색 자체는 규칙 기반 그대로)
+    const bizDesc = typeof bp.bizDesc === "string" ? bp.bizDesc.trim().slice(0, 200) : "";
+    if (bizDesc && result.recommendations.length > 0) {
+      const rankProvider = parseProvider((body as { provider?: unknown })?.provider);
+      if (isProviderConfigured(rankProvider)) {
+        try {
+          const llm = getLlm(rankProvider, "fast");
+          const cand = result.recommendations.map((r) => ({
+            id: r.program.id,
+            제목: r.program.title,
+            분야: r.program.supportField,
+            대상: r.program.target.slice(0, 80),
+          }));
+          const picks = await llm.json<{ id: string; rel: "상" | "하"; why?: string }[]>({
+            system: `사용자의 사업과 각 공고의 연관도를 판정하세요. 반드시 JSON 배열만 출력:
+[{"id":"<후보 id 그대로>","rel":"상"|"하","why":"내 사업과의 연관 한 줄(확실한 근거가 있을 때만, 없으면 빈 문자열)"}]
+- 모든 후보 id를 빠짐없이 포함하세요 (제외 금지 — 순서 판단용입니다).
+- "하"는 명백히 무관한 특수목적 공고(특정 산업·기관 자산 한정 등)에만 쓰세요. 애매하면 "상".
+- why는 사용자 사업 내용과 실제로 연결될 때만. 지어내지 마세요.`,
+            messages: [
+              {
+                role: "user",
+                content: `[사용자 사업]\n${bizDesc}\n\n[공고 후보]\n${JSON.stringify(cand, null, 1)}`,
+              },
+            ],
+            schema: {},
+            maxTokens: 3500,
+          });
+          const byId = new Map(picks.map((x) => [x.id, x]));
+          for (const r of result.recommendations) {
+            const x = byId.get(r.program.id);
+            if (!x) continue;
+            if (x.rel === "하") r.relevance = "low";
+            else if (!r.relevance) r.relevance = "high";
+            if (x.why && x.why.trim()) r.bizWhy = x.why.trim().slice(0, 120);
+          }
+          // 정렬만 조정: 연관 낮음(하)을 뒤로 — 그룹 내 규칙 순서는 유지 (건수 불변)
+          const before = result.recommendations.length;
+          const highs = result.recommendations.filter((r) => r.relevance !== "low");
+          const lows = result.recommendations.filter((r) => r.relevance === "low");
+          result.recommendations = [...highs, ...lows];
+          if (result.recommendations.length !== before) {
+            throw new Error("건수 불변 위반"); // 방어 — 발생 시 아래 catch가 규칙 순서로 복원하지 않도록 로그만
+          }
+        } catch (err) {
+          console.error("[/api/match] bizDesc 랭킹 실패 — 규칙 순서 유지", err);
+        }
+      }
+    }
+
     console.log(
-      `[/api/match] 버튼매칭 ${result.recommendations.length}건 (전체 ${base.length}건, ${bp.years}/${bp.region}/${bp.supportType}/${bp.sector ?? "-"}, relaxed=${result.relaxed})`,
+      `[/api/match] 버튼매칭 ${result.recommendations.length}건 (전체 ${base.length}건, ${bp.years}/${bp.region}/${bp.supportType}/${bp.sector ?? "-"}, bizDesc=${bizDesc ? "있음" : "-"}, relaxed=${result.relaxed})`,
     );
     return Response.json({ ...result, usingSample: fetched.usingSample });
   }
@@ -161,7 +215,14 @@ export async function POST(req: Request) {
     .filter((m) => m.role === "user")
     .map((m) => m.content)
     .join("\n");
-  const convYears = deriveConvYears(userText);
+  // 대화에서 파생 못 하면 버튼 플로우에서 확정한 업력을 사용 — 양방향 단일 프로필 (2026-07-12)
+  const rawBtnYears = (body as { buttonYears?: unknown })?.buttonYears;
+  const btnYears =
+    typeof rawBtnYears === "string" && (YEARS_OPTIONS as readonly string[]).includes(rawBtnYears)
+      ? (rawBtnYears as (typeof YEARS_OPTIONS)[number])
+      : null;
+  const convYears =
+    deriveConvYears(userText) ?? (btnYears ? { bucket: btnYears, foundDate: null } : null);
 
   // LLM 투입 전 규칙 기반 사전 필터: 지역·연령·업력(3문항+대화 파생) + 타지역 제한 명시 공고 제외.
   // 원칙(QA #1): 필터는 추천 전에 돌고, 설명은 통과한 것에만 붙는다.

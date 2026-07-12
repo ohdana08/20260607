@@ -55,6 +55,7 @@ export interface FindState {
   region: string;
   type: string;
   sector?: string;
+  bizDesc?: string; // "무슨 사업 하세요?" 한 줄 — 정렬 전용
   recommendations: Recommendation[];
   relaxed: boolean;
   usingSample: boolean;
@@ -70,6 +71,7 @@ type Step =
   | "find-region"
   | "find-type"
   | "find-sector"
+  | "find-desc"
   | "find-results"
   | "notice"
   | "form"
@@ -186,6 +188,8 @@ export default function DiagnosisWizard({
   initialFind,
   seenRecs,
   onFindResults,
+  derivedYears,
+  prefillRegion,
 }: {
   start: WizardStart;
   program: Program | null;
@@ -208,12 +212,16 @@ export default function DiagnosisWizard({
   initialFind: FindState | null; // 세션 캐시 — 리마운트 후에도 이전 추천 목록 복원
   seenRecs: Recommendation[]; // 이번 세션에서 본 모든 추천 (중복 제거)
   onFindResults: (fs: FindState) => void;
+  derivedYears: string | null; // 대화에서 파생된 업력 버킷 — 프리필용 (단일 userProfile)
+  prefillRegion: string | null; // 3문항·캐시에서 온 지역 — 프리필용
 }) {
   const [step, setStep] = useState<Step>(start === "find" ? "find-years" : start);
   // 찾기 4단계 선택값 + 매칭 결과 — 세션 캐시(initialFind)가 있으면 그대로 복원
   const [fYears, setFYears] = useState(initialFind?.years ?? "");
   const [fRegion, setFRegion] = useState(initialFind?.region ?? "");
   const [fType, setFType] = useState(initialFind?.type ?? "");
+  const [fSector, setFSector] = useState<string | undefined>(initialFind?.sector);
+  const [fBizDesc, setFBizDesc] = useState(initialFind?.bizDesc ?? "");
   const [finding, setFinding] = useState(false);
   const [findError, setFindError] = useState("");
   const [findRes, setFindRes] = useState<{
@@ -230,6 +238,15 @@ export default function DiagnosisWizard({
       : null,
   );
   const [shownCount, setShownCount] = useState(5);
+
+  // 결과 3분할(2026-07-12): 본 목록 / 연관 낮음(접힘, 제외 아님) / 교육·행사(접힘)
+  function splitRecs(recs: Recommendation[]) {
+    const events = fType !== "멘토링·교육" ? recs.filter((r) => r.kind === "event") : [];
+    const evIds = new Set(events.map((r) => r.program.id));
+    const main = recs.filter((r) => !evIds.has(r.program.id) && r.relevance !== "low");
+    const lows = recs.filter((r) => !evIds.has(r.program.id) && r.relevance === "low");
+    return { main, lows, events };
+  }
   const [payload, setPayload] = useState<WizPayload>(EMPTY_PAYLOAD);
   const [note, setNote] = useState("");
   const noticeInputRef = useRef<HTMLInputElement>(null);
@@ -270,7 +287,7 @@ export default function DiagnosisWizard({
       const res = await fetch("/api/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ buttonProfile: profile }),
+        body: JSON.stringify({ buttonProfile: profile, provider: "claude" }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -289,6 +306,7 @@ export default function DiagnosisWizard({
         region: profile.region,
         type: profile.supportType,
         sector: profile.sector,
+        bizDesc: profile.bizDesc,
         recommendations,
         relaxed: Boolean(d.relaxed),
         usingSample: Boolean(d.usingSample),
@@ -478,7 +496,32 @@ export default function DiagnosisWizard({
           <StagePill>지원사업 찾기 1/4</StagePill>
           <Title>사업을 시작한 지 얼마나 되셨나요?</Title>
           <Sub>업력에 따라 지원할 수 있는 공고가 달라져요.</Sub>
-          <div className="mt-5 space-y-2.5">
+          {/* 프로필 동기화(2026-07-12): 대화·이전 검색에서 확인된 업력은 프리필 — 아래에서 수정만 */}
+          {(() => {
+            const pre = initialFind?.years || derivedYears;
+            if (!pre) return null;
+            return (
+              <div className="mt-5">
+                <button
+                  onClick={() => {
+                    setFYears(pre);
+                    setStep("find-region");
+                  }}
+                  className="flex w-full items-center justify-between rounded-xl border-2 border-blue-400 bg-blue-50/60 px-5 py-4 text-left"
+                >
+                  <span>
+                    <span className="block text-base font-bold text-blue-800">✓ {pre}</span>
+                    <span className="mt-0.5 block text-[13px] text-blue-600">
+                      프로필에서 자동 인식했어요 — 이대로 계속
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-sm font-bold text-blue-500">→</span>
+                </button>
+                <p className="mt-3 text-[13px] font-semibold text-zinc-400">다르면 직접 선택(수정하기)</p>
+              </div>
+            );
+          })()}
+          <div className="mt-3 space-y-2.5">
             {YEARS_OPTIONS.map((v) => (
               <PickCard
                 key={v}
@@ -500,7 +543,31 @@ export default function DiagnosisWizard({
           <StagePill>지원사업 찾기 2/4</StagePill>
           <Title>어느 지역에서 사업하세요?</Title>
           <Sub>해당 지역 공고와 전국(중앙부처) 공고를 함께 찾아드려요.</Sub>
-          <div className="mt-5 space-y-2.5">
+          {(() => {
+            const pre = initialFind?.region || prefillRegion;
+            if (!pre) return null;
+            return (
+              <div className="mt-5">
+                <button
+                  onClick={() => {
+                    setFRegion(pre);
+                    setStep("find-type");
+                  }}
+                  className="flex w-full items-center justify-between rounded-xl border-2 border-blue-400 bg-blue-50/60 px-5 py-4 text-left"
+                >
+                  <span>
+                    <span className="block text-base font-bold text-blue-800">✓ {pre}</span>
+                    <span className="mt-0.5 block text-[13px] text-blue-600">
+                      프로필에서 자동 인식했어요 — 이대로 계속
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-sm font-bold text-blue-500">→</span>
+                </button>
+                <p className="mt-3 text-[13px] font-semibold text-zinc-400">다르면 직접 선택(수정하기)</p>
+              </div>
+            );
+          })()}
+          <div className="mt-3 space-y-2.5">
             {REGION_MAIN.map((v) => (
               <PickCard
                 key={v}
@@ -575,19 +642,73 @@ export default function DiagnosisWizard({
                 key={v}
                 label={v}
                 sub={SECTOR_SUBS[v]}
-                onClick={() =>
-                  void runFind({ years: fYears, region: fRegion, supportType: fType, sector: v })
-                }
+                onClick={() => {
+                  setFSector(v);
+                  setStep("find-desc");
+                }}
               />
             ))}
           </div>
           <button
-            onClick={() => void runFind({ years: fYears, region: fRegion, supportType: fType })}
+            onClick={() => {
+              setFSector(undefined);
+              setStep("find-desc");
+            }}
             className="mt-3 w-full rounded-xl border border-zinc-200 bg-white py-3 text-sm font-semibold text-zinc-500 transition-colors hover:bg-zinc-50"
           >
-            건너뛰고 전체 결과 보기
+            건너뛰기
           </button>
           <BackLink onClick={() => setStep("find-type")}>← 이전으로</BackLink>
+        </section>
+      )}
+
+      {/* ── 찾기 +1: 아이템 한 줄 (선택) — 정렬 전용, 결과가 줄지 않는다 (2026-07-12) ── */}
+      {step === "find-desc" && (
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
+          <StagePill>지원사업 찾기 · 마지막</StagePill>
+          <Title>무슨 사업 하세요? 한 줄로 알려주세요</Title>
+          <Sub>적어도 결과가 줄지 않아요 — 내 사업과 가까운 공고를 위로 올려드릴 뿐이에요.</Sub>
+          <input
+            value={fBizDesc}
+            onChange={(e) => setFBizDesc(e.target.value)}
+            placeholder="예: 소상공인 대상 AI 교육·컨설팅"
+            maxLength={200}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && fBizDesc.trim())
+                void runFind({
+                  years: fYears,
+                  region: fRegion,
+                  supportType: fType,
+                  sector: fSector,
+                  bizDesc: fBizDesc.trim(),
+                });
+            }}
+            className="mt-5 w-full rounded-xl border border-zinc-200 px-4 py-4 text-base outline-none focus:border-blue-500"
+          />
+          <button
+            onClick={() =>
+              void runFind({
+                years: fYears,
+                region: fRegion,
+                supportType: fType,
+                sector: fSector,
+                bizDesc: fBizDesc.trim() || undefined,
+              })
+            }
+            disabled={!fBizDesc.trim()}
+            className="mt-4 h-14 w-full rounded-xl bg-blue-600 text-lg font-extrabold text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
+          >
+            이 내용으로 공고 찾기
+          </button>
+          <button
+            onClick={() =>
+              void runFind({ years: fYears, region: fRegion, supportType: fType, sector: fSector })
+            }
+            className="mt-2.5 w-full rounded-xl border border-zinc-200 bg-white py-3 text-sm font-semibold text-zinc-500 transition-colors hover:bg-zinc-50"
+          >
+            건너뛰고 결과 보기
+          </button>
+          <BackLink onClick={() => setStep("find-sector")}>← 이전으로</BackLink>
         </section>
       )}
 
@@ -656,10 +777,7 @@ export default function DiagnosisWizard({
 
           {!finding && findRes && findRes.recommendations.length > 0 && (
             <div className="mt-3 space-y-3">
-              {(fType === "멘토링·교육"
-                ? findRes.recommendations
-                : findRes.recommendations.filter((r) => r.kind !== "event")
-              ).slice(0, shownCount).map((r) => {
+              {splitRecs(findRes.recommendations).main.slice(0, shownCount).map((r) => {
                 const dl = ddayLabel(r.program.applyEnd);
                 return (
                   <div key={r.program.id} className="rounded-2xl border border-zinc-200 bg-white p-5">
@@ -677,6 +795,10 @@ export default function DiagnosisWizard({
                     </div>
                     {r.eligibility === "확인 필요" && r.checkReason && (
                       <p className="mt-1 text-xs leading-5 text-amber-700">확인할 것: {r.checkReason}</p>
+                    )}
+                    {/* 내 사업과의 연관(2026-07-12) — 실제 근거가 있을 때만, 복붙 금지 */}
+                    {r.bizWhy && (
+                      <p className="mt-1 text-xs leading-5 text-blue-700">🔗 내 사업과의 연관: {r.bizWhy}</p>
                     )}
                     {/* 조건 원문 덤프 대신 내 조건 대조형 칩 (✓ 일치 / ⚠️ 주의) */}
                     <div className="mt-2.5 flex flex-wrap gap-1.5 text-xs">
@@ -721,10 +843,7 @@ export default function DiagnosisWizard({
                 );
               })}
               {(() => {
-                const mainCount = (fType === "멘토링·교육"
-                  ? findRes.recommendations
-                  : findRes.recommendations.filter((r) => r.kind !== "event")
-                ).length;
+                const mainCount = splitRecs(findRes.recommendations).main.length;
                 return mainCount > shownCount ? (
                   <button
                     onClick={() => setShownCount((n) => n + 5)}
@@ -735,10 +854,54 @@ export default function DiagnosisWizard({
                 ) : null;
               })()}
 
+              {/* 연관 낮음 접힘(2026-07-12) — 제외가 아니라 하단 배치. 진단 CTA는 그대로 유지 */}
+              {(() => {
+                const lows = splitRecs(findRes.recommendations).lows;
+                if (lows.length === 0) return null;
+                return (
+                  <details className="rounded-2xl border border-zinc-200 bg-white p-5">
+                    <summary className="cursor-pointer text-sm font-semibold text-zinc-600">
+                      🧭 내 사업과 거리가 있어 보이는 공고 {lows.length}건 보기
+                    </summary>
+                    <p className="mt-2 text-xs leading-5 text-zinc-500">
+                      특정 산업·기관 자산 활용 공고 등이에요. 조건(지역·업력)은 맞아서 목록에서 빼지
+                      않았어요 — 해당된다면 그대로 진단받으실 수 있어요.
+                    </p>
+                    <div className="mt-3 space-y-2">
+                      {lows.map((r) => (
+                        <div
+                          key={r.program.id}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-zinc-100 px-4 py-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-zinc-800">{r.program.title}</p>
+                            <a
+                              href={r.program.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => onViewProgram(r.program)}
+                              className="text-xs text-blue-600 underline underline-offset-2"
+                            >
+                              공고 원문 ↗
+                            </a>
+                          </div>
+                          <button
+                            onClick={() => onChooseProgram(r.program)}
+                            className="shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
+                          >
+                            진단 받기
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                );
+              })()}
+
               {/* 교육·행사형 분리(QA #2) — 하단 접힘 + '사업계획서 불필요' 라벨 + 유료 CTA 없음 */}
               {fType !== "멘토링·교육" &&
                 (() => {
-                  const events = findRes.recommendations.filter((r) => r.kind === "event");
+                  const events = splitRecs(findRes.recommendations).events;
                   if (events.length === 0) return null;
                   return (
                     <details className="rounded-2xl border border-zinc-200 bg-white p-5">
