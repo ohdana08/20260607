@@ -54,6 +54,65 @@ function regionOk(p: Program, region: string): boolean {
   return p.region.includes(region.slice(0, 2)) || p.region.includes("전국");
 }
 
+// ── 타지역 제한 사전 감지 (2026-07-12 QA #1) ────────────────────────────
+// region 필드가 '전국'으로 등록됐지만 제목·대상에 "제주 서귀포 소재/한정"처럼
+// 다른 지역 제한이 명시된 공고 — 사용자 지역과 확실히 충돌하면 추천 전에 제외한다.
+// 원칙: 필터는 추천 전에 돌고, 설명은 통과한 것에만 붙는다.
+const SIDO_ALL = [
+  "서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+  "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주",
+];
+// 시도명 없이 시군구명만 적는 공고 대비 최소 매핑 (발견 시 추가)
+const SUBREGION_TO_SIDO: Record<string, string> = {
+  서귀포: "제주",
+  판교: "경기",
+  창원: "경남",
+  전주: "전북",
+  청주: "충북",
+  천안: "충남",
+  춘천: "강원",
+  포항: "경북",
+};
+const RESTRICT_RE = "(에\\s*)?.{0,10}(소재|거주|주소지|사업장|관내|한정|시민|도민|주민|이전\\s*(예정|필수))";
+export function regionConflict(p: Program, userSido: string | null): boolean {
+  if (!userSido) return false;
+  const hay = `${p.title} ${p.target}`;
+  if (hay.includes(userSido) || hay.includes("전국")) return false; // 사용자 지역 언급·전국이면 충돌 아님
+  const candidates: [string, string][] = [
+    ...SIDO_ALL.filter((s) => s !== userSido).map((s): [string, string] => [s, s]),
+    ...Object.entries(SUBREGION_TO_SIDO).filter(([, sido]) => sido !== userSido),
+  ];
+  for (const [name] of candidates) {
+    if (new RegExp(`${name}${RESTRICT_RE}`).test(hay)) return true;
+  }
+  return false;
+}
+
+// ── 공고 유형 분류 (2026-07-12 QA #2) — 자금지원형 / 시설·공간형 / 교육·행사형 ──
+export type ProgramKind = "funding" | "facility" | "event" | "other";
+const EVENT_RE =
+  /교육|행사|세미나|밋업|네트워킹|교류회|포럼|데모데이|경진|공모전|아카데미|특강|캠프|박람회|설명회|워크숍|컨퍼런스|페스티벌|멘토링|컨설팅/;
+const FACILITY_RE = /입주|시설|공간|보육|사무실|공장|센터\s*입주|오피스/;
+const FUNDING_RE =
+  /자금|지원금|바우처|사업화\s*지원|R\s*&?\s*D|기술개발|융자|보증|출연금|상금|투자\s*유치|비용\s*지원|개발\s*지원/i;
+export function classifyKind(p: Program): ProgramKind {
+  const hay = `${p.supportField} ${p.title}`;
+  if (FUNDING_RE.test(hay) && !EVENT_RE.test(p.title)) return "funding";
+  if (FACILITY_RE.test(hay)) return "facility";
+  if (EVENT_RE.test(hay)) return "event";
+  if (FUNDING_RE.test(`${p.summary}`)) return "funding";
+  return "other";
+}
+
+// 지원 금액 추출 — 카드별 개별 근거용 (없으면 null, 문구 생략)
+export function extractAmount(p: Program): string | null {
+  const m = `${p.title} ${p.summary}`.match(
+    /(최대|한도)?\s*([0-9][0-9,.]*)\s*(억|천만|백만|만)\s*원/,
+  );
+  if (!m) return null;
+  return `${m[1] ? m[1] + " " : ""}${m[2]}${m[3]}원`.trim();
+}
+
 // 업력 판정 — target 원문에서 확실한 미달만 배제, 명시적 일치는 match, 나머지는 unknown.
 // K-Startup target에는 "업력: 예비창업자,1년미만,3년미만…" 형태의 목록이 들어온다.
 type YearsJudge = "match" | "unknown" | "exclude";
@@ -133,23 +192,44 @@ export function matchByButtons(programs: Program[], profile: ButtonProfile): But
   const typeRe = TYPE_KEYWORDS[profile.supportType];
   const sectorRe = profile.sector ? SECTOR_KEYWORDS[profile.sector] : null;
   const userSido = profile.region.includes("전국") ? null : profile.region.slice(0, 2);
+  // 사용자 목표 유형 — 자금 계열이면 자금지원형을 상단에, 교육·행사형은 뒤로 (QA #2)
+  const goalKind: ProgramKind =
+    profile.supportType === "시설·공간"
+      ? "facility"
+      : profile.supportType === "멘토링·교육"
+        ? "event"
+        : "funding";
+  const kindRank = (k: ProgramKind): number => {
+    if (k === goalKind) return 0;
+    if (k === "event") return 3; // 목표가 교육이 아니면 교육·행사는 항상 뒤
+    return k === "other" ? 2 : 1;
+  };
 
   const scored = programs
     .map((p) => {
       if (!regionOk(p, profile.region)) return null; // 핵심 조건(지역) 불일치 → 리스트 제외
+      if (regionConflict(p, userSido)) return null; // 타지역 소재·거주 제한 명시 → 리스트 제외 (QA #1)
       const yearsJudge = judgeYears(p, profile.years);
       if (yearsJudge === "exclude") return null; // 핵심 조건(업력) 불일치 → 리스트 제외
       const hay = `${p.supportField} ${p.title}`;
       const typeHit = typeRe ? typeRe.test(hay) : false;
       const sectorHit = sectorRe ? sectorRe.test(hay) : false;
       const cautions = findCautions(p);
-      // 조건 충족(초록): 지역·업력·유형 전부 일치 + 특수 자격요건 없음
-      const eligible = yearsJudge === "match" && typeHit && cautions.length === 0;
-      return { p, typeHit, sectorHit, yearsJudge, cautions, eligible };
+      const kind = classifyKind(p);
+      // 조건 충족(QA #4): 프로필로 확정 가능한 지역(필터 통과)·업력이 충족이고 특수요건이 없으면 충족.
+      // 유형 불일치는 '미달'이 아니므로 판정에서 제외 — 정렬로만 반영한다.
+      const eligible = yearsJudge === "match" && cautions.length === 0;
+      const checkReason = eligible
+        ? undefined
+        : cautions.length > 0
+          ? cautions[0]
+          : "업력 조건이 공고에 명시되지 않아 원문 확인 필요";
+      return { p, typeHit, sectorHit, yearsJudge, cautions, eligible, kind, checkReason };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
     .sort((a, b) => {
-      // 1차: 조건 충족 그룹 우선 · (분야 특화는 그룹 내 위로) · 2차: 마감 임박순
+      // 1차: 목표 유형 우선(교육·행사는 뒤) · 2차: 조건 충족 · 3차: 분야 특화 · 4차: 마감 임박순
+      if (kindRank(a.kind) !== kindRank(b.kind)) return kindRank(a.kind) - kindRank(b.kind);
       if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
       if (a.sectorHit !== b.sectorHit) return a.sectorHit ? -1 : 1;
       return byDeadline(a.p, b.p);
@@ -158,14 +238,14 @@ export function matchByButtons(programs: Program[], profile: ButtonProfile): But
   const relaxed = scored.length > 0 && !scored.some((s) => s.typeHit);
 
   const recommendations: Recommendation[] = scored.slice(0, 30).map((s) => {
-    // 조건 원문 덤프 대신 '사용자 조건 대조형' 표시 (✓ 일치 / ⚠️ 주의)
+    // 조건 원문 덤프 대신 '사용자 조건 대조형' 표시 (✓ 일치 / ⚠️ 주의) — 카드별 실제 근거 (QA #3)
     const conditions: string[] = [];
-    if (userSido) conditions.push(s.p.region.includes(userSido) ? `✓ ${userSido}` : "✓ 전국 공고");
+    if (userSido) conditions.push(s.p.region.includes(userSido) ? `✓ ${userSido} 소재 대상` : "✓ 전국 공고");
     else conditions.push("✓ 전국");
-    conditions.push(
-      s.yearsJudge === "match" ? `✓ ${yearsShort(profile.years)}` : "업력 조건은 공고에서 확인",
-    );
+    if (s.yearsJudge === "match") conditions.push(`✓ ${yearsShort(profile.years)} 충족`);
     if (s.typeHit) conditions.push(`✓ ${profile.supportType}`);
+    const amount = s.kind === "funding" ? extractAmount(s.p) : null;
+    if (amount) conditions.push(`💰 ${amount}`);
     if (s.sectorHit && profile.sector) conditions.push(`✓ ${profile.sector} 분야`);
     for (const c of s.cautions) conditions.push(`⚠️ ${c}`);
     return {
@@ -174,6 +254,8 @@ export function matchByButtons(programs: Program[], profile: ButtonProfile): But
       fitReason: conditions.join(" · "),
       eligibility: s.eligible ? "조건 충족" : "확인 필요",
       conditions,
+      kind: s.kind,
+      checkReason: s.checkReason,
     };
   });
 

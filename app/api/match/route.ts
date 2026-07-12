@@ -3,7 +3,16 @@ import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider"
 import type { ChatMsg } from "@/lib/llm/provider";
 import type { Program, RankedPick, Recommendation } from "@/lib/match/types";
 import { prefilterPrograms, type MatchProfile } from "@/lib/match/prefilter";
-import { matchByButtons, type ButtonProfile } from "@/lib/match/buttonFilter";
+import {
+  matchByButtons,
+  regionConflict,
+  classifyKind,
+  extractAmount,
+  findCautions,
+  judgeYears,
+  type ButtonProfile,
+  type ProgramKind,
+} from "@/lib/match/buttonFilter";
 import { deriveConvYears, passesHardYears } from "@/lib/match/convProfile";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
@@ -154,8 +163,13 @@ export async function POST(req: Request) {
     .join("\n");
   const convYears = deriveConvYears(userText);
 
-  // LLM 투입 전 규칙 기반 사전 필터: 지역·연령·업력(3문항+대화 파생) + 마감 임박순 (점검표 문제 7)
-  const programs = prefilterPrograms(base, profile).filter((p) => passesHardYears(p, convYears));
+  // LLM 투입 전 규칙 기반 사전 필터: 지역·연령·업력(3문항+대화 파생) + 타지역 제한 명시 공고 제외.
+  // 원칙(QA #1): 필터는 추천 전에 돌고, 설명은 통과한 것에만 붙는다.
+  const userSido =
+    profile?.region && !profile.region.includes("전국") ? profile.region.slice(0, 2) : null;
+  const programs = prefilterPrograms(base, profile)
+    .filter((p) => passesHardYears(p, convYears))
+    .filter((p) => !regionConflict(p, userSido));
   console.log(
     `[/api/match] 후보 ${programs.length}건 (필터 전 ${base.length}건, 지역=${profile?.region ?? "-"}, 단계=${profile?.stage ?? "-"}, 대화업력=${convYears?.bucket ?? "-"})`,
   );
@@ -230,19 +244,48 @@ export async function POST(req: Request) {
     .filter((r) => passesHardYears(r.program, convYears))
     .slice(0, 5);
 
-  // 규칙 매칭 전체를 목록으로 유지 — LLM 설명이 붙은 것 먼저, 나머지는 마감 임박순 그대로 (최대 30건)
+  // 규칙 매칭 전체를 목록으로 유지 — LLM 설명이 붙은 것 먼저, 나머지는 유형·판정·마감순 (최대 30건).
+  // 목표 유형: 대화에 교육·멘토링 요청이 없으면 자금지원형 우선, 교육·행사형은 뒤로 (QA #2)
+  const wantsEdu = /(교육|멘토링|컨설팅|강의)\s*(받|원|필요|듣)/.test(userText);
+  const kindRank = (k: ProgramKind): number =>
+    k === (wantsEdu ? "event" : "funding") ? 0 : k === "event" ? 3 : k === "other" ? 2 : 1;
   const annotatedIds = new Set(annotated.map((r) => r.program.id));
   const rest: Recommendation[] = programs
     .filter((p) => !annotatedIds.has(p.id))
-    .slice(0, Math.max(0, 30 - annotated.length))
-    .map((p) => ({
-      program: p,
-      whatItIs: "",
-      fitReason: convYears
-        ? `지역·업력(${convYears.bucket}) 조건에 맞는 모집 중 공고예요`
-        : "지역·단계 조건에 맞는 모집 중 공고예요",
-      eligibility: "확인 필요" as const,
-    }));
+    .map((p) => {
+      const kind = classifyKind(p);
+      const cautions = findCautions(p);
+      const yearsMatch = convYears ? judgeYears(p, convYears.bucket) === "match" : false;
+      // 카드별 실제 근거만 (QA #3) — 개별 근거가 부족하면 문구를 아예 생략한다
+      const parts: string[] = [];
+      if (userSido) parts.push(p.region.includes(userSido) ? `${userSido} 소재 대상` : "전국 공고");
+      if (yearsMatch && convYears) parts.push(`업력(${convYears.bucket}) 충족`);
+      const amount = kind === "funding" ? extractAmount(p) : null;
+      if (amount) parts.push(`지원 규모 ${amount}`);
+      for (const c of cautions) parts.push(`⚠️ ${c}`);
+      // 판정(QA #4): 지역(필터 통과)+업력 확정 충족·특수요건 없음 → 조건 충족
+      const eligible = yearsMatch && cautions.length === 0;
+      return {
+        program: p,
+        whatItIs: "",
+        fitReason: parts.length >= 2 ? parts.join(" · ") : "",
+        eligibility: (eligible ? "조건 충족" : "확인 필요") as Recommendation["eligibility"],
+        checkReason: eligible
+          ? undefined
+          : cautions[0] ??
+            (convYears ? "업력 조건이 공고에 명시되지 않아 원문 확인 필요" : "업력·세부 자격은 공고 원문 확인 필요"),
+        kind,
+      };
+    })
+    .sort((a, b) => {
+      const ka = kindRank(a.kind ?? "other");
+      const kb = kindRank(b.kind ?? "other");
+      if (ka !== kb) return ka - kb;
+      if ((a.eligibility === "조건 충족") !== (b.eligibility === "조건 충족"))
+        return a.eligibility === "조건 충족" ? -1 : 1;
+      return (a.program.applyEnd ?? "9999").localeCompare(b.program.applyEnd ?? "9999");
+    })
+    .slice(0, Math.max(0, 30 - annotated.length));
   const recommendations = [...annotated, ...rest];
 
   // 추천 0건이면: 조건에 가장 근접했던 공고(필터 통과분 마감 임박순) 2~3건 — 리드 수집 흐름용

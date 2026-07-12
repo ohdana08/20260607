@@ -111,7 +111,11 @@ const ELIG_JUDGE_G_RE = /\[자격판정:(충족|불확실|미충족)\]/g;
 // 작성요약(2026-07-12): 공고 분석이 남기는 공고·양식 핵심 요약 — 결제 후 대화에서 원본 파일을 대체
 const DOC_SUM_RE = /\[작성요약\]([\s\S]*?)\[\/작성요약\]/;
 function stripEligMarks(text: string): string {
-  return text.replace(ELIG_REQ_RE, "").replace(DOC_SUM_RE, "").replace(ELIG_JUDGE_G_RE, "").trimEnd();
+  let t = text.replace(ELIG_REQ_RE, "").replace(DOC_SUM_RE, "").replace(ELIG_JUDGE_G_RE, "");
+  // 스트리밍 중이거나 토큰 한도로 잘려 닫는 태그가 없는 블록도 사용자에게 노출하지 않는다 (QA #6).
+  // 완성 블록 제거 후에도 여는 마커가 남아 있으면 그 지점부터 끝까지 잘라낸다.
+  t = t.replace(/\[(?:자격요건|작성요약|자격판정)[^\n]*[\s\S]*$/, "");
+  return t.trimEnd();
 }
 const SUMMARY_PREFIX =
   "[공고·양식 요약] 아래는 사용자가 올린 공고문·양식의 요약입니다. 원본 파일 대신 이 요약을 기준으로 진행하세요. 특히 '양식 목차'가 있으면 그 항목명·순서를 그대로 따르세요.\n\n";
@@ -1069,9 +1073,11 @@ export default function Chat() {
         if (incoming.length === 0) {
           const emptyMsg =
             "음, 더 찾아봤는데 추가로 딱 맞는 사업이 안 보여요. 대화를 조금 더 들려주시면 다시 찾아볼게요!";
-          // 같은 안내가 연속으로 두 번 쌓이지 않게 (2026-07-12)
+          // 같은 안내가 연속으로 두 번 쌓이지 않게 — 공백 차이까지 무시하고 비교 (2026-07-12 QA #5)
           setMessages((m) =>
-            m[m.length - 1]?.content === emptyMsg ? m : [...m, { role: "assistant", content: emptyMsg }],
+            m[m.length - 1]?.content.trim() === emptyMsg
+              ? m
+              : [...m, { role: "assistant", content: emptyMsg }],
           );
         } else {
           setRecs((prev) => {
@@ -2679,22 +2685,30 @@ function Recommendations({
             <h3 className="text-sm font-bold text-zinc-900">{r.program.title}</h3>
             <span
               className={
-                r.eligibility === "가능성 높음"
-                  ? "shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700"
-                  : "shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
+                r.eligibility === "조건 충족"
+                  ? "shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700"
+                  : r.eligibility === "가능성 높음"
+                    ? "shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700"
+                    : "shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
               }
             >
               {r.eligibility}
             </span>
           </div>
+          {r.eligibility === "확인 필요" && r.checkReason && (
+            <p className="mt-1 text-xs leading-5 text-amber-700">확인할 것: {r.checkReason}</p>
+          )}
           {r.whatItIs && (
             <div className="mt-2 rounded-lg bg-zinc-50 px-3 py-2 text-xs leading-5 text-zinc-600">
               <span className="font-semibold text-zinc-700">💡 어떤 사업이냐면</span> {r.whatItIs}
             </div>
           )}
-          <p className="mt-2 text-sm leading-6 text-zinc-700">
-            <span className="font-semibold text-blue-700">나에게 맞는 이유</span> {r.fitReason}
-          </p>
+          {/* 개별 근거가 없으면 문구를 생략 — 복붙 문구 금지 (2026-07-12 QA #3) */}
+          {r.fitReason && (
+            <p className="mt-2 text-sm leading-6 text-zinc-700">
+              <span className="font-semibold text-blue-700">나에게 맞는 이유</span> {r.fitReason}
+            </p>
+          )}
           {/* 공고 상세 (K-Startup 사이트처럼 자세히) */}
           <div className="mt-3 space-y-1.5 rounded-lg border border-zinc-100 bg-zinc-50/70 px-3 py-2.5 text-xs leading-5 text-zinc-600">
             {(() => {
@@ -2723,12 +2737,20 @@ function Recommendations({
             <span className="rounded bg-zinc-100 px-1.5 py-0.5">{r.program.supportField}</span>
             <span className="rounded bg-zinc-100 px-1.5 py-0.5">{r.program.region}</span>
           </div>
-          <button
-            onClick={() => onChoose(r.program)}
-            className="mt-3 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            이 공고로 무료 진단 받기
-          </button>
+          {r.kind === "event" ? (
+            // 교육·행사형(QA #2): 사업계획서 불필요 — 유료 초안 CTA를 붙이지 않는다
+            <div className="mt-3 rounded-xl bg-zinc-50 px-3 py-2.5 text-xs leading-5 text-zinc-600">
+              🎓 교육·행사 공고예요 — <b>사업계획서 없이 신청서만</b> 내면 됩니다. 아래 공고 원문에서
+              바로 신청하세요.
+            </div>
+          ) : (
+            <button
+              onClick={() => onChoose(r.program)}
+              className="mt-3 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              이 공고로 무료 진단 받기
+            </button>
+          )}
           <div className="mt-2 flex items-center justify-center gap-2">
             <a
               href={r.program.url}

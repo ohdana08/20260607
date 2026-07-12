@@ -656,7 +656,10 @@ export default function DiagnosisWizard({
 
           {!finding && findRes && findRes.recommendations.length > 0 && (
             <div className="mt-3 space-y-3">
-              {findRes.recommendations.slice(0, shownCount).map((r) => {
+              {(fType === "멘토링·교육"
+                ? findRes.recommendations
+                : findRes.recommendations.filter((r) => r.kind !== "event")
+              ).slice(0, shownCount).map((r) => {
                 const dl = ddayLabel(r.program.applyEnd);
                 return (
                   <div key={r.program.id} className="rounded-2xl border border-zinc-200 bg-white p-5">
@@ -672,6 +675,9 @@ export default function DiagnosisWizard({
                         {r.eligibility}
                       </span>
                     </div>
+                    {r.eligibility === "확인 필요" && r.checkReason && (
+                      <p className="mt-1 text-xs leading-5 text-amber-700">확인할 것: {r.checkReason}</p>
+                    )}
                     {/* 조건 원문 덤프 대신 내 조건 대조형 칩 (✓ 일치 / ⚠️ 주의) */}
                     <div className="mt-2.5 flex flex-wrap gap-1.5 text-xs">
                       <span
@@ -714,14 +720,70 @@ export default function DiagnosisWizard({
                   </div>
                 );
               })}
-              {findRes.recommendations.length > shownCount && (
-                <button
-                  onClick={() => setShownCount((n) => n + 5)}
-                  className="w-full rounded-xl border border-blue-200 bg-white py-3 text-base font-semibold text-blue-700 transition-colors hover:bg-blue-50"
-                >
-                  공고 더 보기 ({findRes.recommendations.length - shownCount}건 남음)
-                </button>
-              )}
+              {(() => {
+                const mainCount = (fType === "멘토링·교육"
+                  ? findRes.recommendations
+                  : findRes.recommendations.filter((r) => r.kind !== "event")
+                ).length;
+                return mainCount > shownCount ? (
+                  <button
+                    onClick={() => setShownCount((n) => n + 5)}
+                    className="w-full rounded-xl border border-blue-200 bg-white py-3 text-base font-semibold text-blue-700 transition-colors hover:bg-blue-50"
+                  >
+                    공고 더 보기 ({mainCount - shownCount}건 남음)
+                  </button>
+                ) : null;
+              })()}
+
+              {/* 교육·행사형 분리(QA #2) — 하단 접힘 + '사업계획서 불필요' 라벨 + 유료 CTA 없음 */}
+              {fType !== "멘토링·교육" &&
+                (() => {
+                  const events = findRes.recommendations.filter((r) => r.kind === "event");
+                  if (events.length === 0) return null;
+                  return (
+                    <details className="rounded-2xl border border-zinc-200 bg-white p-5">
+                      <summary className="cursor-pointer text-sm font-semibold text-zinc-600">
+                        🎓 교육·행사 공고 {events.length}건 보기
+                      </summary>
+                      <p className="mt-2 text-xs leading-5 text-zinc-500">
+                        아래 공고들은 사업계획서가 필요 없어요 — 신청서만 내면 됩니다. (초안 서비스
+                        대상이 아니라 결제 안내를 붙이지 않아요)
+                      </p>
+                      <div className="mt-3 space-y-2">
+                        {events.map((r) => {
+                          const dl = ddayLabel(r.program.applyEnd);
+                          return (
+                            <div
+                              key={r.program.id}
+                              className="rounded-xl border border-zinc-100 px-4 py-3"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="min-w-0 text-sm font-semibold leading-5 text-zinc-800">
+                                  {r.program.title}
+                                </p>
+                                <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-500">
+                                  신청서만
+                                </span>
+                              </div>
+                              <p className={`mt-1 text-xs ${dl.urgent ? "font-semibold text-red-600" : "text-zinc-500"}`}>
+                                📅 {dl.text}
+                              </p>
+                              <a
+                                href={r.program.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() => onViewProgram(r.program)}
+                                className="mt-1 inline-block text-xs font-semibold text-blue-600 underline underline-offset-2"
+                              >
+                                공고 원문 보고 바로 신청 ↗
+                              </a>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  );
+                })()}
               {!hasLead && (
                 <button
                   onClick={onSignup}
