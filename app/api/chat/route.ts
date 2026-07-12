@@ -58,6 +58,17 @@ function isChatMsg(x: unknown): x is ChatMsg {
   );
 }
 
+function looksAbruptlyCut(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  if (/[,:;，、]$/.test(t)) return true;
+  if (/[("“‘「『]$/.test(t)) return true;
+  if (((t.match(/"/g) ?? []).length % 2) === 1) return true;
+  if (((t.match(/“/g) ?? []).length) > ((t.match(/”/g) ?? []).length)) return true;
+  if (((t.match(/‘/g) ?? []).length) > ((t.match(/’/g) ?? []).length)) return true;
+  return false;
+}
+
 export async function POST(req: Request) {
   const gate = maintenanceGate();
   if (gate) return gate;
@@ -129,11 +140,17 @@ export async function POST(req: Request) {
         // 백스톱: 상한 도달인데 모델이 신호를 안 붙였으면 서버가 선언을 덧붙여
         // 추천 버튼을 결정적으로 연다 (모델 지시 불이행 대비, v4.1 패치1)
         if (answerCount >= 3 && !acc.includes("[추천준비완료]")) {
-          controller.enqueue(
-            encoder.encode(
-              "\n\n일단 지금까지 말씀해주신 내용으로 맞는 지원사업을 찾아볼게요! 아래 ‘✨ 추천받기’ 버튼을 눌러주세요 😊 [추천준비완료]",
-            ),
-          );
+          if (looksAbruptlyCut(acc)) {
+            controller.enqueue(
+              encoder.encode("\n\n응답이 중간에 끊겼어요. 다시 시도해 주세요."),
+            );
+          } else {
+            controller.enqueue(
+              encoder.encode(
+                "\n\n일단 지금까지 말씀해주신 내용으로 맞는 지원사업을 찾아볼게요! 아래 ‘✨ 추천받기’ 버튼을 눌러주세요 😊 [추천준비완료]",
+              ),
+            );
+          }
         }
       } catch (err) {
         console.error("[/api/chat] stream error", err);

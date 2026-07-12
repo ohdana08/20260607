@@ -1179,7 +1179,7 @@ export default function Chat() {
   async function fetchRecs(append: boolean) {
     // ref 가드(2026-07-12): 빠른 연속 클릭 시 state 갱신 전에 두 번 실행돼
     // "딱 맞는 사업이 안 보여요"가 이중 출력되던 버그 — 동기 가드로 차단
-    if (recommendingRef.current || busy) return;
+    if (mode !== "intake" || drafting || recommendingRef.current || busy) return;
     recommendingRef.current = true;
     setRecommending(true);
     if (!append) setRecs(null);
@@ -2187,7 +2187,7 @@ export default function Chat() {
           </div>
         )}
 
-        {recs && (
+        {mode === "intake" && recs && (
           <Recommendations
             recs={recs}
             nearMisses={nearMisses}
