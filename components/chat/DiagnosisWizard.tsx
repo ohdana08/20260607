@@ -48,11 +48,24 @@ export interface WizPayload {
 }
 export const EMPTY_PAYLOAD: WizPayload = { imgs: [], pdfs: [], docs: [] };
 
+// 찾기 결과 세션 캐시(2026-07-12) — 위저드는 공고 선택 시 리마운트되므로(부모 key 변경),
+// 조건·결과를 부모(Chat)가 들고 있다가 재진입 시 그대로 복원한다. 규칙 매칭은 결정적이라 안전.
+export interface FindState {
+  years: string;
+  region: string;
+  type: string;
+  sector?: string;
+  recommendations: Recommendation[];
+  relaxed: boolean;
+  usingSample: boolean;
+}
+
 type EvidenceResult = { kind: "sheet"; sheet: EvidenceSheet } | { kind: "pre" };
 export type WizardStart = "scope" | "notice" | "find";
 type Step =
   | "scope"
   | "path"
+  | "chosen"
   | "find-years"
   | "find-region"
   | "find-type"
@@ -170,6 +183,9 @@ export default function DiagnosisWizard({
   onAnalyze,
   onSubmitEvidence,
   onPay,
+  initialFind,
+  seenRecs,
+  onFindResults,
 }: {
   start: WizardStart;
   program: Program | null;
@@ -189,19 +205,30 @@ export default function DiagnosisWizard({
   onAnalyze: (payload: WizPayload, note: string) => void; // 공고·양식 AI 분석 (스트리밍, 부모가 수행)
   onSubmitEvidence: (revenue: string, items: string[]) => void;
   onPay: () => void;
+  initialFind: FindState | null; // 세션 캐시 — 리마운트 후에도 이전 추천 목록 복원
+  seenRecs: Recommendation[]; // 이번 세션에서 본 모든 추천 (중복 제거)
+  onFindResults: (fs: FindState) => void;
 }) {
   const [step, setStep] = useState<Step>(start === "find" ? "find-years" : start);
-  // 찾기 4단계 선택값 + 매칭 결과
-  const [fYears, setFYears] = useState("");
-  const [fRegion, setFRegion] = useState("");
-  const [fType, setFType] = useState("");
+  // 찾기 4단계 선택값 + 매칭 결과 — 세션 캐시(initialFind)가 있으면 그대로 복원
+  const [fYears, setFYears] = useState(initialFind?.years ?? "");
+  const [fRegion, setFRegion] = useState(initialFind?.region ?? "");
+  const [fType, setFType] = useState(initialFind?.type ?? "");
   const [finding, setFinding] = useState(false);
   const [findError, setFindError] = useState("");
   const [findRes, setFindRes] = useState<{
     recommendations: Recommendation[];
     relaxed: boolean;
     usingSample: boolean;
-  } | null>(null);
+  } | null>(
+    initialFind
+      ? {
+          recommendations: initialFind.recommendations,
+          relaxed: initialFind.relaxed,
+          usingSample: initialFind.usingSample,
+        }
+      : null,
+  );
   const [shownCount, setShownCount] = useState(5);
   const [payload, setPayload] = useState<WizPayload>(EMPTY_PAYLOAD);
   const [note, setNote] = useState("");
@@ -252,6 +279,16 @@ export default function DiagnosisWizard({
       }
       const recommendations: Recommendation[] = Array.isArray(d.recommendations) ? d.recommendations : [];
       setFindRes({
+        recommendations,
+        relaxed: Boolean(d.relaxed),
+        usingSample: Boolean(d.usingSample),
+      });
+      // 세션 캐시에 보존 — 공고 선택으로 위저드가 리마운트돼도 목록이 사라지지 않게 (2026-07-12)
+      onFindResults({
+        years: profile.years,
+        region: profile.region,
+        type: profile.supportType,
+        sector: profile.sector,
         recommendations,
         relaxed: Boolean(d.relaxed),
         usingSample: Boolean(d.usingSample),
@@ -344,6 +381,14 @@ export default function DiagnosisWizard({
           <p className="mt-2 text-center text-[13px] text-zinc-400">
             사업계획서 초안 생성은 1회 {PRICE_LABEL}입니다.
           </p>
+          {findRes && findRes.recommendations.length > 0 && (
+            <button
+              onClick={() => setStep("find-results")}
+              className="mt-3 w-full rounded-xl border border-zinc-200 bg-white py-3 text-sm font-semibold text-zinc-600 transition-colors hover:bg-zinc-50"
+            >
+              📋 이전 추천 목록 다시 보기 ({findRes.recommendations.length}건)
+            </button>
+          )}
         </section>
       )}
 
@@ -367,7 +412,63 @@ export default function DiagnosisWizard({
               }}
             />
           </div>
+          {findRes && findRes.recommendations.length > 0 && (
+            <button
+              onClick={() => setStep("find-results")}
+              className="mt-3 w-full rounded-xl border border-zinc-200 bg-white py-3 text-sm font-semibold text-zinc-600 transition-colors hover:bg-zinc-50"
+            >
+              📋 이전 추천 목록 다시 보기 ({findRes.recommendations.length}건)
+            </button>
+          )}
           <BackLink onClick={() => setStep("scope")}>← 이전으로</BackLink>
+        </section>
+      )}
+
+      {/* ── 선택한 공고 카드 — 공고 입력에서 뒤로 왔을 때의 복귀 지점 (2026-07-12) ── */}
+      {step === "chosen" && program && (
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
+          <StagePill>선택한 공고</StagePill>
+          <Title>{program.title}</Title>
+          {(program.supportField || program.region) && (
+            <div className="mt-3 flex flex-wrap gap-1.5 text-xs text-zinc-500">
+              {program.supportField && (
+                <span className="rounded bg-zinc-100 px-2 py-1">{program.supportField}</span>
+              )}
+              {program.region && <span className="rounded bg-zinc-100 px-2 py-1">{program.region}</span>}
+              {program.applyEnd && (
+                <span className="rounded bg-zinc-100 px-2 py-1">마감 {program.applyEnd}</span>
+              )}
+            </div>
+          )}
+          {program.target && program.target !== "지원대상 정보 없음" && (
+            <p className="mt-3 text-sm leading-6 text-zinc-600">🎯 {program.target}</p>
+          )}
+          {program.url && (
+            <a
+              href={program.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => onViewProgram(program)}
+              className="mt-2 inline-block text-sm font-medium text-blue-600 underline underline-offset-2"
+            >
+              공고 원문 보기 ↗
+            </a>
+          )}
+          <button
+            onClick={() => setStep("notice")}
+            className="mt-5 h-14 w-full rounded-xl bg-blue-600 text-lg font-extrabold text-white transition-colors hover:bg-blue-700"
+          >
+            이 공고로 진단 이어가기
+          </button>
+          {findRes && findRes.recommendations.length > 0 && (
+            <button
+              onClick={() => setStep("find-results")}
+              className="mt-2.5 w-full rounded-xl border border-zinc-200 bg-white py-3 text-sm font-semibold text-zinc-600 transition-colors hover:bg-zinc-50"
+            >
+              📋 추천 목록에서 다른 공고 보기
+            </button>
+          )}
+          <BackLink onClick={() => setStep("find-years")}>← 조건 바꿔 다시 찾기</BackLink>
         </section>
       )}
 
@@ -644,6 +745,47 @@ export default function DiagnosisWizard({
               </div>
             </div>
           )}
+
+          {/* 이전에 본 공고 — 조건을 바꿔 재추천해도 세션 내 목록은 사라지지 않는다 (2026-07-12) */}
+          {(() => {
+            const currentIds = new Set((findRes?.recommendations ?? []).map((r) => r.program.id));
+            const prev = seenRecs.filter((r) => !currentIds.has(r.program.id));
+            if (prev.length === 0) return null;
+            return (
+              <details className="mt-3 rounded-2xl border border-zinc-200 bg-white p-5">
+                <summary className="cursor-pointer text-sm font-semibold text-zinc-600">
+                  📂 이전에 본 공고 ({prev.length}건)
+                </summary>
+                <div className="mt-3 space-y-2">
+                  {prev.map((r) => (
+                    <div
+                      key={r.program.id}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-zinc-100 px-4 py-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-zinc-800">{r.program.title}</p>
+                        <a
+                          href={r.program.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => onViewProgram(r.program)}
+                          className="text-xs text-blue-600 underline underline-offset-2"
+                        >
+                          공고 원문 ↗
+                        </a>
+                      </div>
+                      <button
+                        onClick={() => onChooseProgram(r.program)}
+                        className="shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
+                      >
+                        진단 받기
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            );
+          })()}
         </section>
       )}
 
@@ -715,7 +857,14 @@ export default function DiagnosisWizard({
               없다면 위 입력칸에 어떤 사업에 낼 건지 한 줄만 적어주셔도 돼요.
             </p>
           </details>
-          {start === "scope" && <BackLink onClick={() => setStep("path")}>← 이전으로</BackLink>}
+          {start === "scope" ? (
+            <BackLink onClick={() => setStep("path")}>← 이전으로</BackLink>
+          ) : (
+            // 추천에서 선택해 들어온 경우 — 뒤로가기는 추천 초기화면이 아니라 '선택한 공고 카드'로 (2026-07-12)
+            program && (
+              <BackLink onClick={() => setStep("chosen")}>← 선택한 공고 다시 보기</BackLink>
+            )
+          )}
         </section>
       )}
 

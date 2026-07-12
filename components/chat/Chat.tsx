@@ -15,7 +15,11 @@ import {
   DraftPreviewCard,
   PreStageCard,
 } from "@/components/chat/EvidenceDiagnosis";
-import DiagnosisWizard, { type WizardStart, type WizPayload } from "@/components/chat/DiagnosisWizard";
+import DiagnosisWizard, {
+  type WizardStart,
+  type WizPayload,
+  type FindState,
+} from "@/components/chat/DiagnosisWizard";
 import {
   buildSheet,
   isPreStage,
@@ -53,6 +57,9 @@ interface SavedProgram {
 }
 const LEAD_KEY = "gp_lead_v1";
 const VIEWED_KEY = "gp_viewed_v1";
+// 공고 선택·추천 결과 세션 보존(2026-07-12) — 화면 이동·위저드 리마운트·새로고침에도 유지
+const SELPROG_KEY = "gp_selprog_v1";
+const FIND_KEY = "gp_find_v1";
 // 사업계획서 표준 양식(구글드라이브, 공개 뷰어) + K-Startup 모집중 공고 목록.
 // 드라이브 폴더에 공고문·별첨 양식이 들어 있어 사용자가 바로 받아 써볼 수 있다.
 const OFFICIAL_LINKS: { label: string; href: string }[] = [
@@ -199,6 +206,7 @@ export default function Chat() {
   // GA4 단계 이벤트(v3): 세션당 한 번만 발화하도록 가드
   const chatStartedRef = useRef(false);
   const validationFiredRef = useRef(false);
+  const recommendingRef = useRef(false); // 추천 이중 실행 방지 (state보다 빠른 동기 가드)
 
   const [provider, setProvider] = useState<"claude" | "openai">("claude");
   const [mode, setMode] = useState<Mode>("intake");
@@ -226,6 +234,22 @@ export default function Chat() {
   const [retryable, setRetryable] = useState(false);
   // 공고·양식 작성요약(2026-07-12) — 있으면 결제 후 대화에서 문서 원본 대신 이걸 보낸다 (프롬프트 69K→수천 토큰)
   const [docSummary, setDocSummary] = useState<string | null>(null);
+  // 찾기 결과 세션 캐시(2026-07-12) — 공고 선택으로 위저드가 리마운트돼도 추천 목록·조건 유지
+  const [findCache, setFindCache] = useState<FindState | null>(null);
+  const [seenRecs, setSeenRecs] = useState<Recommendation[]>([]);
+  function saveFindResults(fs: FindState) {
+    setFindCache(fs);
+    setSeenRecs((prev) => {
+      const ids = new Set(prev.map((r) => r.program.id));
+      const next = [...prev, ...fs.recommendations.filter((r) => !ids.has(r.program.id))].slice(-120);
+      try {
+        sessionStorage.setItem(FIND_KEY, JSON.stringify({ cache: fs, seen: next }));
+      } catch {
+        /* 용량 초과 등 무시 */
+      }
+      return next;
+    });
+  }
   // 양식 목차 원문(코드 추출) — LLM 요약의 목차 압축·누락을 막는 결정적 보강
   const [formToc, setFormToc] = useState<string[]>([]);
   // 진단 위저드(2026-07-12 전면 적용) — null이면 챗 화면, 아니면 해당 시작 지점의 전체 화면 흐름
@@ -380,6 +404,19 @@ export default function Chat() {
       setConvoId(genId());
       setWizardStart("scope"); // 첫 방문 — 화면 0(무료·유료 범위 안내)부터 위저드로
     }
+    // 세션 보존 복원(2026-07-12): 선택 공고·추천 결과는 새로고침에도 유지
+    try {
+      const sp = sessionStorage.getItem(SELPROG_KEY);
+      if (sp) setSelectedProgram(JSON.parse(sp) as Program);
+      const fd = sessionStorage.getItem(FIND_KEY);
+      if (fd) {
+        const parsed = JSON.parse(fd) as { cache?: FindState; seen?: Recommendation[] };
+        if (parsed.cache) setFindCache(parsed.cache);
+        if (Array.isArray(parsed.seen)) setSeenRecs(parsed.seen);
+      }
+    } catch {
+      /* 손상된 세션 데이터는 무시 */
+    }
   }, []);
 
   // 대화가 바뀔 때마다 이 브라우저에 자동 저장(이미지 제외, 사용자 발화 있을 때만)
@@ -403,6 +440,14 @@ export default function Chat() {
     setWizAnalysis({ text: "", busy: false });
     resetEligibility();
     setRetryable(false);
+    persistProgram(null);
+    setFindCache(null);
+    setSeenRecs([]);
+    try {
+      sessionStorage.removeItem(FIND_KEY);
+    } catch {
+      /* ignore */
+    }
     setRecs(null);
     setDraft(null);
     setCharts(null);
@@ -995,7 +1040,10 @@ export default function Chat() {
   }
 
   async function fetchRecs(append: boolean) {
-    if (recommending || busy) return;
+    // ref 가드(2026-07-12): 빠른 연속 클릭 시 state 갱신 전에 두 번 실행돼
+    // "딱 맞는 사업이 안 보여요"가 이중 출력되던 버그 — 동기 가드로 차단
+    if (recommendingRef.current || busy) return;
+    recommendingRef.current = true;
     setRecommending(true);
     if (!append) setRecs(null);
     try {
@@ -1019,10 +1067,12 @@ export default function Chat() {
       const incoming: Recommendation[] = Array.isArray(data.recommendations) ? data.recommendations : [];
       if (append) {
         if (incoming.length === 0) {
-          setMessages((m) => [
-            ...m,
-            { role: "assistant", content: "음, 더 찾아봤는데 추가로 딱 맞는 사업이 안 보여요. 대화를 조금 더 들려주시면 다시 찾아볼게요!" },
-          ]);
+          const emptyMsg =
+            "음, 더 찾아봤는데 추가로 딱 맞는 사업이 안 보여요. 대화를 조금 더 들려주시면 다시 찾아볼게요!";
+          // 같은 안내가 연속으로 두 번 쌓이지 않게 (2026-07-12)
+          setMessages((m) =>
+            m[m.length - 1]?.content === emptyMsg ? m : [...m, { role: "assistant", content: emptyMsg }],
+          );
         } else {
           setRecs((prev) => {
             const seen = new Set((prev ?? []).map((r) => r.program.id));
@@ -1042,6 +1092,7 @@ export default function Chat() {
     } catch {
       setMessages((m) => [...m, { role: "assistant", content: "추천을 가져오는 중 연결이 끊겼어요." }]);
     } finally {
+      recommendingRef.current = false;
       setRecommending(false);
     }
   }
@@ -1082,6 +1133,7 @@ export default function Chat() {
       source: "sample",
     };
     setSelectedProgram(custom);
+    persistProgram(custom);
     setMode("fitcheck");
     setDraft(null);
     setCharts(null);
@@ -1092,6 +1144,16 @@ export default function Chat() {
       setPlanStartIdx(m.length);
       return m;
     });
+  }
+
+  // 선택 공고 세션 보존 — 화면 이동·뒤로가기·새로고침에도 유지 (2026-07-12)
+  function persistProgram(p: Program | null) {
+    try {
+      if (p) sessionStorage.setItem(SELPROG_KEY, JSON.stringify(p));
+      else sessionStorage.removeItem(SELPROG_KEY);
+    } catch {
+      /* ignore */
+    }
   }
 
   // 추천을 거치지 않고, 사용자가 가진 공고문/양식으로 바로 시작 → 위저드 '공고 입력'부터
@@ -1105,6 +1167,7 @@ export default function Chat() {
   function chooseProgram(p: Program) {
     track("plan_writing_started", { program: p.title ?? "" });
     setSelectedProgram(p);
+    persistProgram(p);
     setMode("fitcheck");
     setDraft(null);
     setCharts(null);
@@ -1631,10 +1694,18 @@ export default function Chat() {
         </div>
       </header>
 
-      {mode === "fitcheck" && !wizardActive && (
-        <div className="border-b border-amber-100 bg-amber-50 px-5 py-2.5 text-xs font-semibold text-amber-800">
-          🔎 적합도 확인 · <span className="text-amber-900">{selectedProgram?.title}</span> — 공고문·양식을
-          올리면 내 사업과 맞는지 알려드려요
+      {/* 선택한 공고 고정 배너(2026-07-12) — 화면 이동·뒤로가기에도 유지, 언제든 진단 복귀 */}
+      {selectedProgram && wizardStart !== "notice" && mode !== "plan" && mode !== "paywall" && (
+        <div className="flex items-center gap-2 border-b border-blue-100 bg-blue-50 px-5 py-2 text-xs text-blue-900">
+          <span className="min-w-0 flex-1 truncate">
+            📌 선택한 공고: <b>{selectedProgram.title}</b>
+          </span>
+          <button
+            onClick={() => setWizardStart("notice")}
+            className="shrink-0 rounded-lg bg-blue-600 px-2.5 py-1.5 font-semibold text-white hover:bg-blue-700"
+          >
+            이 공고 진단 이어가기 →
+          </button>
         </div>
       )}
       {mode === "diagnose" && !wizardActive && (
@@ -1905,6 +1976,9 @@ export default function Chat() {
             onAnalyze={(payload, note) => void wizardAnalyze(payload, note)}
             onSubmitEvidence={submitEvidence}
             onPay={clickPay}
+            initialFind={findCache}
+            seenRecs={seenRecs}
+            onFindResults={saveFindResults}
           />
         </div>
       )}
