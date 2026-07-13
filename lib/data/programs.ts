@@ -4,10 +4,11 @@ import { fetchBizinfoOpen } from "./bizinfo";
 import { SAMPLE_PROGRAMS } from "./sample";
 import { isStillOpen } from "./openFilter";
 
-// 풀 상한 (2026-07-14 P0): kstartup 3페이지(300) + bizinfo 2페이지(200) 전량 수용.
-// 예전 160 상한은 지역 공고를 소리 없이 잘랐다 — LLM 토큰 가드는 여기가 아니라
-// prefilter의 MAX_CANDIDATES(45)가 담당하므로 풀 절단은 커버리지 손해만 남긴다.
-const POOL_MAX = 500;
+// 풀 상한 (2026-07-14 P0): kstartup 10페이지(1,000) + bizinfo 5페이지(500) 중
+// 모집중만 남긴 전량을 수용. 예전 160 상한은 지역 공고를 소리 없이 잘랐다 —
+// LLM 토큰 가드는 여기가 아니라 prefilter의 MAX_CANDIDATES(45)가 담당하므로
+// 풀 절단은 커버리지 손해만 남긴다.
+const POOL_MAX = 1200;
 
 // 두 배열을 번갈아 섞어 양쪽 소스가 고르게 들어가도록.
 function interleave<T>(a: T[], b: T[]): T[] {

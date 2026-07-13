@@ -79,7 +79,13 @@ for (const region of REGIONS) {
       if (exp.region !== region || exp.years !== cond.years || exp.supportType !== cond.supportType) continue;
       if (exp.deadline < today) continue; // 마감 지난 기대 공고는 건너뜀
       const at = recs.findIndex((r) => r.program.title.includes(exp.title));
-      check(`기대 공고 노출: "${exp.title}"`, at >= 0, at >= 0 ? `${at + 1}위` : "누락(명백 누락!)");
+      check(
+        `기대 공고 노출: "${exp.title}"`,
+        at >= 0,
+        at >= 0
+          ? `${at + 1}위 · ${recs[at].eligibility} · 마감 ${recs[at].program.applyEnd}`
+          : "누락(명백 누락!)",
+      );
     }
   }
 }

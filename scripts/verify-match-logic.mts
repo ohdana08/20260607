@@ -30,10 +30,20 @@ const GROWUP = ksItem(299, {
   supt_regin: "부산",
   pbanc_rcpt_end_dt: "20261231",
 });
+// 밀림(crowd-out) 재현: 자금형 전국 공고 수백 건 뒤에 놓인 '비자금형' 부산 공고 —
+// 순수 상위 30 절단이면 잘리고, 지역 자리 보장 로직이 있어야 노출된다.
+const BUSAN_FACILITY = ksItem(298, {
+  pbanc_sn: 99998,
+  biz_pbanc_nm: "부산 스타트업 파크 입주기업 모집",
+  pbanc_ctnt: "사무 공간 입주 및 보육 프로그램 제공",
+  supt_biz_clsfc: "시설,공간,보육",
+  supt_regin: "부산",
+  pbanc_rcpt_end_dt: "20261130",
+});
 const ksPages: Record<string, unknown[]> = {
   "1": Array.from({ length: 100 }, (_, i) => ksItem(i)),
   "2": Array.from({ length: 100 }, (_, i) => ksItem(100 + i, i % 10 === 0 ? { rcrt_prgs_yn: "N" } : {})),
-  "3": [...Array.from({ length: 50 }, (_, i) => ksItem(200 + i)), GROWUP],
+  "3": [...Array.from({ length: 50 }, (_, i) => ksItem(200 + i)), BUSAN_FACILITY, GROWUP],
 };
 function bizItem(i: number, over: Record<string, unknown> = {}) {
   return {
@@ -102,6 +112,14 @@ check("재현: 부산·창업도약기·사업화 추천에 그로우업 노출"
 check("P2-7: 지역 가점 — 그로우업이 상위 5위 이내", idx >= 0 && idx < 5, `실제 ${idx + 1}위`);
 const growupRec = idx >= 0 ? res.recommendations[idx] : null;
 console.log(`   └ 판정: ${growupRec?.eligibility} | 근거: ${growupRec?.fitReason}`);
+
+// 밀림 보장: 자금형 250+건 뒤의 부산 시설형 공고가 상위 30 안에 자리 보장되는지
+const facIdx = res.recommendations.findIndex((r) => r.program.title.includes("부산 스타트업 파크"));
+check(
+  "노출 보장: 비자금형 부산 공고가 30건 안에 포함 (순수 절단이면 밀림)",
+  facIdx >= 0 && res.recommendations.length <= 30,
+  facIdx >= 0 ? `${facIdx + 1}위 / ${res.recommendations.length}건` : "미노출",
+);
 
 // 대화 경로: 마감 임박순 45건 절단 보호 (그로우업 마감 12-31은 예전 코드면 절단됨)
 const pre = prefilterPrograms(programs, { region: "부산" });
