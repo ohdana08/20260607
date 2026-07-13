@@ -240,9 +240,15 @@ export function matchByButtons(programs: Program[], profile: ButtonProfile): But
     })
     .filter((x): x is NonNullable<typeof x> => x !== null)
     .sort((a, b) => {
-      // 1차: 목표 유형 우선(교육·행사는 뒤) · 2차: 특수목적 강등 · 3차: 조건 충족 · 4차: 분야 특화 · 5차: 마감순
+      // 1차: 목표 유형 우선(교육·행사는 뒤) · 2차: 특수목적 강등 · 3차: 지역 소재 가점(2026-07-14 P2)
+      // · 4차: 조건 충족 · 5차: 분야 특화 · 6차: 마감순
       if (kindRank(a.kind) !== kindRank(b.kind)) return kindRank(a.kind) - kindRank(b.kind);
       if (a.special !== b.special) return a.special ? 1 : -1;
+      if (userSido) {
+        const la = a.p.region.includes(userSido);
+        const lb = b.p.region.includes(userSido);
+        if (la !== lb) return la ? -1 : 1;
+      }
       if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
       if (a.sectorHit !== b.sectorHit) return a.sectorHit ? -1 : 1;
       return byDeadline(a.p, b.p);

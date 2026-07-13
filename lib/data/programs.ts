@@ -4,7 +4,10 @@ import { fetchBizinfoOpen } from "./bizinfo";
 import { SAMPLE_PROGRAMS } from "./sample";
 import { isStillOpen } from "./openFilter";
 
-const MAX_TO_RANK = 160; // LLM 토큰 절약 vs 커버리지 균형: 추천 후보 상한
+// 풀 상한 (2026-07-14 P0): kstartup 3페이지(300) + bizinfo 2페이지(200) 전량 수용.
+// 예전 160 상한은 지역 공고를 소리 없이 잘랐다 — LLM 토큰 가드는 여기가 아니라
+// prefilter의 MAX_CANDIDATES(45)가 담당하므로 풀 절단은 커버리지 손해만 남긴다.
+const POOL_MAX = 500;
 
 // 두 배열을 번갈아 섞어 양쪽 소스가 고르게 들어가도록.
 function interleave<T>(a: T[], b: T[]): T[] {
@@ -19,9 +22,8 @@ function interleave<T>(a: T[], b: T[]): T[] {
 
 // K-Startup + 기업마당(중앙·지자체 포함)을 합쳐 모집중 공고 목록을 반환.
 // 둘 다 0건이면 샘플로 폴백.
-// maxCount: LLM 랭킹용 기본 160. 규칙 기반(버튼 4단계) 매칭은 토큰 제약이 없어 더 크게 요청.
 export async function fetchOpenPrograms(
-  maxCount: number = MAX_TO_RANK,
+  maxCount: number = POOL_MAX,
 ): Promise<{ programs: Program[]; usingSample: boolean }> {
   const [ks, biz] = await Promise.allSettled([fetchKstartupOpen(), fetchBizinfoOpen()]);
   // API 응답 직후 마감 지난 공고 제거 (KST 기준 — 2026-07-10 버그 수정).

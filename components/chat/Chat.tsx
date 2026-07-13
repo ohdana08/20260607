@@ -232,6 +232,9 @@ interface SavedConvo {
   // 추천 버튼(userTurns 폴백)·/api/chat 오라우팅이 열리는 구멍(P0-2 실사고 경로)이 생긴다
   mode?: Mode;
   planStartIdx?: number;
+  // 3문항 프로필 영속화(2026-07-14 P1): 미복원 시 복원된 대화의 추천이
+  // 지역·단계 빈 값으로 나가 규칙 사전 필터가 통째로 꺼졌다 ("지역=-·단계=-" 로그)
+  profile?: IntakeProfile;
 }
 
 // 복원 시 안전한 단계로 매핑 — diagnose(버튼 UI 상태 의존)·paywall(모달)은 fitcheck로
@@ -528,13 +531,21 @@ export default function Chat() {
     setConvos((prev) => {
       const others = prev.filter((c) => c.id !== convoId);
       const next = [
-        { id: convoId, title, updatedAt: Date.now(), messages: stripped, mode, planStartIdx },
+        {
+          id: convoId,
+          title,
+          updatedAt: Date.now(),
+          messages: stripped,
+          mode,
+          planStartIdx,
+          ...(profile ? { profile } : {}),
+        },
         ...others,
       ].slice(0, 50);
       persistConvos(next);
       return next;
     });
-  }, [messages, convoId, mode, planStartIdx]);
+  }, [messages, convoId, mode, planStartIdx, profile]);
 
   function newChat() {
     setMessages([{ role: "assistant", content: GREETING }]);
@@ -580,6 +591,7 @@ export default function Chat() {
     setCharts(null);
     setSelectedProgram(null);
     setMode(restoreMode(c.mode)); // 진행 단계 복원(2026-07-13 T3)
+    setProfile(c.profile ?? null); // 3문항 프로필 복원(2026-07-14 P1) — 이전 대화 프로필 누수도 차단
     setPlanStartIdx(Math.min(c.planStartIdx ?? 0, c.messages.length));
     resetEvidence();
     setReviewOpen(false);
@@ -1231,7 +1243,9 @@ export default function Chat() {
           messages: stripImages(messages),
           provider,
           excludeIds,
-          profile: profile ?? undefined, // 사전 필터용(지역·단계·연령)
+          // 사전 필터용(지역·단계·연령). 3문항 폼을 안 거쳤으면 버튼 플로우(찾기 4단계)에서
+          // 확정한 지역을 폴백으로 — 위저드→챗 전환 시 지역이 빈 값으로 나가던 구멍 (2026-07-14 P1)
+          profile: profile ?? (findCache?.region ? { region: findCache.region } : undefined),
           buttonYears: findCache?.years, // 버튼 플로우에서 확정한 업력 — 대화 경로도 같은 프로필을 읽는다
         }),
       });
