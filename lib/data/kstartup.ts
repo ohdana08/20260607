@@ -58,28 +58,36 @@ function normalize(it: KstartupItem): Program | null {
   };
 }
 
-// 1~10페이지(최대 1,000행) 수집 (2026-07-14 P0): 1페이지(100행)만 가져오던 시절
-// 기본 정렬 뒤편의 지역 공고(예: 부산 관광·마이스 그로우업, 마감 12-31)가 통째로 누락됐다.
-// 3페이지(300행)로도 프리뷰 실측에서 그로우업 공고가 안 잡혀 10페이지로 확대 —
-// 병렬 호출이라 지연은 1페이지와 같고, 상한 초과분 빈 페이지는 빈 배열만 돌아온다.
-// ⚠️ 요청당 API 10콜: data.go.kr 일일 쿼터를 쓰므로 트래픽이 늘면 수집 파이프라인(DB)로 전환할 것.
-const KSTARTUP_PAGES = 10;
+// 모집중 전량 수집 (2026-07-14 P0 확정): 이 API는 역대 공고 29,000건+ 아카이브를
+// 최신순으로 반환해, 페이지 확대(1,000행)로도 마감이 먼 지역 공고
+// (예: 부산 관광ㆍ마이스 그로우업, 3/17 등록·12/31 마감)를 놓쳤다.
+// odcloud cond 문법이 실작동함을 실키로 검증(2026-07-14): cond[rcrt_prgs_yn::EQ]=Y
+// 서버 필터로 모집중 전체(실측 274건)가 perPage=500 1콜에 들어온다.
+// matchCount>500이면 페이지를 추가하고, 상한 초과는 경고 로그로 감지한다.
+const PER_PAGE = 500;
+const MAX_PAGES = 4; // 모집중 2,000건까지 대응
 
-async function fetchPage(key: string, page: number): Promise<KstartupItem[]> {
+interface KstartupPage {
+  data?: KstartupItem[];
+  matchCount?: number;
+}
+
+async function fetchPage(key: string, page: number): Promise<KstartupPage> {
   const params = new URLSearchParams({
     serviceKey: key,
     page: String(page),
-    perPage: "100",
+    perPage: String(PER_PAGE),
     returnType: "json",
   });
+  params.set("cond[rcrt_prgs_yn::EQ]", "Y"); // 모집중만 — 서버 필터 (percent-encoding 허용 확인됨)
   const res = await fetch(`${KSTARTUP_ENDPOINT}?${params.toString()}`, {
     signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) throw new Error(`K-Startup API ${res.status}`);
-  const json = (await res.json()) as { data?: KstartupItem[] };
-  return Array.isArray(json.data) ? json.data : [];
+  return (await res.json()) as KstartupPage;
 }
 
+// 클라이언트측 방어 필터: 서버 필터가 무시·오작동해도 모집중만 남기고 중복 제거
 function toOpenPrograms(items: KstartupItem[]): Program[] {
   const seen = new Set<string>();
   return items
@@ -90,13 +98,25 @@ function toOpenPrograms(items: KstartupItem[]): Program[] {
 }
 
 async function fetchKstartupPrograms(key: string): Promise<Program[] | null> {
-  const pages = await Promise.allSettled(
-    Array.from({ length: KSTARTUP_PAGES }, (_, i) => fetchPage(key, i + 1)),
-  );
-  const items = pages.flatMap((p) => (p.status === "fulfilled" ? p.value : []));
-  // 전 페이지 실패 → 첫 페이지 단독 재시도 (에러는 전파해 상위 aggregator가 로깅)
-  const programs = toOpenPrograms(items.length > 0 ? items : await fetchPage(key, 1));
-  console.log(`[kstartup] ${KSTARTUP_PAGES}페이지 ${items.length}행 중 모집중 ${programs.length}건`);
+  const first = await fetchPage(key, 1);
+  const matchCount = first.matchCount ?? 0;
+  const needed = Math.min(MAX_PAGES, Math.max(1, Math.ceil(matchCount / PER_PAGE)));
+  const rest =
+    needed > 1
+      ? await Promise.allSettled(
+          Array.from({ length: needed - 1 }, (_, i) => fetchPage(key, i + 2)),
+        )
+      : [];
+  const items = [
+    ...(first.data ?? []),
+    ...rest.flatMap((p) => (p.status === "fulfilled" ? (p.value.data ?? []) : [])),
+  ];
+  const programs = toOpenPrograms(items);
+  console.log(`[kstartup] 모집중 ${matchCount}건 중 ${programs.length}건 수집`);
+  if (matchCount > MAX_PAGES * PER_PAGE)
+    console.warn(
+      `[kstartup] 모집중 ${matchCount}건이 수집 상한(${MAX_PAGES * PER_PAGE})을 초과 — MAX_PAGES 확대 필요`,
+    );
   return programs.length > 0 ? programs : null;
 }
 
