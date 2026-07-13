@@ -20,7 +20,9 @@ const COOKIE = process.env.COOKIE ?? "";
 // deadline이 지나면 자동으로 검사에서 제외된다.
 const EXPECTED = [
   {
-    title: "부산 관광·마이스 그로우업", // 2026-07-13 K-Startup에서 육안 확인 (P0 실사고 재현 사례)
+    // P0 실사고 재현 사례 (pbanc_sn 176953). API 원문 제목은 "관광ㆍ마이스"로
+    // 가운뎃점이 한글 자모(ㆍ)라 전체 문자열 매칭이 깨진다 — 안전한 부분 문자열만 사용.
+    title: "그로우업",
     region: "부산",
     years: "창업도약기(4~7년)",
     supportType: "사업화",

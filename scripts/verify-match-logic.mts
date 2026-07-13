@@ -70,8 +70,18 @@ const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: RequestInfo | URL) => {
   const url = String(input);
   if (url.includes("apis.data.go.kr")) {
-    const page = new URL(url).searchParams.get("page") ?? "1";
-    return new Response(JSON.stringify({ data: ksPages[page] ?? [] }), { status: 200 });
+    // 실서버와 동일하게 cond[rcrt_prgs_yn::EQ]=Y 서버 필터 + matchCount + perPage 페이지네이션 재현
+    const u = new URL(url);
+    const page = Number(u.searchParams.get("page") ?? "1");
+    const perPage = Number(u.searchParams.get("perPage") ?? "100");
+    const wantOpen = u.searchParams.get("cond[rcrt_prgs_yn::EQ]") === "Y";
+    const all = Object.values(ksPages).flat() as { rcrt_prgs_yn?: string }[];
+    const filtered = wantOpen ? all.filter((it) => it.rcrt_prgs_yn === "Y") : all;
+    const slice = filtered.slice((page - 1) * perPage, page * perPage);
+    return new Response(
+      JSON.stringify({ data: slice, matchCount: filtered.length, totalCount: all.length }),
+      { status: 200 },
+    );
   }
   if (url.includes("bizinfo.go.kr")) {
     const page = new URL(url).searchParams.get("pageIndex") ?? "1";
@@ -98,11 +108,11 @@ for (const p of programs) bySource[p.source as "kstartup" | "bizinfo"]++;
 
 check("샘플 폴백 아님", !usingSample);
 check(
-  "P0-2: 3페이지 수집 — 풀에 2·3페이지 공고 포함",
+  "P0-2: 모집중 전량 수집 — 서버 필터(cond)로 전 페이지 공고 포함",
   programs.length > 150,
   `풀 ${programs.length}건 (kstartup ${bySource.kstartup} + bizinfo ${bySource.bizinfo})`,
 );
-check("P0-2: 그로우업 공고(3페이지 뒤편)가 풀에 존재", Boolean(growup), growup?.applyEnd ?? "");
+check("P0-2: 그로우업 공고(아카이브 뒤편)가 풀에 존재", Boolean(growup), growup?.applyEnd ?? "");
 check("P0-2: 기업마당 부산 공고가 풀에 존재", programs.some((p) => p.title.includes("부산시 소상공인")));
 
 // 버튼 경로: 사용자 재현 조건 그대로
