@@ -256,7 +256,21 @@ export function matchByButtons(programs: Program[], profile: ButtonProfile): But
 
   const relaxed = scored.length > 0 && !scored.some((s) => s.typeHit);
 
-  const recommendations: Recommendation[] = scored.slice(0, 30).map((s) => {
+  // 지역 소재 노출 보장 (2026-07-14): 풀이 커지면 유형 우선 정렬만으로는 소수의 지역 공고가
+  // 상위 30 밖으로 밀려 "지역을 골랐는데 지역 공고 0건" 증상이 재발한다(프리뷰 실측).
+  // 지역 소재는 최대 8건까지 30건 안에 자리를 보장하고, 표시 순서는 기존 정렬을 유지한다.
+  const MAX_RECS = 30;
+  let selected = scored.slice(0, MAX_RECS);
+  if (userSido) {
+    const locals = scored.filter((s) => s.p.region.includes(userSido)).slice(0, 8);
+    const missing = locals.filter((s) => !selected.includes(s));
+    if (missing.length > 0) {
+      const kept = new Set([...selected.slice(0, MAX_RECS - missing.length), ...missing]);
+      selected = scored.filter((s) => kept.has(s)); // 원래 정렬 순서로 복원
+    }
+  }
+
+  const recommendations: Recommendation[] = selected.map((s) => {
     // 조건 원문 덤프 대신 '사용자 조건 대조형' 표시 (✓ 일치 / ⚠️ 주의) — 카드별 실제 근거 (QA #3)
     const conditions: string[] = [];
     if (userSido) conditions.push(s.p.region.includes(userSido) ? `✓ ${userSido} 소재 대상` : "✓ 전국 공고");

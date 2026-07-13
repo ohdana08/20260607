@@ -376,9 +376,20 @@ export async function POST(req: Request) {
       if ((a.eligibility === "조건 충족") !== (b.eligibility === "조건 충족"))
         return a.eligibility === "조건 충족" ? -1 : 1;
       return (a.program.applyEnd ?? "9999").localeCompare(b.program.applyEnd ?? "9999");
-    })
-    .slice(0, Math.max(0, 30 - annotated.length));
-  const recommendations = [...annotated, ...rest];
+    });
+  // 지역 소재 노출 보장 (2026-07-14): 버튼 경로와 동일 — 지역 공고(최대 8건)는
+  // 목록 상한 안에 자리를 보장하고 표시 순서는 정렬 그대로 유지 (프리뷰 실측 보강)
+  const restLimit = Math.max(0, 30 - annotated.length);
+  let restSel = rest.slice(0, restLimit);
+  if (userSido) {
+    const locals = rest.filter((r) => r.program.region.includes(userSido)).slice(0, 8);
+    const missing = locals.filter((r) => !restSel.includes(r));
+    if (missing.length > 0) {
+      const kept = new Set([...restSel.slice(0, Math.max(0, restLimit - missing.length)), ...missing]);
+      restSel = rest.filter((r) => kept.has(r));
+    }
+  }
+  const recommendations = [...annotated, ...restSel];
 
   // 추천 0건이면: 조건에 가장 근접했던 공고(필터 통과분 마감 임박순) 2~3건 — 리드 수집 흐름용
   const nearMisses = recommendations.length === 0 ? programs.slice(0, 3) : [];

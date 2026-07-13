@@ -58,9 +58,12 @@ function normalize(it: KstartupItem): Program | null {
   };
 }
 
-// 1~3페이지(최대 300행) 수집 (2026-07-14 P0): 1페이지(100행)만 가져오던 시절
+// 1~10페이지(최대 1,000행) 수집 (2026-07-14 P0): 1페이지(100행)만 가져오던 시절
 // 기본 정렬 뒤편의 지역 공고(예: 부산 관광·마이스 그로우업, 마감 12-31)가 통째로 누락됐다.
-const KSTARTUP_PAGES = 3;
+// 3페이지(300행)로도 프리뷰 실측에서 그로우업 공고가 안 잡혀 10페이지로 확대 —
+// 병렬 호출이라 지연은 1페이지와 같고, 상한 초과분 빈 페이지는 빈 배열만 돌아온다.
+// ⚠️ 요청당 API 10콜: data.go.kr 일일 쿼터를 쓰므로 트래픽이 늘면 수집 파이프라인(DB)로 전환할 것.
+const KSTARTUP_PAGES = 10;
 
 async function fetchPage(key: string, page: number): Promise<KstartupItem[]> {
   const params = new URLSearchParams({
@@ -93,6 +96,7 @@ async function fetchKstartupPrograms(key: string): Promise<Program[] | null> {
   const items = pages.flatMap((p) => (p.status === "fulfilled" ? p.value : []));
   // 전 페이지 실패 → 첫 페이지 단독 재시도 (에러는 전파해 상위 aggregator가 로깅)
   const programs = toOpenPrograms(items.length > 0 ? items : await fetchPage(key, 1));
+  console.log(`[kstartup] ${KSTARTUP_PAGES}페이지 ${items.length}행 중 모집중 ${programs.length}건`);
   return programs.length > 0 ? programs : null;
 }
 
