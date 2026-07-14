@@ -7,6 +7,9 @@ import LandingClient from "./LandingClient";
 const SITE_URL = "https://20260607.vercel.app";
 
 export const metadata: Metadata = {
+  // og:image 상대경로가 요청 호스트(프리뷰 배포 URL 등)로 잡히지 않고 항상 실제
+  // 배포 도메인을 가리키도록 고정 — 프리뷰에서 검증 시 확인된 필요성(2026-07-14).
+  metadataBase: new URL(SITE_URL),
   title: "정부지원사업 도우미 | 내 사업의 증거를 공고 양식에 맞춘 DOCX 초안으로",
   description:
     "매출·고객·거래처·경험은 있지만 사업계획서 어디에 써야 할지 막혔다면, 공고 자격을 무료로 확인하고 평가항목과 공식 양식 순서에 맞춘 DOCX 초안을 만드세요.",
