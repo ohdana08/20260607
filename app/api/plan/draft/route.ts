@@ -4,6 +4,7 @@ import { checkDraftAccess, markCreditUsed, paymentRequiredResponse } from "@/lib
 import { maintenanceGate } from "@/lib/config";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { MISSING_INFO_PLACEHOLDER, sanitizeFormToc } from "@/lib/plan/sections";
+import { generateChunked, CONTINUE_PROMPT } from "@/lib/plan/draftChunking";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -119,21 +120,53 @@ ${MISSING_INFO_PLACEHOLDER}
     safeFormToc.length > 0 && formTocIndex >= 0 ? `\n[현재 항목 위치] ${formTocIndex + 1}/${safeFormToc.length}` : "";
   const sectionMsg = `[작성할 항목]\n${section.heading}${positionMsg}\n(이 항목에 담을 내용: ${section.guide ?? ""})${tocMsg}`;
 
+  const baseMessages: ChatMsg[] = [
+    { role: "user", content: conversationMsg },
+    { role: "assistant", content: "네, 대화 내용을 확인했어요. 작성할 항목을 알려주세요." },
+    { role: "user", content: sectionMsg },
+  ];
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        for await (const chunk of llm.streamText({
-          system,
-          messages: [
-            { role: "user", content: conversationMsg },
-            { role: "assistant", content: "네, 대화 내용을 확인했어요. 작성할 항목을 알려주세요." },
-            { role: "user", content: sectionMsg },
-          ],
-          // 1200에서 섹션이 문장 중간에 잘리던 문제 (2026-07-12 통합진단 ⓒ)
-          maxTokens: 2200,
-        })) {
-          controller.enqueue(encoder.encode(chunk));
+        // 섹션 자동 이어쓰기 (2026-07-14): 한 번에 못 끝내고 stop_reason=max_tokens로
+        // 잘리면, "방금 쓰던 데서 이어서" 다시 호출해 붙인다 — maxTokens를 올리는 대신
+        // 어떤 길이의 항목이든 자연스러운 끝(stop_reason≠max_tokens)까지 반복한다.
+        const result = await generateChunked(async (continuationText, onChunk) => {
+          const messages: ChatMsg[] =
+            continuationText === null
+              ? baseMessages
+              : [
+                  ...baseMessages,
+                  { role: "assistant", content: continuationText },
+                  { role: "user", content: CONTINUE_PROMPT },
+                ];
+          let stopReason: string | null | undefined = null;
+          for await (const chunk of llm.streamText({
+            system,
+            messages,
+            // 1200→2200 (2026-07-12 통합진단 ⓒ) 이후에도 항목에 따라 여전히 잘려
+            // 자동 이어쓰기로 전환(2026-07-14) — 이 값 자체는 더 올리지 않는다.
+            maxTokens: 2200,
+            onStop: (s) => {
+              stopReason = s.reason;
+            },
+          })) {
+            controller.enqueue(encoder.encode(chunk));
+            onChunk(chunk);
+          }
+          return { stopReason };
+        });
+        if (result.attempts > 1) {
+          console.log(
+            `[draft-continue] "${section.heading}" 이어쓰기 ${result.attempts}회 (잘림 재현 ${result.attempts - 1}회)`,
+          );
+        }
+        if (result.truncated) {
+          console.warn(
+            `[draft-truncated] "${section.heading}" 이어쓰기 한도(${result.attempts}회) 도달 — 여전히 잘렸을 수 있음`,
+          );
         }
       } catch (err) {
         console.error("[/api/plan/draft]", err);

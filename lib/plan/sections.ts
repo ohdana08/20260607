@@ -80,17 +80,24 @@ export function formTocToPlanSections(formToc: string[]): PlanSection[] | null {
   }));
 }
 
+// 실 양식 3종 검증(2026-07-14)에서 "창업 아이템"(띄어씀) vs "창업아이템"(붙여씀) 같은
+// 띄어쓰기 변형으로 정확일치가 깨지는 걸 발견 — 공백 제거 후 비교해 흡수한다.
+function normalizeHeadingForMatch(h: string): string {
+  return h.replace(/\s+/g, "");
+}
 export function isFormTableEntryHeading(heading: string): boolean {
-  return TABLE_ENTRY_HEADINGS.includes(heading.trim());
+  const norm = normalizeHeadingForMatch(heading);
+  return TABLE_ENTRY_HEADINGS.some((h) => normalizeHeadingForMatch(h) === norm);
 }
 
 export function isRegionNoticeTargetHeading(heading: string): boolean {
-  return REGION_NOTICE_TARGET_HEADINGS.includes(heading.trim());
+  const norm = normalizeHeadingForMatch(heading);
+  return REGION_NOTICE_TARGET_HEADINGS.some((h) => normalizeHeadingForMatch(h) === norm);
 }
 
 export function preferredRegionNoticeHeading(headings: string[]): string | null {
   for (const h of REGION_NOTICE_TARGET_HEADINGS) {
-    if (headings.some((x) => x.trim() === h)) return h;
+    if (headings.some((x) => normalizeHeadingForMatch(x) === normalizeHeadingForMatch(h))) return h;
   }
   return null;
 }
