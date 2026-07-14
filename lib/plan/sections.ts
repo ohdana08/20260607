@@ -9,6 +9,14 @@ export interface PlanSection {
 export const MISSING_INFO_PLACEHOLDER =
   "[보완 필요: 이 항목을 작성할 실제 정보를 입력해 주세요.\n예: 실제 일정, 자금 사용 계획, 담당 인력 등 확인된 정보를 입력]";
 
+// 환각 가드(2026-07-14): "정보가 아예 없음"과 "있다는 암시는 있지만 구체값이 없음"은
+// 다른 상황이다. 후자를 MISSING_INFO_PLACEHOLDER로 뭉뚱그리면 사용자가 "왜 보완하라는
+// 건지" 이해하기 어렵고, LLM도 "그럴듯한 구체값"을 만들어내고 싶은 유혹이 더 크다
+// (예: "반응이 좋다"는 말만 듣고 "재구독률 42%"를 지어내는 식). 이런 경우 전용 표시로
+// 무엇이 왜 필요한지 명확히 남긴다.
+export const PROOF_NEEDED_PLACEHOLDER =
+  "[증빙 필요: 이 부분은 구체적인 수치·기관명·계약 사실이 있으면 설득력이 크게 높아지지만, 대화에서 확인되지 않아 비워둡니다. 실제 자료(매출·이용 데이터, 계약서·MOU, 수상·인증 확인서 등)로 확인한 뒤 채워주세요.]";
+
 export const FORM_TABLE_ENTRY_NOTICE = "[안내: 이 내용은 공식 양식의 해당 표에 옮겨 적어야 합니다.]";
 export const REGION_INFO_PLACEHOLDER = "[보완 필요: 공고에서 요구하는 소재지 정보를 입력해 주세요]";
 

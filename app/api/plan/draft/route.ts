@@ -3,7 +3,7 @@ import type { ChatMsg } from "@/lib/llm/provider";
 import { checkDraftAccess, markCreditUsed, paymentRequiredResponse } from "@/lib/plan/paidAccess";
 import { maintenanceGate } from "@/lib/config";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
-import { MISSING_INFO_PLACEHOLDER, sanitizeFormToc } from "@/lib/plan/sections";
+import { MISSING_INFO_PLACEHOLDER, PROOF_NEEDED_PLACEHOLDER, sanitizeFormToc } from "@/lib/plan/sections";
 import { generateChunked, CONTINUE_PROMPT } from "@/lib/plan/draftChunking";
 
 export const runtime = "nodejs";
@@ -99,6 +99,21 @@ ${formTocRules}
 - 정보가 부족한 부분은 사실을 지어내거나 과장하지 말고, 아래 보완 표시를 그대로 남기세요:
 ${MISSING_INFO_PLACEHOLDER}
 - 실제 매출, 인원, 일정, 투자금액, 고객 수, 인증, 특허, 수출, 계약 같은 사실은 사용자 발화나 첨부 자료에 있을 때만 쓰세요.
+
+[환각 방지 — 반드시 준수]
+- [대화]에 아예 없는 구체적인 숫자·기관명·인명·수상명·계약명을 절대 새로 만들어 내지 마세요.
+  특히 아래 유형은 [대화]에 사용자가 실제로 말한 값이 아니면 임의로 채우지 마세요:
+  · 수치: 매출액, 전환율, 이용자·구독자 수, 재구매율, 성장률, 투자금액 등
+  · 고유명사: 투자사·파트너사·거래처 이름, 수상명·수상기관, 인증명
+  · 실적: 계약·납품·MOU 체결 여부와 그 상대방
+- 사용자가 "반응이 좋다/논의가 진행 중이다/여러 곳과 협업 중이다"처럼 있다는 암시만 주고 구체값을
+  주지 않았다면, "약 000명", "다수의 기업" 같은 얼버무린 가짜 구체성도 만들지 말고, 사용자가 말한
+  수준(암시) 그대로 서술하거나 아래 표시를 남기세요:
+${PROOF_NEEDED_PLACEHOLDER}
+- MISSING_INFO 표시(위)와 이 증빙 표시는 다릅니다 — 정보가 아예 없으면 위 보완 표시를,
+  "있다는 말은 했지만 구체값·확정 여부가 없어" 검증이 필요하면 이 증빙 표시를 쓰세요.
+- 진행 중·협의 중인 일을 이미 확정·완료된 것처럼 단정하지 마세요(예: "계약 논의 중"을
+  "계약 체결"로 쓰지 말 것). 목표·계획으로 서술하는 것은 괜찮습니다.
 - 사업 소재지는 사용자가 실제 입력한 지역만 쓰세요. 지역을 확인할 수 있으면 "사업 소재지: 사용자가 실제 입력한 지역" 형식으로, 확인할 수 없으면 "사업 소재지: 아직 입력하지 않음"이라고 쓰세요.
 - 지역 자격은 업로드한 공고문이 요구하는 본사·사업장·공장 등의 소재지 기준에 맞춰 판단하세요.
 - 지역 정보가 부족하면 임의로 추정하지 마세요. 단, 화면에 보이는 소재지 보완 문구는 시스템이 신청현황/일반현황 중 한 곳에만 조건부로 표시하므로 다른 항목에 반복하지 마세요.
