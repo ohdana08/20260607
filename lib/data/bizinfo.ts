@@ -90,14 +90,19 @@ async function fetchPage(key: string, pageIndex: number): Promise<BizItem[]> {
 }
 
 // 모집중인 기업마당 공고. 키 없으면 [], 호출 실패 시 throw.
-// 2페이지(최대 200건)까지 가져와 소상공인 등 다양한 공고가 더 많이 포함되게 한다.
+// 1~5페이지(최대 500건) 수집 (2026-07-14 P0): 기업마당은 모집중 공고가 수백 건이라
+// 2페이지(200건)로는 지자체·소상공인 공고 뒤편이 잘렸다. 병렬 호출이라 지연 동일.
+const BIZINFO_PAGES = 5;
+
 export async function fetchBizinfoOpen(): Promise<Program[]> {
   const key = process.env.BIZINFO_KEY?.trim();
   if (!key) return [];
-  const pages = await Promise.allSettled([fetchPage(key, 1), fetchPage(key, 2)]);
+  const pages = await Promise.allSettled(
+    Array.from({ length: BIZINFO_PAGES }, (_, i) => fetchPage(key, i + 1)),
+  );
   const items = pages.flatMap((p) => (p.status === "fulfilled" ? p.value : []));
   if (items.length === 0) {
-    // 두 페이지 모두 실패 → 첫 페이지 단독 재시도(에러 전파)
+    // 전 페이지 실패 → 첫 페이지 단독 재시도(에러 전파)
     return (await fetchPage(key, 1))
       .map(normalize)
       .filter((p): p is Program => p !== null)

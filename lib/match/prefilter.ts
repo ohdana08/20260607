@@ -77,5 +77,13 @@ export function prefilterPrograms(programs: Program[], profile?: MatchProfile): 
   const filtered = programs.filter(
     (p) => regionOk(p, profile?.region) && ageOk(p, profile?.ageGroup) && stageOk(p, profile?.stage),
   );
-  return filtered.sort(byDeadline).slice(0, MAX_CANDIDATES);
+  // 지역 소재 공고 보호 (2026-07-14 P1): 마감 임박순 45건 절단은 마감이 먼 지역 공고
+  // (실사례: 부산 관광·마이스 그로우업, 마감 12-31)를 밀어낸다. 사용자 지역 소재 공고는
+  // 애초에 소수이므로 전량 보존하고, 나머지 자리만 마감 임박순으로 채운다.
+  const userSido =
+    profile?.region && !profile.region.includes("전국") ? profile.region.slice(0, 2) : null;
+  if (!userSido) return filtered.sort(byDeadline).slice(0, MAX_CANDIDATES);
+  const local = filtered.filter((p) => p.region.includes(userSido)).sort(byDeadline);
+  const rest = filtered.filter((p) => !p.region.includes(userSido)).sort(byDeadline);
+  return [...local, ...rest].slice(0, MAX_CANDIDATES); // 지역 소재가 45건을 넘어도 토큰 가드는 유지
 }

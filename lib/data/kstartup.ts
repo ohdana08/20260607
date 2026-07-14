@@ -58,21 +58,65 @@ function normalize(it: KstartupItem): Program | null {
   };
 }
 
-async function fetchKstartupPrograms(key: string): Promise<Program[] | null> {
+// 모집중 전량 수집 (2026-07-14 P0 확정): 이 API는 역대 공고 29,000건+ 아카이브를
+// 최신순으로 반환해, 페이지 확대(1,000행)로도 마감이 먼 지역 공고
+// (예: 부산 관광ㆍ마이스 그로우업, 3/17 등록·12/31 마감)를 놓쳤다.
+// odcloud cond 문법이 실작동함을 실키로 검증(2026-07-14): cond[rcrt_prgs_yn::EQ]=Y
+// 서버 필터로 모집중 전체(실측 274건)가 perPage=500 1콜에 들어온다.
+// matchCount>500이면 페이지를 추가하고, 상한 초과는 경고 로그로 감지한다.
+const PER_PAGE = 500;
+const MAX_PAGES = 4; // 모집중 2,000건까지 대응
+
+interface KstartupPage {
+  data?: KstartupItem[];
+  matchCount?: number;
+}
+
+async function fetchPage(key: string, page: number): Promise<KstartupPage> {
   const params = new URLSearchParams({
     serviceKey: key,
-    page: "1",
-    perPage: "100",
+    page: String(page),
+    perPage: String(PER_PAGE),
     returnType: "json",
   });
+  params.set("cond[rcrt_prgs_yn::EQ]", "Y"); // 모집중만 — 서버 필터 (percent-encoding 허용 확인됨)
   const res = await fetch(`${KSTARTUP_ENDPOINT}?${params.toString()}`, {
     signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) throw new Error(`K-Startup API ${res.status}`);
-  const json = (await res.json()) as { data?: KstartupItem[] };
-  const items = Array.isArray(json.data) ? json.data : [];
-  const open = items.filter((it) => it.rcrt_prgs_yn === "Y");
-  const programs = open.map(normalize).filter((p): p is Program => p !== null);
+  return (await res.json()) as KstartupPage;
+}
+
+// 클라이언트측 방어 필터: 서버 필터가 무시·오작동해도 모집중만 남기고 중복 제거
+function toOpenPrograms(items: KstartupItem[]): Program[] {
+  const seen = new Set<string>();
+  return items
+    .filter((it) => it.rcrt_prgs_yn === "Y")
+    .map(normalize)
+    .filter((p): p is Program => p !== null)
+    .filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));
+}
+
+async function fetchKstartupPrograms(key: string): Promise<Program[] | null> {
+  const first = await fetchPage(key, 1);
+  const matchCount = first.matchCount ?? 0;
+  const needed = Math.min(MAX_PAGES, Math.max(1, Math.ceil(matchCount / PER_PAGE)));
+  const rest =
+    needed > 1
+      ? await Promise.allSettled(
+          Array.from({ length: needed - 1 }, (_, i) => fetchPage(key, i + 2)),
+        )
+      : [];
+  const items = [
+    ...(first.data ?? []),
+    ...rest.flatMap((p) => (p.status === "fulfilled" ? (p.value.data ?? []) : [])),
+  ];
+  const programs = toOpenPrograms(items);
+  console.log(`[kstartup] 모집중 ${matchCount}건 중 ${programs.length}건 수집`);
+  if (matchCount > MAX_PAGES * PER_PAGE)
+    console.warn(
+      `[kstartup] 모집중 ${matchCount}건이 수집 상한(${MAX_PAGES * PER_PAGE})을 초과 — MAX_PAGES 확대 필요`,
+    );
   return programs.length > 0 ? programs : null;
 }
 
