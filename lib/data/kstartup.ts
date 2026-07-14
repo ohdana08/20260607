@@ -58,10 +58,14 @@ function normalize(it: KstartupItem): Program | null {
   };
 }
 
-async function fetchKstartupPrograms(key: string): Promise<Program[] | null> {
+// 1~3페이지(최대 300행) 수집 (2026-07-14 P0): 1페이지(100행)만 가져오던 시절
+// 기본 정렬 뒤편의 지역 공고(예: 부산 관광·마이스 그로우업, 마감 12-31)가 통째로 누락됐다.
+const KSTARTUP_PAGES = 3;
+
+async function fetchPage(key: string, page: number): Promise<KstartupItem[]> {
   const params = new URLSearchParams({
     serviceKey: key,
-    page: "1",
+    page: String(page),
     perPage: "100",
     returnType: "json",
   });
@@ -70,9 +74,25 @@ async function fetchKstartupPrograms(key: string): Promise<Program[] | null> {
   });
   if (!res.ok) throw new Error(`K-Startup API ${res.status}`);
   const json = (await res.json()) as { data?: KstartupItem[] };
-  const items = Array.isArray(json.data) ? json.data : [];
-  const open = items.filter((it) => it.rcrt_prgs_yn === "Y");
-  const programs = open.map(normalize).filter((p): p is Program => p !== null);
+  return Array.isArray(json.data) ? json.data : [];
+}
+
+function toOpenPrograms(items: KstartupItem[]): Program[] {
+  const seen = new Set<string>();
+  return items
+    .filter((it) => it.rcrt_prgs_yn === "Y")
+    .map(normalize)
+    .filter((p): p is Program => p !== null)
+    .filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)));
+}
+
+async function fetchKstartupPrograms(key: string): Promise<Program[] | null> {
+  const pages = await Promise.allSettled(
+    Array.from({ length: KSTARTUP_PAGES }, (_, i) => fetchPage(key, i + 1)),
+  );
+  const items = pages.flatMap((p) => (p.status === "fulfilled" ? p.value : []));
+  // 전 페이지 실패 → 첫 페이지 단독 재시도 (에러는 전파해 상위 aggregator가 로깅)
+  const programs = toOpenPrograms(items.length > 0 ? items : await fetchPage(key, 1));
   return programs.length > 0 ? programs : null;
 }
 

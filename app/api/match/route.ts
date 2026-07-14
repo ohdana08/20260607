@@ -96,7 +96,7 @@ export async function POST(req: Request) {
     ) {
       return Response.json({ error: "업력·지역·지원유형을 선택해 주세요." }, { status: 400 });
     }
-    const fetched = await fetchOpenPrograms(400);
+    const fetched = await fetchOpenPrograms();
     const TRAINEE_RE = /(교육생|수강생|참가자|참여자|수강|교육과정)\s*모집/;
     // 멘토링·교육을 찾는 사용자에겐 교육 프로그램 모집도 유효한 결과일 수 있어 남긴다
     const base =
@@ -165,7 +165,26 @@ export async function POST(req: Request) {
     console.log(
       `[/api/match] 버튼매칭 ${result.recommendations.length}건 (전체 ${base.length}건, ${bp.years}/${bp.region}/${bp.supportType}/${bp.sector ?? "-"}, bizDesc=${bizDesc ? "있음" : "-"}, relaxed=${result.relaxed})`,
     );
-    return Response.json({ ...result, usingSample: fetched.usingSample });
+    // 커버리지 회귀 감지 (2026-07-14 P0): 특정 지역을 골랐는데 풀에 그 지역 소재 공고가
+    // 0건이면 소스 누락(키 만료·페이지 절단 회귀)일 가능성이 높다 — 경고로 남겨 조기 발견.
+    const wantSido = bp.region.includes("전국") ? null : bp.region.slice(0, 2);
+    const poolLocal = wantSido
+      ? fetched.programs.filter((p) => p.region.includes(wantSido)).length
+      : null;
+    if (wantSido && poolLocal === 0) {
+      console.warn(
+        `[/api/match][coverage] 지역=${bp.region} 선택했으나 풀(${fetched.programs.length}건)에 ${wantSido} 소재 공고 0건 — 수집 소스 점검 필요`,
+      );
+    }
+    // poolStats: 커버리지 검증·before/after 대조용 (회귀 스크립트 scripts/regression-match.mjs가 읽는다)
+    const bySource: Record<string, number> = {};
+    const byRegion: Record<string, number> = {};
+    for (const p of fetched.programs) {
+      bySource[p.source] = (bySource[p.source] ?? 0) + 1;
+      byRegion[p.region] = (byRegion[p.region] ?? 0) + 1;
+    }
+    const poolStats = { total: fetched.programs.length, local: poolLocal, bySource, byRegion };
+    return Response.json({ ...result, usingSample: fetched.usingSample, poolStats });
   }
 
   const provider = parseProvider((body as { provider?: unknown })?.provider);
@@ -234,6 +253,12 @@ export async function POST(req: Request) {
   console.log(
     `[/api/match] 후보 ${programs.length}건 (필터 전 ${base.length}건, 지역=${profile?.region ?? "-"}, 단계=${profile?.stage ?? "-"}, 대화업력=${convYears?.bucket ?? "-"})`,
   );
+  // 커버리지 회귀 감지 (2026-07-14 P0) — 버튼 경로와 동일한 소스 누락 경고
+  if (userSido && !fetched.programs.some((p) => p.region.includes(userSido))) {
+    console.warn(
+      `[/api/match][coverage] 지역=${profile?.region} 선택했으나 풀(${fetched.programs.length}건)에 ${userSido} 소재 공고 0건 — 수집 소스 점검 필요`,
+    );
+  }
   if (programs.length === 0) {
     // 필터 결과 0건 — 조건 무관 마감 임박순 2~3건을 '근접 공고'로 반환 (리드 수집 흐름용)
     return Response.json({
@@ -342,6 +367,12 @@ export async function POST(req: Request) {
       const ka = kindRank(a.kind ?? "other");
       const kb = kindRank(b.kind ?? "other");
       if (ka !== kb) return ka - kb;
+      // 지역 소재 가점 (2026-07-14 P2): 같은 유형이면 사용자 지역 소재 공고를 전국 공고보다 위로
+      if (userSido) {
+        const la = a.program.region.includes(userSido);
+        const lb = b.program.region.includes(userSido);
+        if (la !== lb) return la ? -1 : 1;
+      }
       if ((a.eligibility === "조건 충족") !== (b.eligibility === "조건 충족"))
         return a.eligibility === "조건 충족" ? -1 : 1;
       return (a.program.applyEnd ?? "9999").localeCompare(b.program.applyEnd ?? "9999");
