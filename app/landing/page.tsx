@@ -1,80 +1,28 @@
 import type { Metadata } from "next";
-import { GROBLE_CHECKOUT_URL } from "@/lib/config";
+import "./landing.css";
+import LandingClient from "./LandingClient";
+
+// 실제 배포 도메인 (Vercel 프로젝트 20260607 — 커스텀 도메인 미연결, 안정적인 *.vercel.app 별칭).
+// 그로블 웹훅 등록 주소(app/api/groble/webhook/route.ts)와 동일한 도메인으로 통일.
+const SITE_URL = "https://20260607.vercel.app";
 
 export const metadata: Metadata = {
-  title: "정부지원사업 사업계획서 도우미 — 소개",
+  title: "정부지원사업 도우미 | 내 사업의 증거를 공고 양식에 맞춘 DOCX 초안으로",
   description:
-    "13년·380개 공공기관 심사 노하우를 학습한 AI가 지원사업 찾기부터 사업계획서 초안까지 대신해 드립니다.",
+    "매출·고객·거래처·경험은 있지만 사업계획서 어디에 써야 할지 막혔다면, 공고 자격을 무료로 확인하고 평가항목과 공식 양식 순서에 맞춘 DOCX 초안을 만드세요.",
+  openGraph: {
+    title: "정부지원사업 도우미 | 쓸 내용은 있는데 어디에 써야 할지 막혔다면",
+    description: "공고 자격 진단은 무료. 내 사업의 증거를 평가항목에 배치한 맞춤 DOCX 초안 1건 39,900원.",
+    type: "website",
+    // TODO(배포 전 필수): og-government-plan-helper.png 파일이 public/에 아직 없음.
+    // 1200x630 OG 이미지를 public/og-government-plan-helper.png 로 추가해야 카톡·SNS
+    // 공유 시 썸네일이 정상 노출된다. 추가 전까지는 플랫폼 기본 파비콘 등으로 대체 노출됨.
+    images: ["/og-government-plan-helper.png"],
+    url: SITE_URL,
+  },
+  alternates: { canonical: SITE_URL },
 };
 
-// 그로블 결제창 링크 — lib/config.ts 의 단일 상수를 공유한다 (결제 모달과 동일 링크).
-const CHECKOUT_URL = GROBLE_CHECKOUT_URL;
-
-export default function Landing() {
-  return (
-    <main className="flex flex-1 flex-col items-center px-6 py-20">
-      <div className="flex w-full max-w-2xl flex-1 flex-col items-center justify-center text-center">
-        <p className="mb-3 text-sm font-medium text-blue-600">
-          내 사업의 AI 직원
-        </p>
-        <h1 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
-          정부지원사업 사업계획서 도우미
-        </h1>
-        <p className="mx-auto mt-5 max-w-xl text-lg font-medium leading-8 text-zinc-700">
-          공고 찾기부터 사업계획서 초안까지, 대화 한 번으로 끝내는 AI
-          직원입니다.
-        </p>
-
-        <ul className="mx-auto mt-8 max-w-xl space-y-3 text-left text-base leading-7 text-zinc-600">
-          <li className="rounded-xl border border-zinc-200 bg-white px-5 py-4">
-            <span className="font-semibold text-zinc-900">공고 찾기 대신</span>{" "}
-            — 흩어진 정부지원사업 공고를 뒤지는 대신, 내 지역·단계·나이에 맞는
-            사업을 대화 한 번으로 추천받아요.
-          </li>
-          <li className="rounded-xl border border-zinc-200 bg-white px-5 py-4">
-            <span className="font-semibold text-zinc-900">
-              사업 진단 대신
-            </span>{" "}
-            — 계획서를 쓰기 전에, 내 사업이 &ldquo;될 사업&rdquo;인지 7단계로
-            빠르게 진단하고 약점을 짚어 드려요.
-          </li>
-          <li className="rounded-xl border border-zinc-200 bg-white px-5 py-4">
-            <span className="font-semibold text-zinc-900">
-              초안 작성 대신
-            </span>{" "}
-            — 13년·380개 공공기관 심사 노하우를 학습한 AI가 심사위원 관점을
-            담은 사업계획서 초안을 만들어 드려요.
-          </li>
-        </ul>
-
-        <div className="mt-10">
-          <p className="text-sm text-zinc-500">이용 가격</p>
-          <p className="mt-1 text-3xl font-bold tracking-tight">
-            39,900<span className="text-lg font-semibold">원</span>
-          </p>
-        </div>
-
-        <div className="mt-8 flex flex-col items-center gap-2">
-          {CHECKOUT_URL ? (
-            <a
-              href={CHECKOUT_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex h-12 items-center justify-center rounded-full bg-blue-600 px-8 text-base font-semibold text-white transition-colors hover:bg-blue-700"
-            >
-              구매하기
-            </a>
-          ) : (
-            <button
-              type="button"
-              disabled
-              className="inline-flex h-12 cursor-not-allowed items-center justify-center rounded-full bg-zinc-300 px-8 text-base font-semibold text-white"
-            >
-              구매하기 (결제 연결 준비 중)
-            </button>
-          )}
-        </div>
-      </div>
-    </main>
-  );
+export default function LandingPage() {
+  return <LandingClient />;
 }

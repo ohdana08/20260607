@@ -40,7 +40,13 @@ export type GaEvent =
   | "checkout_start" // 미리보기에서 결제 화면 진입 (click_pay와 함께 발화)
   // 완성 키트(2026-07-12) — 초안 하단 블록
   | "prompt_copy_click" // ChatGPT/Gemini 완성 프롬프트 복사
-  | "consult_cta_click"; // 사업계획서 컨설팅 문의(카톡채널) 클릭
+  | "consult_cta_click" // 사업계획서 컨설팅 문의(카톡채널) 클릭
+  // 랜딩 리뉴얼(2026-07-14) — /landing 전용 클릭 이벤트
+  | "cta_free_diagnosis" // "무료 진단 시작" 계열 CTA 클릭 (location 파라미터로 위치 구분)
+  | "cta_view_demo" // "가상 결과 예시 보기" CTA 클릭
+  | "cta_paid_checkout" // 가격 카드 "DOCX 받기" 결제 CTA 클릭
+  | "demo_tab_view" // 랜딩 데모 탭 전환(초기창업자/예비창업자/기관납품형)
+  | "faq_open"; // 랜딩 FAQ 항목 펼침
 
 type GtagWindow = Window & {
   dataLayer?: Record<string, unknown>[];
