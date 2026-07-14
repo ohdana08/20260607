@@ -14,10 +14,7 @@ export const metadata: Metadata = {
     title: "정부지원사업 도우미 | 쓸 내용은 있는데 어디에 써야 할지 막혔다면",
     description: "공고 자격 진단은 무료. 내 사업의 증거를 평가항목에 배치한 맞춤 DOCX 초안 1건 39,900원.",
     type: "website",
-    // TODO(배포 전 필수): og-government-plan-helper.png 파일이 public/에 아직 없음.
-    // 1200x630 OG 이미지를 public/og-government-plan-helper.png 로 추가해야 카톡·SNS
-    // 공유 시 썸네일이 정상 노출된다. 추가 전까지는 플랫폼 기본 파비콘 등으로 대체 노출됨.
-    images: ["/og-government-plan-helper.png"],
+    images: [{ url: "/og-government-plan-helper.png", width: 1200, height: 630 }],
     url: SITE_URL,
   },
   alternates: { canonical: SITE_URL },
