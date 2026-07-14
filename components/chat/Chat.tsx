@@ -292,6 +292,9 @@ export default function Chat() {
   //    모든 인증 요청은 authedHeaders()로 요청 직전에 신선한 토큰을 받는다.
   const { session, paid, setPaid, email, signOut } = useAuth();
   const [payOpen, setPayOpen] = useState(false); // 상단 [결제 확인] 메뉴로 여는 모달
+  // 재구매(2026-07-14): 전역 paid=true여도 "이 진입은 소진돼서 새 주문번호가 필요하다"를
+  // 구분한다 — Paywall에 paid 그대로 넘기면 항상 "결제 완료" 화면만 보여 입력폼이 안 뜬다.
+  const [needsRepurchase, setNeedsRepurchase] = useState(false);
   // 로그인 게이트 B안(2026-07-10): 진단 결과 보기 직전에 로그인 요구
   const [authOpen, setAuthOpen] = useState(false);
   const [pendingEvidence, setPendingEvidence] = useState<{ revenue: string; items: string[] } | null>(null);
@@ -1567,6 +1570,7 @@ export default function Chat() {
         const res = await fetch("/api/order/verify", { headers: await authedHeaders() });
         const d = (await res.json().catch(() => ({}))) as { usedProgramId?: string | null };
         if (d?.usedProgramId && d.usedProgramId !== selectedProgram.id) {
+          setNeedsRepurchase(true); // 이 공고는 소진된 이용권으로는 못 씀 — 새 주문번호 입력폼 노출
           setMode("paywall");
           return;
         }
@@ -1693,8 +1697,12 @@ export default function Chat() {
     const data = await res.json().catch(() => ({}));
     if (data?.ok) {
       setPaid(true);
-      // GA4 퍼널: 주문번호 인증 완료 = 유료 전환 확정 (QA 테스트 세션은 측정 제외)
-      if (!data.isQa) track("order_verified", { price: PRICE_KRW });
+      setNeedsRepurchase(false); // 새 주문번호로 이용권 교체됨 — 다음 진입은 정상 paid 화면
+      // GA4 퍼널: 재구매 갱신과 최초 전환은 다른 이벤트로 구분 (QA 테스트 세션은 둘 다 측정 제외)
+      if (!data.isQa) {
+        if (data.renewed) track("repurchase_verified", { price: PRICE_KRW });
+        else track("order_verified", { price: PRICE_KRW });
+      }
       return { ok: true };
     }
     return { ok: false, error: String(data?.error || "확인에 실패했어요. 다시 시도해 주세요.") };
@@ -1930,7 +1938,10 @@ export default function Chat() {
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <button
-              onClick={() => setPayOpen(true)}
+              onClick={() => {
+                setNeedsRepurchase(false); // 상단 메뉴는 일반 상태 확인 — 소진 입력폼으로 고정되지 않게
+                setPayOpen(true);
+              }}
               title="그로블 주문번호로 결제 확인"
               className={`flex h-8 items-center rounded-lg px-2 text-xs font-semibold ${
                 paid ? "text-emerald-600 hover:bg-emerald-50" : "text-blue-600 hover:bg-blue-50"
@@ -2058,9 +2069,10 @@ export default function Chat() {
             </button>
             <Paywall
               program={mode === "paywall" ? selectedProgram : null}
-              paid={paid}
+              paid={paid && !needsRepurchase}
               onUnlock={() => {
                 setPayOpen(false);
+                setNeedsRepurchase(false);
                 if (mode === "paywall" && selectedProgram) enterPlanMode(selectedProgram);
               }}
               onCancel={closePaywall}
@@ -2372,6 +2384,7 @@ export default function Chat() {
             kitPrompt={buildKitPrompt()}
             onRepurchase={() => {
               track("repurchase_cta_click", { price: PRICE_KRW });
+              setNeedsRepurchase(true); // 초안 완주 = 이번 이용권 소진 — 새 주문번호 입력폼부터
               setPayOpen(true);
             }}
           />

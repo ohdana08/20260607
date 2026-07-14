@@ -1,6 +1,7 @@
 import { Redis } from "@upstash/redis";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
+import { GROBLE_PRODUCT_ID } from "@/lib/config";
 import {
   getAuthedUser,
   getPaidRecord,
@@ -11,8 +12,91 @@ import {
   ORDER_USED_KEY,
   PAID_KEY,
   VALID_ORDER_KEY,
+  type AuthedUser,
   type ValidOrder,
 } from "@/lib/plan/paidAccess";
+
+// 실주문 검증(최초·재구매 공용) — 시도 제한 → 원장 조회 → (재구매면) 상품 필터 →
+// 재사용 차단 → is_paid 기록. repurchase=true 면 기존 usedProgramId 없이 새로
+// 덮어써 이용권을 교체한다(=소진 해제).
+async function verifyRealOrderAndRespond(
+  r: Redis,
+  user: AuthedUser,
+  orderNo: string,
+  opts: { repurchase: boolean },
+): Promise<Response> {
+  // 계정당 입력 시도 5회 제한 — 재구매 시도도 같은 버킷(무차별 대입 방지는 항상 적용)
+  const tries = await r.incr(ORDER_TRIES_KEY(user.id));
+  if (tries > MAX_ORDER_TRIES) {
+    return Response.json(
+      { ok: false, error: "입력 시도가 5회를 넘었어요. 문의하기로 연락 주시면 확인해 드릴게요." },
+      { status: 429 },
+    );
+  }
+
+  // ★ 실제 결제 검증: 그로블 웹훅이 등록한 실결제 주문번호만 통과.
+  //   존재하지 않는 18자리는 여기서 거부된다. 결제 취소된 주문번호도 거부.
+  const valid = await r.get<ValidOrder>(VALID_ORDER_KEY(orderNo));
+  if (!valid || valid.status !== "valid") {
+    return Response.json(
+      {
+        ok: false,
+        error:
+          valid?.status === "cancelled"
+            ? "결제가 취소된 주문번호예요."
+            : "그로블 결제 내역에서 확인되지 않는 주문번호예요. 방금 결제하셨다면 1~2분 뒤 다시 시도해 주세요. 계속 안 되면 문의하기로 연락 주세요.",
+      },
+      { status: 404 },
+    );
+  }
+
+  // 재구매 갱신 전용(2026-07-14): 상품 필터 — 재구매 대상은 신상품(RJczGx)만.
+  // productId 를 확인할 수 없는(구형·미확인) 원장은 막지 않는다 — 실결제를 오탐으로
+  // 막는 쪽이 훨씬 위험하므로 fail-open.
+  if (opts.repurchase && valid.productId && valid.productId !== GROBLE_PRODUCT_ID) {
+    return Response.json(
+      { ok: false, error: "재구매 대상 상품의 주문번호가 아니에요. 최신 상품으로 다시 결제해 주세요." },
+      { status: 400 },
+    );
+  }
+
+  // 주문번호 재사용 차단 — 최초 1계정에만 묶인다 (동시요청 대비 NX)
+  const bound = await r.set(ORDER_USED_KEY(orderNo), user.id, { nx: true });
+  if (bound === null) {
+    const owner = await r.get<string>(ORDER_USED_KEY(orderNo));
+    if (owner !== user.id) {
+      return Response.json(
+        { ok: false, error: "이미 사용된 주문번호예요. 본인 결제가 맞다면 문의하기로 연락 주세요." },
+        { status: 409 },
+      );
+    }
+  }
+
+  // 새 레코드로 통째로 덮어쓴다 — 재구매면 이전 usedProgramId 는 자동으로 사라진다(=소진 해제).
+  const record = { orderNo, email: user.email, verifiedAt: new Date().toISOString() };
+  await r.set(PAID_KEY(user.id), record);
+
+  // 감사 기록 → BCC CRM(bcc-admin) leads 테이블 (그로블 판매 리스트 대조용).
+  // 실패해도 인증 자체는 유효 — best effort.
+  try {
+    const db = createAdminClient();
+    await db.from("leads").insert({
+      name: `[${opts.repurchase ? "재구매" : "유료전환"}] ${user.email || user.id}`,
+      contact: user.email || user.id,
+      request_type: "product_b2c",
+      status: "converted",
+      source: `groble_order:${orderNo}`,
+      message: `도우미 주문번호 인증 (userId: ${user.id}${opts.repurchase ? ", 재구매" : ""})`,
+      consent: true,
+      consent_at: record.verifiedAt,
+    });
+  } catch {
+    /* CRM 기록 실패는 무시 (Redis 가 원본) */
+  }
+
+  console.log(`[order/verify] ${opts.repurchase ? "재구매 갱신" : "최초 인증"}: ${orderNo} (user: ${user.id})`);
+  return Response.json({ ok: true, orderNo, ...(opts.repurchase ? { renewed: true } : {}) });
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,23 +160,28 @@ export async function POST(req: Request) {
     );
   }
 
-  // 이미 인증된 계정이면 그대로 통과 (멱등)
+  // 이미 인증된 계정 — 같은 번호 재입력이면 멱등 통과, 소진 후 "새" 번호면 재구매 갱신 시도.
   const already = await getPaidRecord(user.id);
   if (already) {
-    // 이용권 소진 후 "새" QA 주문번호 → 새 이용권으로 교체 (QA_MODE 한정 — 소진 로직 반복 테스트용).
-    // 실주문 재구매의 verify 갱신은 그로블 상품 구조 확인 후 다음 커밋 (지금은 소진 차단까지만).
-    if (already.usedProgramId && qa && orderNo !== already.orderNo) {
+    // 소진 전(아직 이용권 미사용)이거나 같은 번호 재입력이면 기존 상태 그대로 반환 —
+    // 결제 실수로 두 번 인증해도 기존 유효한 상태를 덮어쓰지 않는다.
+    if (!already.usedProgramId || orderNo === already.orderNo) {
+      return Response.json({
+        ok: true,
+        orderNo: already.orderNo,
+        isQa: Boolean(already.isQa),
+        usedProgramId: already.usedProgramId ?? null,
+      });
+    }
+    // 이용권 소진 후 "새" QA 주문번호 → 원장 검증 없이 즉시 교체 (QA_MODE 한정 — 반복 테스트용)
+    if (qa) {
       const renewed = { orderNo, email: user.email, verifiedAt: new Date().toISOString(), isQa: true };
       await r.set(PAID_KEY(user.id), renewed);
       console.log(`[order/verify] QA 이용권 갱신: ${orderNo} (user: ${user.id})`);
       return Response.json({ ok: true, orderNo, isQa: true, renewed: true });
     }
-    return Response.json({
-      ok: true,
-      orderNo: already.orderNo,
-      isQa: Boolean(already.isQa),
-      usedProgramId: already.usedProgramId ?? null,
-    });
+    // 실주문 재구매(2026-07-14): 새 주문번호를 최초 결제와 동일하게 완전 검증 후 통과하면 교체.
+    return verifyRealOrderAndRespond(r, user, orderNo, { repurchase: true });
   }
 
   // ── QA 우회 (QA_MODE=true 배포 한정) — 원장 검증·재사용 차단 없이 테스트 통과 ──
@@ -121,63 +210,7 @@ export async function POST(req: Request) {
     return Response.json({ ok: true, orderNo, isQa: true });
   }
 
-  // 계정당 입력 시도 5회 제한 (형식이 유효한 시도만 카운트)
-  const tries = await r.incr(ORDER_TRIES_KEY(user.id));
-  if (tries > MAX_ORDER_TRIES) {
-    return Response.json(
-      { ok: false, error: "입력 시도가 5회를 넘었어요. 문의하기로 연락 주시면 확인해 드릴게요." },
-      { status: 429 },
-    );
-  }
-
-  // ★ 실제 결제 검증 (2026-07-09): 그로블 웹훅이 등록한 실결제 주문번호만 통과.
-  //   존재하지 않는 18자리는 여기서 거부된다. 결제 취소된 주문번호도 거부.
-  const valid = await r.get<ValidOrder>(VALID_ORDER_KEY(orderNo));
-  if (!valid || valid.status !== "valid") {
-    return Response.json(
-      {
-        ok: false,
-        error:
-          valid?.status === "cancelled"
-            ? "결제가 취소된 주문번호예요."
-            : "그로블 결제 내역에서 확인되지 않는 주문번호예요. 방금 결제하셨다면 1~2분 뒤 다시 시도해 주세요. 계속 안 되면 문의하기로 연락 주세요.",
-      },
-      { status: 404 },
-    );
-  }
-
-  // 주문번호 재사용 차단 — 최초 1계정에만 묶인다 (동시요청 대비 NX)
-  const bound = await r.set(ORDER_USED_KEY(orderNo), user.id, { nx: true });
-  if (bound === null) {
-    const owner = await r.get<string>(ORDER_USED_KEY(orderNo));
-    if (owner !== user.id) {
-      return Response.json(
-        { ok: false, error: "이미 사용된 주문번호예요. 본인 결제가 맞다면 문의하기로 연락 주세요." },
-        { status: 409 },
-      );
-    }
-  }
-
-  const record = { orderNo, email: user.email, verifiedAt: new Date().toISOString() };
-  await r.set(PAID_KEY(user.id), record);
-
-  // 감사 기록 → BCC CRM(bcc-admin) leads 테이블 (그로블 판매 리스트 대조용).
-  // 실패해도 인증 자체는 유효 — best effort.
-  try {
-    const db = createAdminClient();
-    await db.from("leads").insert({
-      name: `[유료전환] ${user.email || user.id}`,
-      contact: user.email || user.id,
-      request_type: "product_b2c",
-      status: "converted",
-      source: `groble_order:${orderNo}`,
-      message: `도우미 주문번호 인증 (userId: ${user.id})`,
-      consent: true,
-      consent_at: record.verifiedAt,
-    });
-  } catch {
-    /* CRM 기록 실패는 무시 (Redis 가 원본) */
-  }
-
-  return Response.json({ ok: true, orderNo });
+  // 최초 실주문 검증 (2026-07-09) — 시도 제한·원장 조회·재사용 차단·is_paid 기록은
+  // verifyRealOrderAndRespond가 재구매 경로와 공유한다.
+  return verifyRealOrderAndRespond(r, user, orderNo, { repurchase: false });
 }

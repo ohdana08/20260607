@@ -31,6 +31,7 @@ export interface ValidOrder {
   registeredAt: string;
   via: "webhook" | "manual"; // manual = 마스터코드로 수동 등록 (판매 리스트 대조 후)
   status: "valid" | "cancelled";
+  productId?: string; // 그로블 content.id (2026-07-14 재구매) — 없으면(구형/미확인) 상품 필터는 통과시킨다
   raw?: unknown; // 웹훅 페이로드 요약
 }
 
