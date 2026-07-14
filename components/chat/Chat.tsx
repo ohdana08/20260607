@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import type { Recommendation, Program } from "@/lib/match/types";
@@ -3105,6 +3105,8 @@ function Paywall({
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  // 환불정책(2026-07-14) — 결제 진입(그로블 링크 클릭) 전 필수 동의. 미동의 시 결제 진행 불가.
+  const [refundConsent, setRefundConsent] = useState(false);
 
   // QA 우회 형식("QA"+16자리, QA_MODE 배포 한정)도 서버로 보낼 수 있게 영숫자를 남긴다
   const orderCleaned = entered.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -3124,7 +3126,12 @@ function Paywall({
     }
   }
 
-  function clickGroble() {
+  function clickGroble(e: MouseEvent<HTMLAnchorElement>) {
+    // 환불정책(2026-07-14): 동의 체크 전에는 결제 진입 자체를 막는다(링크 이동 취소).
+    if (!refundConsent) {
+      e.preventDefault();
+      return;
+    }
     // GA4 퍼널: 그로블 결제 링크 클릭 (③ 결정 — 전환 트리거 측정)
     track("groble_click", { program: program?.title ?? "", price: PRICE_KRW });
   }
@@ -3181,13 +3188,33 @@ function Paywall({
       {/* 1단계: 그로블에서 결제 */}
       <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3">
         <div className="text-xs font-semibold text-zinc-500">① 그로블에서 결제</div>
+
+        {/* 환불정책(2026-07-14): 결제 진입 전 필수 동의 — 미동의 시 결제 버튼 비활성 */}
+        <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-zinc-700">
+          <input
+            type="checkbox"
+            checked={refundConsent}
+            onChange={(e) => setRefundConsent(e.target.checked)}
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-blue-600"
+          />
+          <span>
+            결제 즉시 초안 생성이 개시되어 <b>환불이 불가</b>함에 동의합니다.{" "}
+            <a href="/refund" target="_blank" rel="noopener noreferrer" className="underline">
+              환불정책 자세히 보기
+            </a>
+          </span>
+        </label>
+
         {GROBLE_CHECKOUT_URL ? (
           <a
             href={GROBLE_CHECKOUT_URL}
             target="_blank"
             rel="noopener noreferrer"
+            aria-disabled={!refundConsent}
             onClick={clickGroble}
-            className="mt-2 block rounded-xl bg-blue-600 py-3.5 text-center text-base font-bold text-white hover:bg-blue-700"
+            className={`mt-2 block rounded-xl py-3.5 text-center text-base font-bold text-white ${
+              refundConsent ? "bg-blue-600 hover:bg-blue-700" : "cursor-not-allowed bg-zinc-300"
+            }`}
           >
             {PRICE} 결제하고 초안 생성하기
           </a>
