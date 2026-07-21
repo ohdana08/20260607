@@ -40,7 +40,9 @@ export type GaEvent =
   | "checkout_start" // 미리보기에서 결제 화면 진입 (click_pay와 함께 발화)
   // 완성 키트(2026-07-12) — 초안 하단 블록
   | "prompt_copy_click" // ChatGPT/Gemini 완성 프롬프트 복사
-  | "consult_cta_click"; // 사업계획서 컨설팅 문의(카톡채널) 클릭
+  | "consult_cta_click" // 사업계획서 컨설팅 문의(카톡채널) 클릭
+  | "repurchase_cta_click" // 초안 완성 후 "추가 이용권 결제" CTA 클릭 (2026-07-13 소진 정책)
+  | "repurchase_verified"; // 소진 후 새 주문번호로 이용권 갱신 성공 (2026-07-14, QA 제외)
 
 type GtagWindow = Window & {
   dataLayer?: Record<string, unknown>[];

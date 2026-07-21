@@ -54,6 +54,19 @@ function findMerchantUid(payload: unknown): string | null {
   return null;
 }
 
+// data.object.content.id 상품 식별자 추출 (2026-07-14 재구매: 실 웹훅 원본 10건으로 확인한
+// 실스펙 — 예: "9CYRhi"(구상품, 판매중단), "RJczGx"(신상품)). 없으면 undefined(필터는 verify가
+// fail-open으로 처리 — 여기서는 "확인 가능하면 남긴다"까지만 한다).
+function findProductId(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const p = payload as Record<string, unknown>;
+  const obj = (p.data as Record<string, unknown> | undefined)?.object as
+    | Record<string, unknown>
+    | undefined;
+  const content = obj?.content as Record<string, unknown> | undefined;
+  return typeof content?.id === "string" ? content.id : undefined;
+}
+
 // 18자리 주문번호로 정규화. merchantUid 가 18자리가 아니면(테스트 이벤트 등) null.
 function toOrderNo(uid: string | null, payload: unknown): string | null {
   if (uid) {
@@ -124,12 +137,14 @@ export async function POST(req: Request) {
     return Response.json({ ok: true, orderNo, action: "cancelled" });
   }
 
-  // 결제 완료: 유효 주문번호 원장에 등록
+  // 결제 완료: 유효 주문번호 원장에 등록 (productId 확인되면 함께 기록 — 재구매 상품 필터용)
+  const productId = findProductId(payload);
   await r.set(VALID_ORDER_KEY(orderNo), {
     orderNo,
     registeredAt: new Date().toISOString(),
     via: "webhook",
     status: "valid",
+    ...(productId ? { productId } : {}),
   } satisfies ValidOrder);
   return Response.json({ ok: true, orderNo, action: "registered" });
 }

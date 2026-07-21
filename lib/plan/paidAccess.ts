@@ -31,6 +31,7 @@ export interface ValidOrder {
   registeredAt: string;
   via: "webhook" | "manual"; // manual = 마스터코드로 수동 등록 (판매 리스트 대조 후)
   status: "valid" | "cancelled";
+  productId?: string; // 그로블 content.id (2026-07-14 재구매) — 없으면(구형/미확인) 상품 필터는 통과시킨다
   raw?: unknown; // 웹훅 페이로드 요약
 }
 
@@ -74,6 +75,23 @@ export interface PaidRecord {
   email: string;
   verifiedAt: string;
   isQa?: boolean; // QA 우회로 인증된 테스트 세션 — 실주문과 구분
+  // 이용권 소진(2026-07-13): 첫 초안 생성 시점에 해당 공고에 바인딩.
+  // 같은 공고는 계속 허용(인터뷰 이어가기·docx 재다운로드·수정 1회 무료), 다른 공고는 추가 결제.
+  usedProgramId?: string;
+  usedAt?: string;
+}
+
+// 이용권 소진 — 첫 draft 호출 시 공고 1건에 바인딩 (이미 바인딩돼 있으면 유지)
+export async function markCreditUsed(userId: string, programId: string): Promise<void> {
+  const r = getRedis();
+  if (!r || !programId) return;
+  const paid = await r.get<PaidRecord>(PAID_KEY(userId));
+  if (!paid || paid.usedProgramId) return; // 미결제 또는 이미 바인딩됨
+  await r.set(PAID_KEY(userId), {
+    ...paid,
+    usedProgramId: programId,
+    usedAt: new Date().toISOString(),
+  });
 }
 
 export async function getPaidRecord(userId: string): Promise<PaidRecord | null> {
@@ -84,26 +102,39 @@ export async function getPaidRecord(userId: string): Promise<PaidRecord | null> 
 
 export type DraftAccess =
   | { ok: true; user?: AuthedUser }
-  | { ok: false; reason: "login_required" | "payment_required" };
+  | { ok: false; reason: "login_required" | "payment_required" | "credit_used" };
 
 // 초안(유료) 기능 관문 — 다음 중 하나면 통과:
 //   1) 마스터 코드 (운영자 테스트용, 기존과 동일)
-//   2) 로그인 + 주문번호 인증 완료(is_paid)
-export async function checkDraftAccess(req: Request, code?: unknown): Promise<DraftAccess> {
+//   2) 로그인 + 주문번호 인증 완료(is_paid) + 이용권 미소진 또는 같은 공고 (2026-07-13)
+// 가격 정책: 이용권 1건 = 사업계획서 초안 1건. 다른 공고는 추가 결제 필요.
+export async function checkDraftAccess(
+  req: Request,
+  code?: unknown,
+  programId?: string,
+): Promise<DraftAccess> {
   if (isMasterCode(code)) return { ok: true };
   const user = await getAuthedUser(req);
   if (!user) return { ok: false, reason: "login_required" };
   const paid = await getPaidRecord(user.id);
-  return paid ? { ok: true, user } : { ok: false, reason: "payment_required" };
+  if (!paid) return { ok: false, reason: "payment_required" };
+  if (paid.usedProgramId && programId && paid.usedProgramId !== programId) {
+    return { ok: false, reason: "credit_used" };
+  }
+  return { ok: true, user };
 }
 
-export function paymentRequiredResponse(reason: "login_required" | "payment_required"): Response {
+export function paymentRequiredResponse(
+  reason: "login_required" | "payment_required" | "credit_used",
+): Response {
   return Response.json(
     {
       error:
         reason === "login_required"
           ? "로그인이 필요해요. 로그인 후 다시 시도해 주세요."
-          : "결제 확인이 필요해요. [결제 확인] 메뉴에서 그로블 주문번호를 입력해 주세요.",
+          : reason === "credit_used"
+            ? "이용권 1건은 사업계획서 초안 1건에 사용돼요. 이미 다른 공고의 초안에 사용하셔서, 이 공고의 초안을 만들려면 추가 이용권 결제가 필요해요."
+            : "결제 확인이 필요해요. [결제 확인] 메뉴에서 그로블 주문번호를 입력해 주세요.",
       reason,
     },
     { status: 402 },

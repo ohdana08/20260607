@@ -81,7 +81,7 @@ type Step =
   | "handoff"
   | "preview";
 
-const ACCEPT = "image/*,application/pdf,.pdf,.docx,.hwp,.hwpx";
+const ACCEPT = "image/*,application/pdf,.pdf,.docx,.hwp,.hwpx,.txt,.md";
 
 // 마감일 → 사람이 읽는 라벨 (Chat.tsx deadlineLabel과 동일 규칙)
 function ddayLabel(applyEnd: string | null): { text: string; urgent: boolean } {

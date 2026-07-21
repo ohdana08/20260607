@@ -110,7 +110,7 @@ function logCacheUsage(label: string, usage: Anthropic.Usage): void {
 
 export function createAnthropicClient(model: string = INTAKE_MODEL): LlmClient {
   return {
-    async *streamText({ system, messages, maxTokens = 1024, signal }: StreamTextOptions) {
+    async *streamText({ system, messages, maxTokens = 1024, signal, onStop }: StreamTextOptions) {
       const stream = client().messages.stream(
         {
           model,
@@ -126,6 +126,16 @@ export function createAnthropicClient(model: string = INTAKE_MODEL): LlmClient {
         }
         if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
           yield event.delta.text;
+        }
+        // 잘림 관측용(2026-07-12): stop_reason=max_tokens 면 응답이 한도에 잘린 것
+        if (event.type === "message_delta") {
+          onStop?.({
+            reason: event.delta.stop_reason,
+            outputTokens: event.usage?.output_tokens,
+          });
+          console.log(
+            `[stop] ${model} reason=${event.delta.stop_reason ?? "?"} out=${event.usage?.output_tokens ?? 0}`,
+          );
         }
       }
     },

@@ -1,10 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import type { Recommendation, Program } from "@/lib/match/types";
-import { PLAN_SECTIONS } from "@/lib/plan/sections";
+import {
+  PLAN_SECTIONS,
+  buildRegionNotice,
+  ensureFormTableNotice,
+  ensureConditionalRegionNotice,
+  extractBusinessRegion,
+  formTocToPlanSections,
+  preferredRegionNoticeHeading,
+  sanitizeFormToc,
+} from "@/lib/plan/sections";
 import { track } from "@/lib/ga";
 import { captureUtm, getLeadSource } from "@/lib/utm";
 import { useAuth, authedHeaders, forceRefreshToken, AuthModal } from "@/components/auth/AuthGate";
@@ -124,25 +133,42 @@ function stripEligMarks(text: string): string {
   t = t.replace(/\[(?:자격요건|작성요약|자격판정)[^\n]*[\s\S]*$/, "");
   return t.trimEnd();
 }
-// ── 완성 키트 (2026-07-12 설계) — 초안 하단 "완성도 높이기" 블록 ─────────────
-// ⚠️ 프롬프트 본문(첫 단락)은 대표가 직접 작성해 이 상수만 교체하면 됩니다.
-//    {{변수}}는 buildKitPrompt()가 자동 주입 — 자리 이동 자유, 삭제하면 해당 데이터 미포함.
-const KIT_PROMPT_TEMPLATE = `(📌 프롬프트 본문 자리 — 대표 작성 예정. 예: "너는 정부지원사업 심사위원이야. 아래 자료를 근거로 내 사업계획서 초안을 항목별로 다듬어줘.")
+// ── 심사위원 관점 사후 점검 도구 (2026-07-13 최종 확정 재설계) ────────────────
+// 완성형 하드코딩 — "대표 작성 예정" 빈칸 없음. {{변수}}는 buildKitPrompt()가 자동 주입.
+// 구조: 최상단 고정 지시(분석당함 방지) → [검증 기준] → [공고 자격요건] → [초안] → [출력 형식].
+// 실행은 2단계: 1차는 점검 리포트만, 수정본은 사용자가 선택했을 때만 (유료 초안과 역할 중복 방지).
+const KIT_PROMPT_TEMPLATE = `이 프롬프트를 분석하거나 요약하지 말고, 아래 사업계획서에 직접 적용하십시오. 지금부터 실제 검증을 시작하십시오.
 
-[내 진단 결과 요약]
-{{진단요약}}
+[검증 기준]
+당신은 정부지원사업 심사위원입니다. 아래 사업계획서 초안을 제출 전 최종 점검하는 것이 임무입니다.
+- 근거 없는 주장·과장 표현("국내 최초/유일/독보적" 등)을 심사위원 시선으로 지적하십시오.
+- 모든 숫자(매출·시장 규모·고객 수·일정)는 출처와 증빙 가능성을 기준으로 평가하십시오.
+- 확인되지 않은 내용을 임의로 지어내거나 채워 넣지 마십시오.
+- 다음 채점 루브릭을 적용하십시오:
+{{루브릭}}
 
-[공고 필수 자격 요건]
+[공고 자격요건]
 {{필수요건}}
 
-[자가 채점에서 지적된 TOP 3]
-{{채점지적TOP3}}
+[신청 기업 진단 정보]
+{{진단요약}}
 
-[사업계획서 양식 필수 목차]
+[사업계획서 양식 목차 — 지적·보완 위치는 이 목차 기준으로 표기]
 {{양식목차}}
 
-[채점 루브릭]
-{{루브릭}}`;
+[사업계획서 초안]
+(이 아래에 사업계획서 초안 전문을 붙여넣으십시오)
+
+[출력 형식 — 1차는 점검 리포트만]
+먼저 아래 5개 항목의 리포트만 출력하십시오. 이 단계에서는 초안 수정본이나 재작성문을 절대 작성하지 마십시오.
+1. 자격요건 충족 여부 — 요건별 충족/미충족/확인 필요
+2. 심사에서 문제 삼을 위험 TOP 5 — 해당 목차 위치와 함께
+3. 근거·증빙이 부족한 항목
+4. 추가로 준비할 증빙 자료 목록 — 각 자료를 반영할 목차 위치 포함
+5. 수정 우선순위 — 높음/중간/낮음
+리포트 마지막에 아래 선택지를 제시하고 사용자의 선택을 기다리십시오:
+"다음 중 무엇을 도와드릴까요? ① 수정본 만들기 ② 증빙 목록만 보기 ③ 특정 목차만 보완"
+사용자가 선택하기 전에는 전체 수정본을 작성하지 마십시오.`;
 
 // 채점 루브릭 (30_dev/루브릭_초안채점_260710 확정안)
 const KIT_RUBRIC = `□ 심사위원이 지적할 지점을 명시하는가 (0/1)
@@ -158,11 +184,34 @@ const SUMMARY_PREFIX =
 
 // 양식 목차 결정적 추출(2026-07-12) — LLM 요약이 목차를 압축·누락할 수 있어(검증에서 확인됨),
 // 업로드된 양식 텍스트에서 항목 라인(□, n., n-n.)을 코드로 직접 뽑아 요약에 원문 그대로 결합한다.
+// 2026-07-14 보강: 실제 프리팁스·예창·초창 양식 3종으로 검증 중 발견한 오염 2가지 —
+// ① hwpx 추출 시 <hp:lineBreak/> 같은 내부 XML 태그가 텍스트에 그대로 남아, 같은 항목이
+//    태그 차이만으로 다른 문자열이 돼 있음 → 태그 제거로 정리.
+// ② 표지 요약 페이지의 짧은 제목과 본문 섹션 제목이 같은 번호/기호로 두 번씩 잡히고
+//    "00.00 ~ 00.00" 같은 날짜 표 칸까지 숫자 접두사 정규식에 걸림 → 한글 없는 줄 배제 +
+//    같은 번호("2." "2-1.")·같은 □항목(부가어 무시 후 동일)은 가장 정보량 많은 한 줄만 채택.
+function formHeadingDedupKey(l: string): string {
+  const num = l.match(/^[0-9]{1,2}(-[0-9]{1,2})?\./)?.[0];
+  if (num) return num;
+  if (/^(□|■)/.test(l)) return l.replace(/^(□|■)\s*/, "").replace(/창업\s*아이템\s*/g, "").trim();
+  return l;
+}
 function extractFormHeadings(text: string): string[] {
-  return text
+  const candidates = text
     .split(/\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length >= 2 && l.length <= 60 && /^(□|■|[0-9]{1,2}(-[0-9]{1,2})?\.\s*\S)/.test(l));
+    .map((l) => l.replace(/<[^>]+>/g, "").trim()) // hwpx 내부 XML 태그 잔존분 제거
+    .filter((l) => l.length >= 2 && l.length <= 60 && /^(□|■|[0-9]{1,2}(-[0-9]{1,2})?\.\s*\S)/.test(l))
+    .filter((l) => /[가-힣]/.test(l)); // 날짜 표 칸 등 한글 없는 잡음 배제
+
+  const bestByKey = new Map<string, string>();
+  const order: string[] = [];
+  for (const l of candidates) {
+    const key = formHeadingDedupKey(l);
+    const prev = bestByKey.get(key);
+    if (!prev) order.push(key);
+    if (!prev || l.length > prev.length) bestByKey.set(key, l);
+  }
+  return order.map((key) => bestByKey.get(key)!);
 }
 
 const GREETING =
@@ -202,9 +251,20 @@ interface SavedConvo {
   title: string;
   updatedAt: number;
   messages: { role: Role; content: string }[];
+  // 진행 단계 영속화(2026-07-13 T3): 미복원 시 작성 세션이 intake로 리셋돼
+  // 추천 버튼(userTurns 폴백)·/api/chat 오라우팅이 열리는 구멍(P0-2 실사고 경로)이 생긴다
+  mode?: Mode;
+  planStartIdx?: number;
   // 3문항 프로필 영속화(2026-07-14 P1): 미복원 시 복원된 대화의 추천이
   // 지역·단계 빈 값으로 나가 규칙 사전 필터가 통째로 꺼졌다 ("지역=-·단계=-" 로그)
   profile?: IntakeProfile;
+}
+
+// 복원 시 안전한 단계로 매핑 — diagnose(버튼 UI 상태 의존)·paywall(모달)은 fitcheck로
+function restoreMode(saved?: Mode): Mode {
+  if (saved === "plan" || saved === "fitcheck") return saved;
+  if (saved === "diagnose" || saved === "paywall") return "fitcheck";
+  return "intake";
 }
 function loadConvos(): SavedConvo[] {
   if (typeof window === "undefined") return [];
@@ -232,6 +292,9 @@ export default function Chat() {
   //    모든 인증 요청은 authedHeaders()로 요청 직전에 신선한 토큰을 받는다.
   const { session, paid, setPaid, email, signOut } = useAuth();
   const [payOpen, setPayOpen] = useState(false); // 상단 [결제 확인] 메뉴로 여는 모달
+  // 재구매(2026-07-14): 전역 paid=true여도 "이 진입은 소진돼서 새 주문번호가 필요하다"를
+  // 구분한다 — Paywall에 paid 그대로 넘기면 항상 "결제 완료" 화면만 보여 입력폼이 안 뜬다.
+  const [needsRepurchase, setNeedsRepurchase] = useState(false);
   // 로그인 게이트 B안(2026-07-10): 진단 결과 보기 직전에 로그인 요구
   const [authOpen, setAuthOpen] = useState(false);
   const [pendingEvidence, setPendingEvidence] = useState<{ revenue: string; items: string[] } | null>(null);
@@ -250,6 +313,7 @@ export default function Chat() {
   const chatStartedRef = useRef(false);
   const validationFiredRef = useRef(false);
   const recommendingRef = useRef(false); // 추천 이중 실행 방지 (state보다 빠른 동기 가드)
+  const turnBusyRef = useRef(false); // 대화 턴(send/retry) 이중 전송 방지 — 연타 시 busy state 갱신 전 레이스 차단
 
   const [provider, setProvider] = useState<"claude" | "openai">("claude");
   const [mode, setMode] = useState<Mode>("intake");
@@ -461,6 +525,9 @@ export default function Chat() {
     if (recent) {
       setMessages(recent.messages.map((m) => ({ role: m.role, content: m.content })));
       setConvoId(recent.id);
+      // 진행 단계 복원(2026-07-13 T3) — 작성 세션이 intake로 리셋돼 추천이 다시 열리던 구멍 봉쇄
+      setMode(restoreMode(recent.mode));
+      setPlanStartIdx(Math.min(recent.planStartIdx ?? 0, recent.messages.length));
     } else {
       setConvoId(genId());
       setWizardStart("scope"); // 첫 방문 — 화면 0(무료·유료 범위 안내)부터 위저드로
@@ -490,13 +557,21 @@ export default function Chat() {
     setConvos((prev) => {
       const others = prev.filter((c) => c.id !== convoId);
       const next = [
-        { id: convoId, title, updatedAt: Date.now(), messages: stripped, ...(profile ? { profile } : {}) },
+        {
+          id: convoId,
+          title,
+          updatedAt: Date.now(),
+          messages: stripped,
+          mode,
+          planStartIdx,
+          ...(profile ? { profile } : {}),
+        },
         ...others,
       ].slice(0, 50);
       persistConvos(next);
       return next;
     });
-  }, [messages, convoId, profile]);
+  }, [messages, convoId, mode, planStartIdx, profile]);
 
   function newChat() {
     setMessages([{ role: "assistant", content: GREETING }]);
@@ -541,8 +616,9 @@ export default function Chat() {
     setDraft(null);
     setCharts(null);
     setSelectedProgram(null);
-    setMode("intake");
+    setMode(restoreMode(c.mode)); // 진행 단계 복원(2026-07-13 T3)
     setProfile(c.profile ?? null); // 3문항 프로필 복원(2026-07-14 P1) — 이전 대화 프로필 누수도 차단
+    setPlanStartIdx(Math.min(c.planStartIdx ?? 0, c.messages.length));
     resetEvidence();
     setReviewOpen(false);
     setReviewDone(false);
@@ -582,7 +658,7 @@ export default function Chat() {
     setKitSheet(null);
   }
 
-  // 완성 키트 프롬프트 조립 — {{변수}} 자동 주입. 본문 템플릿(KIT_PROMPT_TEMPLATE)은 대표 교체 예정.
+  // 사후 점검 프롬프트 조립 — {{변수}} 자동 주입 (완성형 템플릿, 빈칸 없음)
   function buildKitPrompt(): string {
     const 진단 = kitSheet
       ? `강점: ${kitSheet.strengths.map((s) => s.sentence).join(" / ") || "(없음)"}\n보완: ${[
@@ -593,11 +669,9 @@ export default function Chat() {
     const 요건 = eligReqs?.required?.length
       ? eligReqs.required.map((r) => `- ${r}`).join("\n")
       : "(공고에서 자동 확인된 필수 요건 없음 — 공고문에서 직접 확인)";
-    const 채점 = "(자가 채점 기능 연결 예정 — 채점 완료 시 지적 TOP 3가 자동으로 들어갑니다)";
     const 목차 = formToc.length > 0 ? formToc.join("\n") : "(별도 양식 없음 — 표준 목차 기준)";
     return KIT_PROMPT_TEMPLATE.replace("{{진단요약}}", 진단)
       .replace("{{필수요건}}", 요건)
-      .replace("{{채점지적TOP3}}", 채점)
       .replace("{{양식목차}}", 목차)
       .replace("{{루브릭}}", KIT_RUBRIC);
   }
@@ -615,7 +689,27 @@ export default function Chat() {
   }
   function lightenForPlan(ms: Msg[]): Msg[] {
     if (!docSummary) return foldDocs(ms);
-    return [...summaryHead(), ...stripImages(ms)];
+    // 마지막 사용자 턴의 첨부만 원본 유지(2026-07-12 통합진단 ⓐ) — 인터뷰 중간 첨부가
+    // 경량화에 떼여 빈 메시지(Anthropic 400)가 되거나 조용히 유실되던 버그 수정.
+    // 이전 턴 첨부는 요약이 대신하므로 프롬프트 비대는 재발하지 않는다.
+    let lastUser = -1;
+    for (let i = ms.length - 1; i >= 0; i--) {
+      if (ms[i].role === "user") {
+        lastUser = i;
+        break;
+      }
+    }
+    const lightened: Msg[] = ms.map((m, i) => {
+      if (i === lastUser) {
+        const folded = foldDocs([m])[0]; // 문서 텍스트는 content로 합치고 이미지·PDF는 유지
+        return { ...folded, content: folded.content || "(첨부 파일 참고)" };
+      }
+      return {
+        role: m.role,
+        content: m.content.replace(RECOVERY_RE, "") || "(첨부 파일 참고)",
+      };
+    });
+    return [...summaryHead(), ...lightened];
   }
 
   // 어시스턴트 응답에서 자격·요약 마커를 읽어 상태를 갱신하고, 화면용으로 마커를 제거한 텍스트를 돌려준다
@@ -682,12 +776,34 @@ export default function Chat() {
       const isWord = lower.endsWith(".docx");
       const isHwpx = lower.endsWith(".hwpx");
       const isHwp = lower.endsWith(".hwp");
-      if (!isImage && !isPdf && !isWord && !isHwp && !isHwpx) {
-        alert(`${f.name}: 사진(JPG/PNG), PDF, 워드(.docx), 한글(.hwp/.hwpx)만 첨부할 수 있어요.`);
+      // 텍스트 파일(2026-07-12 ⓓ): 사업 소개·강의안·메모를 .txt/.md로 들고 오는 경우가 흔함
+      const isText =
+        lower.endsWith(".txt") ||
+        lower.endsWith(".md") ||
+        f.type === "text/plain" ||
+        f.type === "text/markdown";
+      if (!isImage && !isPdf && !isWord && !isHwp && !isHwpx && !isText) {
+        alert(
+          `${f.name}: 사진(JPG/PNG), PDF, 워드(.docx), 한글(.hwp/.hwpx), 텍스트(.txt/.md)만 첨부할 수 있어요.`,
+        );
         continue;
       }
       if (f.size > 3 * 1024 * 1024) {
         alert(`${f.name}: 파일은 3MB 이하만 가능해요. (크면 필요한 페이지만 캡처해서 사진으로 올려주세요.)`);
+        continue;
+      }
+      if (isText) {
+        // 기존 문서 텍스트 추출 경로(docs) 재사용 — 워드·한글 추출본과 동일하게 전송된다
+        try {
+          const text = (await f.text()).trim();
+          if (!text) {
+            alert(`${f.name}: 파일에서 글자를 읽지 못했어요.`);
+            continue;
+          }
+          wordDocs.push({ name: f.name, text: text.slice(0, 50000) });
+        } catch {
+          alert(`${f.name}: 파일을 읽는 중 문제가 생겼어요.`);
+        }
         continue;
       }
       // 한글(HWP/HWPX) — 업로드를 받고 텍스트 추출을 시도. 실패해도 조용히 버리지 않고 안내한다 (2026-07-12)
@@ -962,7 +1078,7 @@ export default function Chat() {
 
   // 응답이 끊긴 마지막 턴을 다시 시도 — 오류 말풍선을 걷어내고 같은 요청을 재실행 (2026-07-12)
   async function retryLast() {
-    if (busy) return;
+    if (busy || turnBusyRef.current) return;
     const hist = [...messages];
     while (hist.length > 0 && hist[hist.length - 1].role === "assistant") hist.pop();
     if (hist.length === 0 || hist[hist.length - 1].role !== "user") return;
@@ -971,6 +1087,7 @@ export default function Chat() {
 
   // 주어진 대화(마지막이 사용자 턴)를 기준으로 어시스턴트 응답을 새로 생성 — 재시도·메시지 수정 공용
   async function regenerateFrom(hist: Msg[]) {
+    turnBusyRef.current = true;
     setRetryable(false);
     setMessages([...hist, { role: "assistant", content: "" }]);
     setBusy(true);
@@ -1006,6 +1123,7 @@ export default function Chat() {
       replaceLast("응답이 끊겼어요. 다시 시도해 주세요.");
       setRetryable(true);
     } finally {
+      turnBusyRef.current = false;
       setBusy(false);
     }
   }
@@ -1018,9 +1136,11 @@ export default function Chat() {
         pendingFiles.length === 0 &&
         pendingDocs.length === 0) ||
       busy ||
+      turnBusyRef.current || // 연타 이중 전송 차단 (2026-07-12 통합진단 ⓑ)
       mode === "paywall"
     )
       return;
+    turnBusyRef.current = true;
     // intake(추천 초기 대화)는 첨부를 모델에 보내지 않는다(stripImages 가 PDF/이미지 제거).
     // PDF·이미지만 올리면 빈 메시지가 돼 API 가 거부하므로, 에러 대신 안내하고 첨부는 떼어낸다.
     if (mode === "intake" && (pendingFiles.length > 0 || pendingImages.length > 0)) {
@@ -1034,6 +1154,7 @@ export default function Chat() {
       ]);
       setPendingFiles([]);
       setPendingImages([]);
+      turnBusyRef.current = false;
       return;
     }
     const userMsg: Msg = {
@@ -1071,7 +1192,13 @@ export default function Chat() {
         return;
       }
       if (res.status === 402) {
-        replaceLast("이 기능은 결제 확인이 필요해요. 상단 [💳 결제 확인]에서 그로블 주문번호를 입력해 주세요.");
+        // 서버가 사유(이용권 소진 등)를 보내면 그대로 노출 (2026-07-13)
+        const d = (await res.json().catch(() => null)) as { error?: string } | null;
+        replaceLast(
+          typeof d?.error === "string"
+            ? d.error
+            : "이 기능은 결제 확인이 필요해요. 상단 [💳 결제 확인]에서 그로블 주문번호를 입력해 주세요.",
+        );
         return;
       }
       if (!res.ok || !res.body) {
@@ -1121,6 +1248,7 @@ export default function Chat() {
       replaceLast("응답이 끊겼어요. 다시 시도해 주세요.");
       setRetryable(true);
     } finally {
+      turnBusyRef.current = false;
       setBusy(false);
     }
   }
@@ -1128,7 +1256,7 @@ export default function Chat() {
   async function fetchRecs(append: boolean) {
     // ref 가드(2026-07-12): 빠른 연속 클릭 시 state 갱신 전에 두 번 실행돼
     // "딱 맞는 사업이 안 보여요"가 이중 출력되던 버그 — 동기 가드로 차단
-    if (recommendingRef.current || busy) return;
+    if (mode !== "intake" || drafting || recommendingRef.current || busy) return;
     recommendingRef.current = true;
     setRecommending(true);
     if (!append) setRecs(null);
@@ -1306,7 +1434,7 @@ export default function Chat() {
     // 양식 목차 결정적 추출 — 역할이 지정된 양식 파일에서, 없으면 업로드된 문서 전체에서
     const roleM = note.match(/'([^']+)'\s*파일이 사업계획서 양식/);
     const formDocs = roleM ? payload.docs.filter((d) => d.name === roleM[1]) : payload.docs;
-    const toc = formDocs.flatMap((d) => extractFormHeadings(d.text));
+    const toc = sanitizeFormToc(formDocs.flatMap((d) => extractFormHeadings(d.text)));
     if (toc.length >= 3) setFormToc(toc);
 
     const base =
@@ -1432,11 +1560,23 @@ export default function Chat() {
 
   // 결제 트리거 — 39,900원 버튼. 초안 미리보기를 확인한 뒤에만 도달한다. (// TODO: PG 연동 자리)
   // 이메일은 진단 전 게이트에서 이미 받았으므로 결제 단계에선 추가 가입을 받지 않는다.
-  function clickPay() {
+  async function clickPay() {
     track("click_pay", { program: selectedProgram?.title ?? "", price: PRICE_KRW });
     track("checkout_start", { program: selectedProgram?.title ?? "", price: PRICE_KRW });
-    // 이미 결제 확인(is_paid)된 계정이면 바로 작성 시작
+    // 이미 결제 확인(is_paid)된 계정: 이용권 소진 상태를 확인하고 진입 (2026-07-13)
+    // 이용권 1건 = 초안 1건 — 다른 공고에 이미 사용했으면 추가 결제(paywall)로 라우팅.
     if (paid && selectedProgram) {
+      try {
+        const res = await fetch("/api/order/verify", { headers: await authedHeaders() });
+        const d = (await res.json().catch(() => ({}))) as { usedProgramId?: string | null };
+        if (d?.usedProgramId && d.usedProgramId !== selectedProgram.id) {
+          setNeedsRepurchase(true); // 이 공고는 소진된 이용권으로는 못 씀 — 새 주문번호 입력폼 노출
+          setMode("paywall");
+          return;
+        }
+      } catch {
+        /* 조회 실패 시엔 일단 진입 — 서버 관문(checkDraftAccess)이 최종 차단한다 */
+      }
       enterPlanMode(selectedProgram);
       return;
     }
@@ -1458,7 +1598,8 @@ export default function Chat() {
       ...m,
       {
         role: "assistant",
-        content: `✅ 결제가 확인됐어요! 이제 '${p.title}' 사업계획서를 본격적으로 써드릴게요. 📝`,
+        // 허위기재 고지(2026-07-12) — 코드 정적 삽입: LLM이 생략할 수 없는 필수 고지
+        content: `✅ 결제가 확인됐어요! 이제 '${p.title}' 사업계획서를 본격적으로 써드릴게요. 📝\n\n⚠️ 사업계획서의 모든 내용은 사실이어야 합니다. 허위 기재는 선정 취소·지원금 환수·형사처벌 사유가 됩니다. 본인이 증빙할 수 있는 내용만 답해 주세요.`,
       },
     ]);
     void kickoffPlan(p);
@@ -1489,6 +1630,11 @@ export default function Chat() {
         }),
       });
       if (!res.ok || !res.body) {
+        if (res.status === 402) {
+          const d = (await res.json().catch(() => null)) as { error?: string } | null;
+          replaceLast(typeof d?.error === "string" ? d.error : "결제 확인이 필요해요.");
+          return;
+        }
         replaceLast(
           "앞에서 올려주신 공고문·양식 기준으로 이어갈게요. 어떤 제품·서비스인지 한 문장으로 먼저 말씀해 주시겠어요?",
         );
@@ -1551,8 +1697,12 @@ export default function Chat() {
     const data = await res.json().catch(() => ({}));
     if (data?.ok) {
       setPaid(true);
-      // GA4 퍼널: 주문번호 인증 완료 = 유료 전환 확정 (QA 테스트 세션은 측정 제외)
-      if (!data.isQa) track("order_verified", { price: PRICE_KRW });
+      setNeedsRepurchase(false); // 새 주문번호로 이용권 교체됨 — 다음 진입은 정상 paid 화면
+      // GA4 퍼널: 재구매 갱신과 최초 전환은 다른 이벤트로 구분 (QA 테스트 세션은 둘 다 측정 제외)
+      if (!data.isQa) {
+        if (data.renewed) track("repurchase_verified", { price: PRICE_KRW });
+        else track("order_verified", { price: PRICE_KRW });
+      }
       return { ok: true };
     }
     return { ok: false, error: String(data?.error || "확인에 실패했어요. 다시 시도해 주세요.") };
@@ -1563,14 +1713,27 @@ export default function Chat() {
     setDrafting(true);
     setCharts(null);
     const title = `${selectedProgram.title} 사업계획서`;
-    // TODO(양식 매핑 고도화): 현재 초안은 표준 PSST 5항목 골격(PLAN_SECTIONS)으로 생성됨.
-    //   대화 단계(plan/chat)는 첨부 양식의 항목·순서를 그대로 따르지만, 자동 .docx 초안은
-    //   아직 PSST 골격을 씀. 첨부 양식의 항목을 추출해 그 목차대로 생성하려면, 업로드 양식에서
-    //   항목 리스트를 뽑는 단계(LLM 추출)를 추가하고 이 루프를 그 리스트로 구동해야 함.
+    const formSections = formTocToPlanSections(formToc);
+    const draftPlanSections = formSections ?? PLAN_SECTIONS;
+    const draftFormToc = formSections?.map((s) => s.heading) ?? [];
+    const userTextForRegion = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n");
+    const regionRequirementText = [
+      docSummary ?? "",
+      selectedProgram.target,
+      selectedProgram.summary,
+      ...(eligReqs?.required ?? []),
+      ...(eligReqs?.disqualifiers ?? []),
+      ...(eligReqs?.obligations ?? []),
+    ].join("\n");
+    const regionNotice = buildRegionNotice(
+      regionRequirementText,
+      extractBusinessRegion(userTextForRegion, profile?.region ?? null),
+    );
+    const regionNoticeHeading = preferredRegionNoticeHeading(draftPlanSections.map((s) => s.heading));
     const sections: DraftSection[] = [];
     setDraft({ title, sections: [] });
 
-    for (const sec of PLAN_SECTIONS) {
+    for (const sec of draftPlanSections) {
       sections.push({ heading: sec.heading, content: "" });
       setDraft({ title, sections: [...sections] });
       try {
@@ -1583,11 +1746,20 @@ export default function Chat() {
             code,
             program: selectedProgram,
             section: { heading: sec.heading, guide: sec.guide },
+            formToc: draftFormToc.length > 0 ? draftFormToc : undefined,
             provider,
           }),
         });
         if (res.status === 429) {
           sections[sections.length - 1].content = "(잠시 너무 많이 사용했어요. 잠깐 후 다시 시도해 주세요.)";
+          setDraft({ title, sections: [...sections] });
+          break;
+        }
+        if (res.status === 402) {
+          // 이용권 소진 등 — 서버 사유를 그대로 보여주고 중단 (2026-07-13)
+          const d = (await res.json().catch(() => null)) as { error?: string } | null;
+          sections[sections.length - 1].content =
+            typeof d?.error === "string" ? `(${d.error})` : "(추가 이용권 결제가 필요해요.)";
           setDraft({ title, sections: [...sections] });
           break;
         }
@@ -1603,11 +1775,28 @@ export default function Chat() {
           const { done, value } = await reader.read();
           if (done) break;
           acc += decoder.decode(value, { stream: true });
-          sections[sections.length - 1].content = acc;
+          sections[sections.length - 1].content = ensureConditionalRegionNotice(
+            sec.heading,
+            ensureFormTableNotice(sec.heading, acc),
+            regionNotice,
+            regionNoticeHeading,
+          );
           setDraft({ title, sections: [...sections] });
         }
+        sections[sections.length - 1].content = ensureConditionalRegionNotice(
+          sec.heading,
+          ensureFormTableNotice(sec.heading, acc),
+          regionNotice,
+          regionNoticeHeading,
+        );
+        setDraft({ title, sections: [...sections] });
       } catch {
-        sections[sections.length - 1].content = "(이 항목 작성 중 연결이 끊겼어요.)";
+        sections[sections.length - 1].content = ensureConditionalRegionNotice(
+          sec.heading,
+          ensureFormTableNotice(sec.heading, "(이 항목 작성 중 연결이 끊겼어요.)"),
+          regionNotice,
+          regionNoticeHeading,
+        );
         setDraft({ title, sections: [...sections] });
       }
     }
@@ -1749,7 +1938,10 @@ export default function Chat() {
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <button
-              onClick={() => setPayOpen(true)}
+              onClick={() => {
+                setNeedsRepurchase(false); // 상단 메뉴는 일반 상태 확인 — 소진 입력폼으로 고정되지 않게
+                setPayOpen(true);
+              }}
               title="그로블 주문번호로 결제 확인"
               className={`flex h-8 items-center rounded-lg px-2 text-xs font-semibold ${
                 paid ? "text-emerald-600 hover:bg-emerald-50" : "text-blue-600 hover:bg-blue-50"
@@ -1877,9 +2069,10 @@ export default function Chat() {
             </button>
             <Paywall
               program={mode === "paywall" ? selectedProgram : null}
-              paid={paid}
+              paid={paid && !needsRepurchase}
               onUnlock={() => {
                 setPayOpen(false);
+                setNeedsRepurchase(false);
                 if (mode === "paywall" && selectedProgram) enterPlanMode(selectedProgram);
               }}
               onCancel={closePaywall}
@@ -2106,7 +2299,7 @@ export default function Chat() {
           </div>
         )}
 
-        {recs && (
+        {mode === "intake" && recs && (
           <Recommendations
             recs={recs}
             nearMisses={nearMisses}
@@ -2189,6 +2382,11 @@ export default function Chat() {
               eligOverride && (eligStatus === "미충족" || eligStatus === "불확실") ? eligStatus : null
             }
             kitPrompt={buildKitPrompt()}
+            onRepurchase={() => {
+              track("repurchase_cta_click", { price: PRICE_KRW });
+              setNeedsRepurchase(true); // 초안 완주 = 이번 이용권 소진 — 새 주문번호 입력폼부터
+              setPayOpen(true);
+            }}
           />
         )}
       </div>
@@ -2464,7 +2662,7 @@ export default function Chat() {
                 📎
                 <input
                   type="file"
-                  accept="image/*,application/pdf,.pdf,.docx,.hwp,.hwpx"
+                  accept="image/*,application/pdf,.pdf,.docx,.hwp,.hwpx,.txt,.md"
                   multiple
                   className="hidden"
                   onChange={(e) => {
@@ -2493,7 +2691,12 @@ export default function Chat() {
                 disabled={
                   busy ||
                   profileFormVisible ||
-                  (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0)
+                  // 첨부만 있어도 전송 가능해야 함 — pendingDocs 누락으로 문서 계열(워드·한글·txt)
+                  // 단독 첨부 시 버튼이 비활성이던 버그 (2026-07-12)
+                  (!input.trim() &&
+                    pendingImages.length === 0 &&
+                    pendingFiles.length === 0 &&
+                    pendingDocs.length === 0)
                 }
                 data-tour="send"
                 className="shrink-0 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
@@ -2902,6 +3105,8 @@ function Paywall({
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
+  // 환불정책(2026-07-14) — 결제 진입(그로블 링크 클릭) 전 필수 동의. 미동의 시 결제 진행 불가.
+  const [refundConsent, setRefundConsent] = useState(false);
 
   // QA 우회 형식("QA"+16자리, QA_MODE 배포 한정)도 서버로 보낼 수 있게 영숫자를 남긴다
   const orderCleaned = entered.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -2921,7 +3126,12 @@ function Paywall({
     }
   }
 
-  function clickGroble() {
+  function clickGroble(e: MouseEvent<HTMLAnchorElement>) {
+    // 환불정책(2026-07-14): 동의 체크 전에는 결제 진입 자체를 막는다(링크 이동 취소).
+    if (!refundConsent) {
+      e.preventDefault();
+      return;
+    }
     // GA4 퍼널: 그로블 결제 링크 클릭 (③ 결정 — 전환 트리거 측정)
     track("groble_click", { program: program?.title ?? "", price: PRICE_KRW });
   }
@@ -2978,13 +3188,33 @@ function Paywall({
       {/* 1단계: 그로블에서 결제 */}
       <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3">
         <div className="text-xs font-semibold text-zinc-500">① 그로블에서 결제</div>
+
+        {/* 환불정책(2026-07-14): 결제 진입 전 필수 동의 — 미동의 시 결제 버튼 비활성 */}
+        <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-zinc-700">
+          <input
+            type="checkbox"
+            checked={refundConsent}
+            onChange={(e) => setRefundConsent(e.target.checked)}
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-blue-600"
+          />
+          <span>
+            결제 즉시 초안 생성이 개시되어 <b>환불이 불가</b>함에 동의합니다.{" "}
+            <a href="/refund" target="_blank" rel="noopener noreferrer" className="underline">
+              환불정책 자세히 보기
+            </a>
+          </span>
+        </label>
+
         {GROBLE_CHECKOUT_URL ? (
           <a
             href={GROBLE_CHECKOUT_URL}
             target="_blank"
             rel="noopener noreferrer"
+            aria-disabled={!refundConsent}
             onClick={clickGroble}
-            className="mt-2 block rounded-xl bg-blue-600 py-3.5 text-center text-base font-bold text-white hover:bg-blue-700"
+            className={`mt-2 block rounded-xl py-3.5 text-center text-base font-bold text-white ${
+              refundConsent ? "bg-blue-600 hover:bg-blue-700" : "cursor-not-allowed bg-zinc-300"
+            }`}
           >
             {PRICE} 결제하고 초안 생성하기
           </a>
@@ -3054,6 +3284,7 @@ function DraftView({
   onDownload,
   eligWarn,
   kitPrompt,
+  onRepurchase,
 }: {
   draft: Draft;
   drafting: boolean;
@@ -3061,6 +3292,7 @@ function DraftView({
   onDownload: () => void;
   eligWarn?: "미충족" | "불확실" | null;
   kitPrompt: string;
+  onRepurchase: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   async function copyKitPrompt() {
@@ -3131,25 +3363,50 @@ function DraftView({
       >
         {drafting ? "작성이 끝나면 다운로드할 수 있어요…" : "⬇️ Word(.docx)로 다운로드 (도식 포함)"}
       </button>
+      {/* 허위기재 고지(2026-07-12) — 다운로드 화면 고정 문구, 코드 정적 삽입 */}
+      {!drafting && (
+        <p className="mt-1.5 text-center text-[11px] leading-4 text-zinc-500">
+          ⚠️ 제출 전 모든 수치·실적의 증빙 자료를 확인하세요.
+        </p>
+      )}
 
       {/* ── 완성 키트 (2026-07-12) — 자가 채점 섹션 뒤 위치 예정, 채점 기능 연결 전까지 초안 하단 ── */}
       {!drafting && (
         <div className="mt-5 space-y-3 border-t border-zinc-100 pt-4">
           <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4">
-            <p className="text-sm font-bold text-zinc-800">🤖 ChatGPT/Gemini로 완성도 높이기</p>
-            <p className="mt-1 text-xs leading-5 text-zinc-500">
-              아래 프롬프트를 복사해 붙여넣으면, 내 진단 결과·공고 요건·양식 목차·채점 루브릭이
-              반영된 상태로 초안을 다듬을 수 있어요.
+            <p className="text-sm font-bold text-zinc-800">🔍 심사위원 관점 사후 점검 도구</p>
+            {/* 선언문 — 통계·증빙 안내보다 먼저: 초안은 이미 완성됐음을 못박는다 (2026-07-13) */}
+            <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
+              ✅ 사업계획서 초안 작성은 <b>완료</b>되었습니다. 아래는 초안을 다시 작성하는 도구가
+              아니라, 이후 새 자료·증빙이 준비됐을 때 심사위원 관점으로 다시 점검하는{" "}
+              <b>사후 검증 도구</b>입니다.
             </p>
-            <pre className="mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-100 bg-white p-3 text-[11px] leading-5 text-zinc-600">
+            <p className="mt-2 text-xs leading-5 text-zinc-600">
+              작성 과정에서 아직 확보 못 한 통계·성과 수치·계약서·매출 자료가 발견될 수 있습니다.
+              저희는 확인 안 된 내용을 임의로 지어내지 않습니다. 대신 자료가 준비됐을 때 대표님이
+              직접 다시 점검하도록 이 도구를 함께 드립니다.
+            </p>
+            <ul className="mt-1.5 grid grid-cols-1 gap-x-3 gap-y-0.5 text-xs leading-5 text-zinc-600 sm:grid-cols-2">
+              <li>· 심사위원이 문제 삼을 부분</li>
+              <li>· 근거·증빙 부족 항목</li>
+              <li>· 추가로 준비할 자료</li>
+              <li>· 자료를 넣을 목차</li>
+              <li>· 제출 전 재확인할 자격·숫자</li>
+            </ul>
+            <pre className="mt-2.5 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-lg border border-zinc-100 bg-white p-3 text-[11px] leading-5 text-zinc-600">
               {kitPrompt}
             </pre>
             <button
               onClick={() => void copyKitPrompt()}
               className="mt-2 w-full rounded-xl bg-zinc-800 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700"
             >
-              {copied ? "✓ 복사됐어요 — ChatGPT/Gemini에 붙여넣으세요" : "📋 프롬프트 복사"}
+              {copied ? "✓ 복사됐어요" : "📋 프롬프트 복사"}
             </button>
+            <ol className="mt-2 space-y-0.5 text-[11px] leading-4 text-zinc-500">
+              <li>① 프롬프트 복사</li>
+              <li>② ChatGPT·Gemini·Claude에 붙여넣기</li>
+              <li>③ 내 초안 함께 넣고 전송</li>
+            </ol>
           </div>
           <a
             href={KAKAO_CONSULT_URL}
@@ -3160,6 +3417,21 @@ function DraftView({
           >
             💬 사업계획서 컨설팅 문의 (카카오톡 채널)
           </a>
+
+          {/* 추가 이용권 (2026-07-13 소진 정책) — 완료 후엔 추천이 아니라 재구매 CTA가 가격 정책과 정합 */}
+          <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 text-center">
+            <p className="text-sm font-bold text-zinc-800">다른 공고의 사업계획서도 필요하세요?</p>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">
+              이용권 1건은 사업계획서 초안 1건에 사용돼요. 새 공고의 초안은 추가 이용권으로 만들 수
+              있어요. (공고 찾기·무료 진단은 계속 무료입니다)
+            </p>
+            <button
+              onClick={onRepurchase}
+              className="mt-2.5 w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+            >
+              추가 이용권 결제 · {PRICE}
+            </button>
+          </div>
         </div>
       )}
     </div>
