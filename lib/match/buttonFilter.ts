@@ -256,18 +256,28 @@ export function matchByButtons(programs: Program[], profile: ButtonProfile): But
 
   const relaxed = scored.length > 0 && !scored.some((s) => s.typeHit);
 
-  // 지역 소재 노출 보장 (2026-07-14): 풀이 커지면 유형 우선 정렬만으로는 소수의 지역 공고가
-  // 상위 30 밖으로 밀려 "지역을 골랐는데 지역 공고 0건" 증상이 재발한다(프리뷰 실측).
-  // 지역 소재는 최대 8건까지 30건 안에 자리를 보장하고, 표시 순서는 기존 정렬을 유지한다.
+  // 노출 보장 (2026-07-14) — 두 가지를 30건 안에 강제로 자리 보장한다:
+  //   ① 지역 소재: 풀이 커지면 유형 우선 정렬만으로는 소수의 지역 공고가 상위 30 밖으로
+  //      밀려 "지역을 골랐는데 지역 공고 0건" 증상이 재발한다(프리뷰 실측).
+  //   ② 신규 소스(NIPA·KOCCA·SMTECH, 2026-07-14 5소스 확장): 이 3소스는 목록 페이지에
+  //      지원대상 원문이 없어(불명) yearsJudge가 대부분 'unknown'이 되고, 지원대상이
+  //      명시된 K-Startup·기업마당 공고보다 정렬에서 밀린다 — 유형 불일치를 배제하지
+  //      않는 원칙과 같은 이유로, 소스 자체가 안 보이는 것도 막는다.
+  // 두 보장을 먼저 전부 모은 뒤 한 번에 병합한다(순차 적용 시 뒤 단계가 앞 단계의
+  // 보장 항목을 밀어낼 수 있어 — 반드시 단일 병합).
   const MAX_RECS = 30;
+  const NEW_SOURCES: Program["source"][] = ["nipa", "kocca", "smtech"];
+  const NEW_SOURCE_GUARANTEE = 3;
   let selected = scored.slice(0, MAX_RECS);
-  if (userSido) {
-    const locals = scored.filter((s) => s.p.region.includes(userSido)).slice(0, 8);
-    const missing = locals.filter((s) => !selected.includes(s));
-    if (missing.length > 0) {
-      const kept = new Set([...selected.slice(0, MAX_RECS - missing.length), ...missing]);
-      selected = scored.filter((s) => kept.has(s)); // 원래 정렬 순서로 복원
-    }
+  const forced = new Set<(typeof scored)[number]>();
+  const queueForced = (candidates: typeof scored) => {
+    for (const s of candidates) if (!selected.includes(s)) forced.add(s);
+  };
+  if (userSido) queueForced(scored.filter((s) => s.p.region.includes(userSido)).slice(0, 8));
+  for (const src of NEW_SOURCES) queueForced(scored.filter((s) => s.p.source === src).slice(0, NEW_SOURCE_GUARANTEE));
+  if (forced.size > 0) {
+    const kept = new Set([...selected.slice(0, Math.max(0, MAX_RECS - forced.size)), ...forced]);
+    selected = scored.filter((s) => kept.has(s)); // 원래 정렬 순서로 복원
   }
 
   const recommendations: Recommendation[] = selected.map((s) => {
