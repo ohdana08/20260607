@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "verify:bizinfo-event": "node --import tsx scripts/verify-bizinfo-event.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",

@@ -1,6 +1,7 @@
 import type { Program } from "@/lib/match/types";
 import { fetchKstartupOpen } from "./kstartup";
 import { fetchBizinfoOpen } from "./bizinfo";
+import { fetchBizinfoEventsOpen } from "./bizinfoEvent";
 import { fetchNipaOpen } from "./nipa";
 import { fetchKoccaOpen } from "./kocca";
 import { fetchSmtechOpen } from "./smtech";
@@ -9,12 +10,13 @@ import { isStillOpen } from "./openFilter";
 // 배치 수집기(scripts/collect-programs.mts)가 쓰는 소스 목록·페처 레지스트리.
 // 2026-07-14 스프린트: 라이브 API 호출(요청마다) → 이 함수들을 주기적으로 배치 실행해
 // Supabase에 적재하는 방식으로 전환(lib/supabase/programs.ts 참조).
-export const COLLECTABLE_SOURCES = ["kstartup", "bizinfo", "nipa", "kocca", "smtech"] as const;
+export const COLLECTABLE_SOURCES = ["kstartup", "bizinfo", "bizinfo-event", "nipa", "kocca", "smtech"] as const;
 export type CollectableSource = (typeof COLLECTABLE_SOURCES)[number];
 
 const FETCHERS: Record<CollectableSource, () => Promise<Program[]>> = {
   kstartup: fetchKstartupOpen,
   bizinfo: fetchBizinfoOpen,
+  "bizinfo-event": fetchBizinfoEventsOpen,
   nipa: fetchNipaOpen,
   kocca: fetchKoccaOpen,
   smtech: fetchSmtechOpen,

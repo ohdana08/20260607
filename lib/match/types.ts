@@ -9,7 +9,7 @@ export interface Program {
   applyEnd: string | null; // 마감일 (YYYY-MM-DD) 또는 상시(null)
   url: string; // 공고 상세/신청 페이지
   formUrl: string | null; // 사업계획서 양식 다운로드 (있으면)
-  source: "kstartup" | "bizinfo" | "nipa" | "kocca" | "smtech" | "sample";
+  source: "kstartup" | "bizinfo" | "bizinfo-event" | "nipa" | "kocca" | "smtech" | "sample";
 }
 
 // One recommended program with a plain-language explanation.

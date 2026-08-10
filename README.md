@@ -34,3 +34,7 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Bizinfo events
+
+The collector also imports open education programs, seminars, briefings, and exhibitions from the official Bizinfo Events API. Configure the server-only `BIZINFO_EVENT_KEY`; the source is stored separately as `bizinfo-event` so a failed event fetch cannot close ordinary Bizinfo support announcements.
