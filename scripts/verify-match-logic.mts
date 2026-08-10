@@ -169,6 +169,18 @@ const [ksList, bizList, nipaList, koccaList, smtechList] = await Promise.all([
   fetchSmtechOpen(),
 ]);
 const programs = [...ksList, ...bizList, ...nipaList, ...koccaList, ...smtechList];
+const eventPrograms = Array.from({ length: 5 }, (_, index) => ({
+  id: `bizinfo-event:stub-${index}`,
+  title: `[지역${index + 1}] 지자체 창업 교육 ${index + 1}`,
+  summary: "지역 창업자를 위한 교육 행사",
+  target: "참여 대상은 공고 원문 확인 필요",
+  supportField: "교육·행사",
+  region: "전국",
+  applyEnd: "2099-12-31",
+  url: "https://www.bizinfo.go.kr",
+  formUrl: null,
+  source: "bizinfo-event" as const,
+}));
 
 const growup = programs.find((p) => p.title.includes("그로우업"));
 const bySource: Record<string, number> = {};
@@ -219,6 +231,14 @@ check(
   "AI스타트업 케이스: NIPA ICT 공고(모두의 AI)가 후보에 노출",
   nipaIdx >= 0,
   nipaIdx >= 0 ? `${nipaIdx + 1}위 / ${aiRes.recommendations.length}건` : "미노출 — 풀에 없거나 30건 밖으로 밀림",
+);
+const eventGuaranteeRes = matchByButtons(
+  [...programs, ...eventPrograms],
+  { years: "창업초기(3년 이내)", region: "전국(중앙부처)", supportType: "사업화" },
+);
+check(
+  "행사정보 API: 교육·행사 공고가 일반 공고에 밀려도 30건 안에 노출",
+  eventGuaranteeRes.recommendations.some((r) => r.program.source === "bizinfo-event"),
 );
 
 // 대화 경로: 마감 임박순 45건 절단 보호 (그로우업 마감 12-31은 예전 코드면 절단됨)

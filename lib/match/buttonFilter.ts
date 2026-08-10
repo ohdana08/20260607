@@ -259,14 +259,14 @@ export function matchByButtons(programs: Program[], profile: ButtonProfile): But
   // 노출 보장 (2026-07-14) — 두 가지를 30건 안에 강제로 자리 보장한다:
   //   ① 지역 소재: 풀이 커지면 유형 우선 정렬만으로는 소수의 지역 공고가 상위 30 밖으로
   //      밀려 "지역을 골랐는데 지역 공고 0건" 증상이 재발한다(프리뷰 실측).
-  //   ② 신규 소스(NIPA·KOCCA·SMTECH, 2026-07-14 5소스 확장): 이 3소스는 목록 페이지에
+  //   ② 신규 소스(기업마당 행사·NIPA·KOCCA·SMTECH): 기관별 데이터 특성상 지원대상 원문이
   //      지원대상 원문이 없어(불명) yearsJudge가 대부분 'unknown'이 되고, 지원대상이
-  //      명시된 K-Startup·기업마당 공고보다 정렬에서 밀린다 — 유형 불일치를 배제하지
+  //      명시된 K-Startup·기업마당 일반 공고보다 정렬에서 밀릴 수 있다 — 유형 불일치를 배제하지
   //      않는 원칙과 같은 이유로, 소스 자체가 안 보이는 것도 막는다.
   // 두 보장을 먼저 전부 모은 뒤 한 번에 병합한다(순차 적용 시 뒤 단계가 앞 단계의
   // 보장 항목을 밀어낼 수 있어 — 반드시 단일 병합).
   const MAX_RECS = 30;
-  const NEW_SOURCES: Program["source"][] = ["nipa", "kocca", "smtech"];
+  const NEW_SOURCES: Program["source"][] = ["bizinfo-event", "nipa", "kocca", "smtech"];
   const NEW_SOURCE_GUARANTEE = 3;
   let selected = scored.slice(0, MAX_RECS);
   const forced = new Set<(typeof scored)[number]>();
