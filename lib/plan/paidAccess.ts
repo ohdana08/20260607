@@ -1,6 +1,6 @@
 import { Redis } from "@upstash/redis";
 import { isMasterCode } from "./access";
-import { AUTH_URL, AUTH_ANON_KEY } from "@/lib/auth/config";
+import { getGoogleUser } from "@/lib/auth/googleUser";
 
 // ── 유료 전환 파이프 (2026-07-09 ③ 결정: 셀프서비스 주문번호 인증) ─────────
 // 코드 체계(ACCESS_CODES)를 대체한다. 흐름:
@@ -54,20 +54,7 @@ export interface AuthedUser {
 // Authorization: Bearer <supabase JWT> 를 통합 회원 시스템에 물어봐 검증한다.
 // anon 키로 /auth/v1/user 를 호출하면 토큰의 유효성·만료를 서버가 판정해 준다 (service_role 불필요).
 export async function getAuthedUser(req: Request): Promise<AuthedUser | null> {
-  const h = req.headers.get("authorization") ?? "";
-  const token = h.startsWith("Bearer ") ? h.slice(7).trim() : "";
-  if (!token) return null;
-  try {
-    const res = await fetch(`${AUTH_URL}/auth/v1/user`, {
-      headers: { apikey: AUTH_ANON_KEY, Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const u = (await res.json()) as { id?: string; email?: string };
-    return u?.id ? { id: u.id, email: u.email ?? "" } : null;
-  } catch {
-    return null;
-  }
+  return getGoogleUser(req);
 }
 
 export interface PaidRecord {

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Program, Recommendation } from "@/lib/match/types";
 import { PRICE_LABEL } from "@/lib/config";
 import { track } from "@/lib/ga";
+import { authedHeaders } from "@/components/auth/AuthGate";
 import {
   YEARS_OPTIONS,
   REGION_MAIN,
@@ -286,7 +287,7 @@ export default function DiagnosisWizard({
     try {
       const res = await fetch("/api/match", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
         body: JSON.stringify({ buttonProfile: profile, provider: "claude" }),
       });
       const d = await res.json().catch(() => ({}));

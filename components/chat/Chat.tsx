@@ -1264,7 +1264,7 @@ export default function Chat() {
       const excludeIds = append && recs ? recs.map((r) => r.program.id) : [];
       const res = await fetch("/api/match", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
         body: JSON.stringify({
           messages: stripImages(messages),
           provider,

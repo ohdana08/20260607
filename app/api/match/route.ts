@@ -17,6 +17,7 @@ import {
 import { deriveConvYears, passesHardYears } from "@/lib/match/convProfile";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
+import { googleLoginGate } from "@/lib/auth/googleUser";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,6 +85,8 @@ export async function POST(req: Request) {
 
   const gate = maintenanceGate();
   if (gate) return gate;
+  const loginGate = await googleLoginGate(req);
+  if (loginGate) return loginGate;
 
   // ── 버튼 4단계 매칭 (2026-07-10 확정 설계) — LLM 없이 규칙 기반 즉시 응답 ──
   const rawBtn = (body as { buttonProfile?: unknown })?.buttonProfile;
