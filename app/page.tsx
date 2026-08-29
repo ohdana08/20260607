@@ -1,42 +1,27 @@
-import Link from "next/link";
-import ReviewsSection from "@/components/ReviewsSection";
-import LandingTracker from "@/components/LandingTracker";
+import type { Metadata } from "next";
 import { MAINTENANCE } from "@/lib/config";
 import Maintenance from "@/components/Maintenance";
+import LandingClient from "./landing/LandingClient";
+import "./landing/landing.css";
+
+const SITE_URL = "https://ddakfit.bccconsulting.kr";
+
+export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
+  title: "딱, 지원핏 | 나에게 맞는 정부지원사업 무료로 찾기",
+  description:
+    "정부지원사업을 어디서 찾아야 할지 막막하다면 지역·업력·사업단계에 맞는 모집 공고를 무료로 추천받고, 신청 자격과 원문까지 한 번에 확인하세요.",
+  openGraph: {
+    title: "딱, 지원핏 | 받을 수 있는 정부지원사업을 무료로 찾아보세요",
+    description: "조건에 맞는 공고 추천과 자격 확인은 무료. 사업계획서 초안은 필요할 때만 선택하세요.",
+    type: "website",
+    images: [{ url: "/og-government-plan-helper.png", width: 1200, height: 630 }],
+    url: SITE_URL,
+  },
+  alternates: { canonical: SITE_URL },
+};
 
 export default function Home() {
   if (MAINTENANCE) return <Maintenance />;
-  return (
-    <main className="flex flex-1 flex-col items-center px-6 py-20">
-      <LandingTracker />
-      <div className="flex w-full max-w-2xl flex-1 flex-col items-center justify-center text-center">
-        <p className="mb-3 text-sm font-medium text-blue-600">
-          예비창업자를 위한 정부지원사업 도우미
-        </p>
-        {/* 첫 화면 카피 — 2026-07-10 진단 재설계 확정안 */}
-        <h1 className="text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
-          사업은 잘하고 있는데,
-          <br />
-          사업계획서만 막히시나요?
-        </h1>
-        <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-zinc-600">
-          이미 가진 매출·고객·거래처가 심사위원의 점수가 되도록.
-        </p>
-        <p className="mt-3 text-sm font-semibold text-emerald-600">
-          결제 없이 진단까지 무료
-        </p>
-        <div className="mt-8 flex justify-center">
-          <Link
-            href="/embed"
-            className="inline-flex h-12 items-center justify-center rounded-full bg-blue-600 px-7 text-base font-semibold text-white transition-colors hover:bg-blue-700"
-          >
-            시작하기
-          </Link>
-        </div>
-      </div>
-
-      {/* 후기 5건 이상 쌓이면 자동 노출 (그 전엔 렌더링 안 함) */}
-      <ReviewsSection />
-    </main>
-  );
+  return <LandingClient />;
 }

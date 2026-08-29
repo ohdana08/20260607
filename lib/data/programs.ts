@@ -1,6 +1,7 @@
 import type { Program } from "@/lib/match/types";
 import { SAMPLE_PROGRAMS } from "./sample";
 import { getOpenPrograms } from "@/lib/supabase/programs";
+import { isStillOpen } from "./openFilter";
 
 // (2026-07-14 스프린트 — 시나리오A) 라이브 API 호출(요청마다 K-Startup·기업마당 호출) →
 // 배치 수집(scripts/collect-programs.mts, GitHub Actions 주기 실행)이 Supabase
@@ -15,6 +16,13 @@ export async function fetchOpenPrograms(): Promise<{ programs: Program[]; usingS
   } catch (err) {
     console.error("[programs] Supabase 조회 실패", err);
   }
-  if (programs.length === 0) return { programs: SAMPLE_PROGRAMS, usingSample: true };
-  return { programs, usingSample: false };
+  // 수집 배치가 늦거나 DB에 오래된 행이 남아도 사용자 화면에는 마감 공고를 내보내지 않는다.
+  const openPrograms = programs.filter((program) => isStillOpen(program.applyEnd));
+  if (openPrograms.length === 0) {
+    return {
+      programs: SAMPLE_PROGRAMS.filter((program) => isStillOpen(program.applyEnd)),
+      usingSample: true,
+    };
+  }
+  return { programs: openPrograms, usingSample: false };
 }

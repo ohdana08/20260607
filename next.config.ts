@@ -8,6 +8,8 @@ const EMBED_CSP = `frame-ancestors 'self' ${HOMEPAGE_ORIGIN};`;
 const DEFAULT_CSP = "frame-ancestors 'none';";
 
 const nextConfig: NextConfig = {
+  // 상위 홈 디렉터리의 다른 lockfile을 작업공간 루트로 오인하지 않도록 현재 앱으로 고정한다.
+  outputFileTracingRoot: process.cwd(),
   // Native module: keep external so its prebuilt .node binary is traced into
   // the serverless function (otherwise SVG→PNG fails at runtime on Vercel).
   serverExternalPackages: ["@resvg/resvg-js"],

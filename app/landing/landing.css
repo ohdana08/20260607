@@ -358,7 +358,7 @@
 .landing-root .pricing-wrap { margin-top: 58px; display: grid; grid-template-columns: .84fr 1.16fr; max-width: 940px; margin-inline: auto; border: 1px solid var(--line); box-shadow: var(--shadow); }
 .landing-root .price-card { padding: 43px; background: #fff; }
 .landing-root .price-card.featured { position: relative; background: var(--ink); color: #fff; }
-.landing-root .price-card.featured::before { content: "가장 많이 선택"; position: absolute; top: 0; right: 0; padding: 8px 12px; background: var(--gold); color: #17130b; font-size: 10px; font-weight: 850; }
+.landing-root .price-card.featured::before { content: "먼저 무료로"; position: absolute; top: 0; right: 0; padding: 8px 12px; background: var(--gold); color: #17130b; font-size: 10px; font-weight: 850; }
 .landing-root .plan { color: var(--gold-deep); font-size: 13px; font-weight: 850; }
 .landing-root .featured .plan { color: #e4b94b; }
 .landing-root .price { margin: 11px 0 5px; font-size: 52px; line-height: 1; letter-spacing: -.055em; font-weight: 850; }

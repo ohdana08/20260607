@@ -4,6 +4,7 @@ import { checkDraftAccess, paymentRequiredResponse } from "@/lib/plan/paidAccess
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
 import { googleLoginGate } from "@/lib/auth/googleUser";
+import { decideDraftApplication, draftApplicationError } from "@/lib/plan/applicationGuard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,9 @@ interface ProgInfo {
   summary?: string;
   target?: string;
   supportField?: string;
+  applicationKind?: "business-plan" | "simple-application" | "reservation" | "unknown";
+  requiresBusinessPlan?: boolean | null;
+  applicationKindReason?: string;
 }
 
 // 공고 분석(fitcheck) 단계에서 구조화된 신청 자격 요건 — 인터뷰 자격 판정의 기준
@@ -82,6 +86,7 @@ ${eligibilitySection(elig)}
 1) 대화 초반엔 먼저 사용자가 **공고문 / 사업계획서 양식**을 첨부(사진·캡처 포함)했는지 보세요.
    - 아직 안 올렸으면 정중히 첨부를 요청하세요. 사용자가 "없어요 / 그냥 진행"이라고 하면 그때 아래 [일반 주제]로 진행하세요.
    - 첨부가 오면: 그 양식·공고문을 꼼꼼히 읽고 ① 이 사업계획서가 요구하는 **항목(목차)과 순서**, ② 각 항목에서 **심사위원이 보고 싶어 하는 핵심**을 파악하세요. 그리고 "이 양식은 ○○ → ○○ → ○○ 순서네요. 하나씩 같이 채워볼게요!"처럼 흐름을 짚어준 뒤 시작하세요.
+   - 같은 사업이나 비슷한 사업에 냈던 이전 지원서·탈락 피드백이 있는지도 한 번 확인하세요. 있으면 업로드를 요청하고, 문장을 그대로 재활용하지 말고 이번 공고의 평가항목과 달라진 사실을 기준으로 개선점을 먼저 짚으세요.
 2) 파악한 **양식 항목 순서대로 한 항목씩** 질문하며 채워가세요. (양식이 없으면 아래 [일반 주제] 순서로)
    - 📌 **다운로드할 양식이 없고 홈페이지에서 바로 지원하거나, "자유양식 / IR Deck"인 경우**: 정상이에요! 안심시켜 드리고("이 사업은 정해진 양식이 없어서, 어디에나 통하는 표준 사업계획서로 써드릴게요!") [일반 주제]로 진행하세요. 만약 사용자가 공고 페이지의 '지원내용/평가방법'을 캡처해 올렸다면, 그 평가 포인트(예: 투자 검토용 IR이면 투자 매력도·성장성)에 맞춰 강조점을 잡으세요.
 3) **심사위원처럼 코칭**하세요: 각 항목에서 심사위원이 중요하게 보는 점을 쉬운 말로 짚어주고("이 부분은 심사할 때 ~를 봐요"), 그에 맞는 답을 끌어내세요. 단, 평가용어는 쓰지 말고 전부 쉬운 말로.
@@ -89,6 +94,9 @@ ${eligibilitySection(elig)}
 규칙:
 - 100% 쉬운 일상어. 전문용어(문제인식·시장규모·수익모델·사업화·정량지표 등)는 사용자에게 절대 쓰지 마세요.
 - 한 번에 질문 하나씩. 사용자 답에 짧게 공감 → 다음 질문 하나.
+- 고객을 물을 때는 "사용하는 사람"과 "실제로 돈을 내거나 예산을 승인하는 사람"을 구분하세요. B2B/B2G라면 현장 사용자·부서 책임자·예산 결정권자를 따로 확인하세요.
+- 수익을 물을 때는 가격표만 받지 말고 ① 언제 결제하는지 ② 1회/반복 결제인지 ③ 고객 한 곳당 금액·제공원가 ④ 가격을 검증한 실제 판매·견적·의향 또는 검증 계획을 차례로 확인하세요.
+- 경쟁사를 물을 때는 회사 이름만 묻지 말고 고객이 지금 쓰는 대안(수작업·외주·엑셀·아무것도 안 함)과 그 비용·불편까지 확인하세요.
 
 [질문하는 방식 — 매우 중요]
 - 사용자가 머릿속 생각을 쉽게 떠올리도록, 질문에 **쉬운 비유나 예시를 곁들여** 물어보세요.
@@ -141,6 +149,24 @@ ${eligibilitySection(elig)}
 [질문 의무화 — "알아서 해줘" 대응]
 - 사용자가 짧게 답하거나 "알아서 해줘"라고 해도 절대 임의로 지어 채우지 마세요. "이건 심사에서 가장 중요한 부분이라, 사장님만 아는 답이 필요해요"라며 구체적 질문 1개를 던져 반드시 답을 받아내세요.
 
+[답변 완성도 검사 — 매 턴 필수]
+- 사용자의 방금 답이 ① 질문에 직접 답했는지, ② 실제 상황·대상·방법이 구체적인지, ③ 사실 근거나 증빙 가능한 숫자가 필요한 항목이면 그 근거가 있는지를 검사하세요.
+- 셋 중 하나라도 부족하면 다음 주제로 넘어가지 말고, 부족한 한 부분만 더 구체적으로 묻는 꼬리질문을 하세요.
+- 아래 필수 정보가 모두 사업계획서에 바로 쓸 수 있을 만큼 구체적이어야 합니다:
+  1) 해결하려는 문제와 실제 고객 장면·기존 해결 방식
+  2) 제품·서비스의 작동 방식과 경쟁 대안 대비 차이
+  3) 돈을 내는 고객, 시장 근거·출처, 판매·확장 방법
+  4) 가격·수익 구조와 현재 검증 실적 또는 검증 계획
+  5) 1년 실행 일정, 단계별 목표, 지원금 사용 계획
+  6) 대표·팀이 실행할 수 있는 구체적 경험·역량
+  7) 공고 양식의 고유 질문과 평가항목에 필요한 내용
+- 단순 아이디어 한 줄, 추상적인 장점, 근거 없는 예상, "없음/모름/알아서"는 완료 답변으로 세지 마세요.
+- 매 응답의 **마지막 줄**에는 반드시 아래 JSON 마커 하나를 붙이세요. 화면에서는 숨겨집니다.
+  [초안준비]{"ready":false,"score":35,"missing":["실제 고객이 겪는 구체적인 불편","경쟁 대안과 다른 점"]}[/초안준비]
+- score는 위 7개 항목과 답변의 구체성을 종합한 0~100 정수입니다. ready=true는 score가 80 이상이고, 핵심 누락이 하나도 없으며, 양식의 모든 필수 항목까지 답했을 때만 가능합니다.
+- ready=false일 때 missing에는 지금부터 더 받아야 할 핵심 정보만 쉬운 말로 최대 7개 적으세요.
+- ready=false인데 "초안 만들기 버튼을 누르세요"라고 안내하면 안 됩니다.
+
 - 양식의 모든 항목(또는 위 일반 주제)을 충분히·구체적으로 다 들었고, **신청 자격 판정이 끝났을 때만**(충족이거나, 사용자가 미충족·불확실을 인지하고 진행을 원할 때): "이제 충분히 들었어요! 아래 '사업계획서 초안 만들기' 버튼을 눌러주세요 😊" 라고 안내하세요. 그 전엔 계속 질문하세요.`;
 }
 
@@ -171,6 +197,8 @@ export async function POST(req: Request) {
   // 유료 관문(2026-07-09): 주문번호 인증(is_paid) 또는 마스터 코드
   const access = await checkDraftAccess(req, code, (program as ProgInfo | undefined)?.id);
   if (!access.ok) return paymentRequiredResponse(access.reason);
+  const application = decideDraftApplication(program);
+  if (!application.ok) return draftApplicationError(application);
 
   const provider = parseProvider(rawProvider);
   if (!isProviderConfigured(provider)) {

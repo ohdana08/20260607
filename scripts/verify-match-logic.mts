@@ -22,7 +22,7 @@ function ksItem(i: number, over: Record<string, unknown> = {}) {
     biz_enyy: "7년미만",
     supt_biz_clsfc: "사업화",
     supt_regin: "전국",
-    pbanc_rcpt_end_dt: `202607${String(15 + (i % 14)).padStart(2, "0")}`,
+    pbanc_rcpt_end_dt: `202612${String(1 + (i % 28)).padStart(2, "0")}`,
     detl_pg_url: "https://www.k-startup.go.kr",
     rcrt_prgs_yn: "Y",
     ...over,

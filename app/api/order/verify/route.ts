@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { GROBLE_PRODUCT_ID } from "@/lib/config";
 import {
+  GROBLE_RAW_EVENTS,
   getAuthedUser,
   getPaidRecord,
   isQaOrder,
@@ -13,8 +14,136 @@ import {
   PAID_KEY,
   VALID_ORDER_KEY,
   type AuthedUser,
+  type PaidRecord,
   type ValidOrder,
 } from "@/lib/plan/paidAccess";
+
+interface RawPaymentEvent {
+  saved: Record<string, unknown>;
+  event: Record<string, unknown>;
+  object: Record<string, unknown>;
+}
+
+function readRawPaymentEvent(raw: unknown): RawPaymentEvent | null {
+  let envelope: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      envelope = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!envelope || typeof envelope !== "object") return null;
+  const saved = envelope as Record<string, unknown>;
+  const payload = saved.payload;
+  if (!payload || typeof payload !== "object") return null;
+  const event = payload as Record<string, unknown>;
+  const object = (event.data as Record<string, unknown> | undefined)?.object;
+  if (!object || typeof object !== "object") return null;
+  return { saved, event, object: object as Record<string, unknown> };
+}
+
+function rawOrderNo(item: RawPaymentEvent): string {
+  return String(item.object.merchantUid ?? item.object.merchant_uid ?? "").replace(/\D/g, "");
+}
+
+function rawBuyerEmail(item: RawPaymentEvent): string | null {
+  const buyer = item.object.buyer;
+  if (typeof buyer === "string" && buyer.includes("@")) return buyer.trim().toLowerCase();
+  if (!buyer || typeof buyer !== "object") return null;
+  const record = buyer as Record<string, unknown>;
+  const direct = [record.email, record.emailAddress, record.contactEmail, record.userEmail];
+  for (const value of direct) {
+    if (typeof value === "string" && value.includes("@")) return value.trim().toLowerCase();
+  }
+  for (const [key, value] of Object.entries(record)) {
+    if (key.toLowerCase().includes("email") && typeof value === "string" && value.includes("@")) {
+      return value.trim().toLowerCase();
+    }
+  }
+  return null;
+}
+
+// 2026-08-03 이전 파서는 18자리만 인정해, 실제 19자리 결제 웹훅을 원본 목록에는
+// 보관하면서 유효 주문 원장에는 넣지 못했다. 사용자가 해당 번호를 처음 인증할 때
+// 서명된 웹훅 원본에서 결제완료 건을 찾아 한 번만 복구한다.
+async function recoverOrderFromRawEvents(r: Redis, orderNo: string): Promise<ValidOrder | null> {
+  const rawEvents = await r.lrange<unknown>(GROBLE_RAW_EVENTS, 0, 99);
+  for (const raw of rawEvents) {
+    const item = readRawPaymentEvent(raw);
+    if (!item || rawOrderNo(item) !== orderNo) continue;
+
+    // 목록은 최신순이다. 같은 주문의 가장 최근 상태가 취소면 절대 되살리지 않는다.
+    const type = String(item.event.type ?? "").toLowerCase();
+    const cancelled = type.includes("cancel") || type.includes("refund");
+    const completed = type.includes("completed");
+    if (!cancelled && !completed) continue;
+
+    const content = item.object.content as Record<string, unknown> | undefined;
+    const productId = typeof content?.id === "string" ? content.id : undefined;
+    // 자동 복구는 현재 판매 상품임이 확인된 원본만 허용한다.
+    if (!cancelled && productId !== GROBLE_PRODUCT_ID) return null;
+
+    const recovered: ValidOrder = {
+      orderNo,
+      registeredAt: typeof item.saved.at === "string" ? item.saved.at : new Date().toISOString(),
+      via: "webhook",
+      status: cancelled ? "cancelled" : "valid",
+      ...(productId ? { productId } : {}),
+    };
+    await r.set(VALID_ORDER_KEY(orderNo), recovered);
+    return recovered;
+  }
+  return null;
+}
+
+// 로그인 이메일과 그로블 구매 이메일이 같으면, 최근 미사용 결제를 주문번호 입력 없이 연결한다.
+// 가장 최근 이벤트가 취소/환불인 주문은 이전 완료 이벤트까지 거슬러 올라가지 않는다.
+async function claimRecentOrderByEmail(
+  r: Redis,
+  user: AuthedUser,
+): Promise<PaidRecord | null> {
+  const email = user.email.trim().toLowerCase();
+  if (!email) return null;
+  const rawEvents = await r.lrange<unknown>(GROBLE_RAW_EVENTS, 0, 99);
+  const seenOrders = new Set<string>();
+  for (const raw of rawEvents) {
+    const item = readRawPaymentEvent(raw);
+    if (!item) continue;
+    const orderNo = rawOrderNo(item);
+    if (!ORDER_NO_RE.test(orderNo) || seenOrders.has(orderNo)) continue;
+    seenOrders.add(orderNo);
+
+    const type = String(item.event.type ?? "").toLowerCase();
+    if (type.includes("cancel") || type.includes("refund") || !type.includes("completed")) continue;
+    if (rawBuyerEmail(item) !== email) continue;
+    const content = item.object.content as Record<string, unknown> | undefined;
+    const productId = typeof content?.id === "string" ? content.id : undefined;
+    if (productId !== GROBLE_PRODUCT_ID) continue;
+
+    const bound = await r.set(ORDER_USED_KEY(orderNo), user.id, { nx: true });
+    if (bound === null && (await r.get<string>(ORDER_USED_KEY(orderNo))) !== user.id) continue;
+
+    const registeredAt =
+      typeof item.saved.at === "string" ? item.saved.at : new Date().toISOString();
+    await r.set(VALID_ORDER_KEY(orderNo), {
+      orderNo,
+      registeredAt,
+      via: "webhook",
+      status: "valid",
+      productId,
+    } satisfies ValidOrder);
+    const record: PaidRecord = {
+      orderNo,
+      email: user.email,
+      verifiedAt: new Date().toISOString(),
+    };
+    await r.set(PAID_KEY(user.id), record);
+    console.log(`[order/verify] 결제 이메일 자동 연결: ${orderNo} (user: ${user.id})`);
+    return record;
+  }
+  return null;
+}
 
 // 실주문 검증(최초·재구매 공용) — 시도 제한 → 원장 조회 → (재구매면) 상품 필터 →
 // 재사용 차단 → is_paid 기록. repurchase=true 면 기존 usedProgramId 없이 새로
@@ -35,8 +164,9 @@ async function verifyRealOrderAndRespond(
   }
 
   // ★ 실제 결제 검증: 그로블 웹훅이 등록한 실결제 주문번호만 통과.
-  //   존재하지 않는 18자리는 여기서 거부된다. 결제 취소된 주문번호도 거부.
-  const valid = await r.get<ValidOrder>(VALID_ORDER_KEY(orderNo));
+  //   존재하지 않는 18~19자리는 여기서 거부된다. 결제 취소된 주문번호도 거부.
+  let valid = await r.get<ValidOrder>(VALID_ORDER_KEY(orderNo));
+  if (!valid) valid = await recoverOrderFromRawEvents(r, orderNo);
   if (!valid || valid.status !== "valid") {
     return Response.json(
       {
@@ -112,7 +242,11 @@ function getRedis(): Redis | null {
 export async function GET(req: Request) {
   const user = await getAuthedUser(req);
   if (!user) return Response.json({ paid: false, loggedIn: false });
-  const paid = await getPaidRecord(user.id);
+  let paid = await getPaidRecord(user.id);
+  if (!paid) {
+    const r = getRedis();
+    if (r) paid = await claimRecentOrderByEmail(r, user);
+  }
   return Response.json({
     paid: Boolean(paid),
     loggedIn: true,
@@ -147,7 +281,7 @@ export async function POST(req: Request) {
 
   if (!qa && !ORDER_NO_RE.test(orderNo)) {
     return Response.json(
-      { ok: false, error: "주문번호 형식이 아니에요. 그로블 주문내역의 18자리 숫자를 입력해 주세요." },
+      { ok: false, error: "주문번호 형식이 아니에요. 그로블 주문내역의 18~19자리 숫자를 입력해 주세요." },
       { status: 400 },
     );
   }

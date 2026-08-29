@@ -4,7 +4,7 @@ import { getGoogleUser } from "@/lib/auth/googleUser";
 
 // ── 유료 전환 파이프 (2026-07-09 ③ 결정: 셀프서비스 주문번호 인증) ─────────
 // 코드 체계(ACCESS_CODES)를 대체한다. 흐름:
-//   그로블 결제 → 로그인 → 주문번호(18자리) 입력 → is_paid → 초안 기능 오픈
+//   그로블 결제 → 로그인 → 주문번호(18~19자리) 입력 → is_paid → 초안 기능 오픈
 // 저장은 기존 Upstash Redis 재사용 (codebind 와 같은 패턴, DDL 불필요):
 //   gp:paid:<userId>       = { orderNo, email, verifiedAt }   ← is_paid 플래그
 //   gp:orderused:<orderNo> = userId                            ← 주문번호 재사용 차단
@@ -36,7 +36,8 @@ export interface ValidOrder {
 }
 
 export const MAX_ORDER_TRIES = 5; // 계정당 주문번호 입력 시도 제한
-export const ORDER_NO_RE = /^\d{18}$/; // 그로블 주문번호 형식 (예: 202607090949499786)
+// 기존 18자리와 2026-08-03부터 발급된 19자리 실주문을 모두 허용한다.
+export const ORDER_NO_RE = /^\d{18,19}$/;
 
 // ── QA 우회 (2026-07-12) — 결제 없이 유료 구간 전체 테스트용 ──────────────
 // 환경변수 QA_MODE=true 인 배포에서만 "QA"+숫자 16자리(총 18자) 주문번호가 통과한다.

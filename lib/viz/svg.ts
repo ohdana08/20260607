@@ -96,7 +96,7 @@ function svgFunnel(stages: string[]): { svg: string; w: number; h: number } {
 // ── 수익모델 (수익원 박스) ──
 function svgRevenue(items: string[]): { svg: string; w: number; h: number } {
   const list = items.slice(0, 4);
-  const w = 500, h = 110 + list.length * 0;
+  const w = 500;
   const bh = 46, gap = 12;
   const H = 60 + list.length * (bh + gap);
   let s = `<text x="20" y="34" fill="${INK}" font-size="15" font-weight="700">수익이 생기는 방법</text>`;

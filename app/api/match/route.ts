@@ -7,6 +7,7 @@ import {
   matchByButtons,
   regionConflict,
   classifyKind,
+  classifyApplicationKind,
   extractAmount,
   findCautions,
   judgeYears,
@@ -132,7 +133,9 @@ export async function POST(req: Request) {
             system: `사용자의 사업과 각 공고의 연관도를 판정하세요. 반드시 JSON 배열만 출력:
 [{"id":"<후보 id 그대로>","rel":"상"|"하","why":"내 사업과의 연관 한 줄(확실한 근거가 있을 때만, 없으면 빈 문자열)"}]
 - 모든 후보 id를 빠짐없이 포함하세요 (제외 금지 — 순서 판단용입니다).
-- "하"는 명백히 무관한 특수목적 공고(특정 산업·기관 자산 한정 등)에만 쓰세요. 애매하면 "상".
+- 사용자의 사업이 그 공고의 고객·수혜대상일 뿐, 사용자가 지원받는 사업자가 아니라면 "하"입니다.
+  예: 사용자가 창업교육을 제공한다고 해서 "창업교육 수강생 모집"이 그 사업자에게 맞는 공고는 아닙니다.
+- 그 밖의 "하"는 명백히 무관한 특수목적 공고(특정 산업·기관 자산 한정 등)에만 쓰세요. 애매하면 "상".
 - why는 사용자 사업 내용과 실제로 연결될 때만. 지어내지 마세요.`,
             messages: [
               {
@@ -320,11 +323,15 @@ export async function POST(req: Request) {
     .map((pick): Recommendation | null => {
       const program = byId.get(pick.id);
       if (!program) return null;
+      const application = classifyApplicationKind(program);
+      const classifiedProgram = { ...program, ...application };
       return {
-        program,
+        program: classifiedProgram,
         whatItIs: pick.whatItIs ?? "",
         fitReason: pick.fitReason,
         eligibility: pick.eligibility === "가능성 높음" ? "가능성 높음" : "확인 필요",
+        applicationKind: application.applicationKind,
+        requiresBusinessPlan: application.requiresBusinessPlan,
       };
     })
     .filter((r): r is Recommendation => r !== null)
@@ -343,6 +350,8 @@ export async function POST(req: Request) {
     .filter((p) => !annotatedIds.has(p.id))
     .map((p) => {
       const kind = classifyKind(p);
+      const application = classifyApplicationKind(p);
+      const classifiedProgram = { ...p, ...application };
       const cautions = findCautions(p);
       const yearsMatch = convYears ? judgeYears(p, convYears.bucket) === "match" : false;
       // 카드별 실제 근거만 (QA #3) — 개별 근거가 부족하면 문구를 아예 생략한다
@@ -355,7 +364,7 @@ export async function POST(req: Request) {
       // 판정(QA #4): 지역(필터 통과)+업력 확정 충족·특수요건 없음 → 조건 충족
       const eligible = yearsMatch && cautions.length === 0;
       return {
-        program: p,
+        program: classifiedProgram,
         whatItIs: "",
         fitReason: parts.length >= 2 ? parts.join(" · ") : "",
         eligibility: (eligible ? "조건 충족" : "확인 필요") as Recommendation["eligibility"],
@@ -364,6 +373,8 @@ export async function POST(req: Request) {
           : cautions[0] ??
             (convYears ? "업력 조건이 공고에 명시되지 않아 원문 확인 필요" : "업력·세부 자격은 공고 원문 확인 필요"),
         kind,
+        applicationKind: application.applicationKind,
+        requiresBusinessPlan: application.requiresBusinessPlan,
       };
     })
     .sort((a, b) => {

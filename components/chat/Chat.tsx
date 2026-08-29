@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect -- 브라우저 저장소·URL·외부 인증 결과를 마운트 후 복원하는 상태 머신입니다. */
 
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { driver } from "driver.js";
@@ -72,6 +73,9 @@ const VIEWED_KEY = "gp_viewed_v1";
 // 공고 선택·추천 결과 세션 보존(2026-07-12) — 화면 이동·위저드 리마운트·새로고침에도 유지
 const SELPROG_KEY = "gp_selprog_v1";
 const FIND_KEY = "gp_find_v1";
+// 그로블 결제창을 연 흔적. 결제 후 돌아온 화면에서는 결제 버튼을 다시 보여주지 않는다.
+const CHECKOUT_STARTED_KEY = "gp_checkout_started_v1";
+const CHECKOUT_MARK_TTL_MS = 2 * 60 * 60 * 1000;
 // 사업계획서 표준 양식(구글드라이브, 공개 뷰어) + K-Startup 모집중 공고 목록.
 // 드라이브 폴더에 공고문·별첨 양식이 들어 있어 사용자가 바로 받아 써볼 수 있다.
 const OFFICIAL_LINKS: { label: string; href: string }[] = [
@@ -118,8 +122,20 @@ interface EligReqs {
   obligations?: string[];
 }
 type EligStatus = "충족" | "불확실" | "미충족";
+interface DraftReadiness {
+  ready: boolean;
+  score: number;
+  missing: string[];
+}
+interface ApplicationDecision {
+  applicationKind?: "business-plan" | "simple-application" | "reservation" | "unknown";
+  requiresBusinessPlan?: boolean | null;
+  reason?: string;
+}
 const ELIG_REQ_RE = /\[자격요건\]([\s\S]*?)\[\/자격요건\]/;
 const ELIG_JUDGE_G_RE = /\[자격판정:(충족|불확실|미충족)\]/g;
+const DRAFT_READY_G_RE = /\[초안준비\]([\s\S]*?)\[\/초안준비\]/g;
+const APPLICATION_G_RE = /\[제출유형\]([\s\S]*?)\[\/제출유형\]/g;
 // 작성요약(2026-07-12): 공고 분석이 남기는 공고·양식 핵심 요약 — 결제 후 대화에서 원본 파일을 대체
 const DOC_SUM_RE = /\[작성요약\]([\s\S]*?)\[\/작성요약\]/;
 function stripEligMarks(text: string): string {
@@ -127,10 +143,12 @@ function stripEligMarks(text: string): string {
   let t = text
     .replace(/\[자격요건\][\s\S]*?\[\/자격요건\]/g, "")
     .replace(/\[작성요약\][\s\S]*?\[\/작성요약\]/g, "")
+    .replace(APPLICATION_G_RE, "")
+    .replace(DRAFT_READY_G_RE, "")
     .replace(ELIG_JUDGE_G_RE, "");
   // 스트리밍 중이거나 토큰 한도로 잘려 닫는 태그가 없는 블록도 사용자에게 노출하지 않는다 (QA #6).
   // 완성 블록 제거 후에도 여는 마커가 남아 있으면 그 지점부터 끝까지 잘라낸다.
-  t = t.replace(/\[(?:자격요건|작성요약|자격판정)[^\n]*[\s\S]*$/, "");
+  t = t.replace(/\[(?:자격요건|작성요약|자격판정|초안준비|제출유형)[^\n]*[\s\S]*$/, "");
   return t.trimEnd();
 }
 // ── 심사위원 관점 사후 점검 도구 (2026-07-13 최종 확정 재설계) ────────────────
@@ -255,9 +273,29 @@ interface SavedConvo {
   // 추천 버튼(userTurns 폴백)·/api/chat 오라우팅이 열리는 구멍(P0-2 실사고 경로)이 생긴다
   mode?: Mode;
   planStartIdx?: number;
+  draftReadiness?: DraftReadiness;
   // 3문항 프로필 영속화(2026-07-14 P1): 미복원 시 복원된 대화의 추천이
   // 지역·단계 빈 값으로 나가 규칙 사전 필터가 통째로 꺼졌다 ("지역=-·단계=-" 로그)
   profile?: IntakeProfile;
+}
+
+function assistantTextClaimsDraftReady(text: string): boolean {
+  return /(?:이제|지금까지)[^\n]{0,20}충분히 들었|초안(?:을)? 만들 준비가 (?:됐|되었)|사업계획서 초안 만들기[^\n]{0,40}버튼을 눌/.test(
+    text,
+  );
+}
+
+function inferSavedDraftReadiness(
+  messages: SavedConvo["messages"],
+  planStartIdx: number,
+): DraftReadiness | null {
+  const planMessages = messages.slice(planStartIdx);
+  const turns = planMessages.filter((message) => message.role === "user").length;
+  if (turns < PLAN_MIN_TURNS) return null;
+  const assistantReady = [...planMessages]
+    .reverse()
+    .find((message) => message.role === "assistant" && assistantTextClaimsDraftReady(message.content));
+  return assistantReady ? { ready: true, score: 80, missing: [] } : null;
 }
 
 // 복원 시 안전한 단계로 매핑 — diagnose(버튼 UI 상태 의존)·paywall(모달)은 fitcheck로
@@ -292,6 +330,8 @@ export default function Chat() {
   //    모든 인증 요청은 authedHeaders()로 요청 직전에 신선한 토큰을 받는다.
   const { session, paid, setPaid, email, signOut } = useAuth();
   const [payOpen, setPayOpen] = useState(false); // 상단 [결제 확인] 메뉴로 여는 모달
+  const [paymentAfterAuth, setPaymentAfterAuth] = useState(false); // 로그인 후 주문번호 입력창 재오픈
+  const [returningFromPayment, setReturningFromPayment] = useState(false);
   // 재구매(2026-07-14): 전역 paid=true여도 "이 진입은 소진돼서 새 주문번호가 필요하다"를
   // 구분한다 — Paywall에 paid 그대로 넘기면 항상 "결제 완료" 화면만 보여 입력폼이 안 뜬다.
   const [needsRepurchase, setNeedsRepurchase] = useState(false);
@@ -314,6 +354,7 @@ export default function Chat() {
   const validationFiredRef = useRef(false);
   const recommendingRef = useRef(false); // 추천 이중 실행 방지 (state보다 빠른 동기 가드)
   const turnBusyRef = useRef(false); // 대화 턴(send/retry) 이중 전송 방지 — 연타 시 busy state 갱신 전 레이스 차단
+  const planKickoffRef = useRef<string | null>(null); // 결제 CTA 연타·상태 레이스로 kickoff 중복 실행 방지
 
   const [provider, setProvider] = useState<"claude" | "openai">("claude");
   const [mode, setMode] = useState<Mode>("intake");
@@ -337,8 +378,11 @@ export default function Chat() {
   const [eligReqs, setEligReqs] = useState<EligReqs | null>(null);
   const [eligStatus, setEligStatus] = useState<EligStatus | null>(null);
   const [eligOverride, setEligOverride] = useState(false);
+  // LLM이 매 답변 뒤 구조화해 보내는 정보 충족도. 횟수만 채워 초안을 만드는 것을 막는다.
+  const [draftReadiness, setDraftReadiness] = useState<DraftReadiness | null>(null);
   // 스트리밍이 빈 응답/끊김으로 끝났을 때 재시도 버튼 노출 (2026-07-12 "..." 멈춤 버그)
   const [retryable, setRetryable] = useState(false);
+  const [kickoffError, setKickoffError] = useState<string | null>(null);
   // 공고·양식 작성요약(2026-07-12) — 있으면 결제 후 대화에서 문서 원본 대신 이걸 보낸다 (프롬프트 69K→수천 토큰)
   const [docSummary, setDocSummary] = useState<string | null>(null);
   // 완성 키트용 진단지 보존 — evResult는 결제 시 리셋되므로 초안 시점까지 별도 유지 (2026-07-12)
@@ -410,6 +454,8 @@ export default function Chat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const userTurns = messages.filter((m) => m.role === "user").length;
   const planUserTurns = messages.slice(planStartIdx).filter((m) => m.role === "user").length;
+  const draftAnswersReady =
+    draftReadiness?.ready === true && draftReadiness.score >= 80 && draftReadiness.missing.length === 0;
   // 인테이크에서 핵심 정보(운영상태·업력·지역·나이·업종·필요한 도움)를 다 들으면 AI가 신호를 보냄.
   // 신호를 못 받아도 충분히 대화(6턴)하면 잠기지 않게 풀어줌(안전장치).
   const readyToRecommend =
@@ -495,9 +541,27 @@ export default function Chat() {
   // 첫 진입: UTM 캡처(/embed 직접 유입 시 URL에서 읽어 sessionStorage 보관)
   useEffect(() => {
     captureUtm();
+    const params = new URLSearchParams(window.location.search);
     // 운영자 테스트용: ?code=마스터코드 로 접속하면 결제 없이 초안 관문 통과
-    const mc = new URLSearchParams(window.location.search).get("code");
+    const mc = params.get("code");
     if (mc) setCode(mc);
+    // 그로블 결제 완료 화면의 '도우미로 돌아가기'로 복귀하면 주문번호 입력창만 바로 연다.
+    let fromGroble = params.get("payment") === "complete";
+    try {
+      fromGroble ||= new URL(document.referrer).hostname.endsWith("groble.im");
+    } catch {
+      /* referrer가 없으면 일반 진입으로 처리 */
+    }
+    try {
+      const checkoutAt = Number(localStorage.getItem(CHECKOUT_STARTED_KEY) ?? 0);
+      fromGroble ||= checkoutAt > 0 && Date.now() - checkoutAt < CHECKOUT_MARK_TTL_MS;
+    } catch {
+      /* localStorage 차단 환경에서는 referrer만 사용 */
+    }
+    if (fromGroble) {
+      setReturningFromPayment(true);
+      setPayOpen(true);
+    }
   }, []);
 
   // 첫 진입: 튜토리얼 1회 자동 실행
@@ -513,7 +577,6 @@ export default function Chat() {
       }
     }, 700);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 첫 진입: 저장된 대화 불러오기 + 가장 최근 대화를 화면에 이어서 보여줌
@@ -527,7 +590,11 @@ export default function Chat() {
       setConvoId(recent.id);
       // 진행 단계 복원(2026-07-13 T3) — 작성 세션이 intake로 리셋돼 추천이 다시 열리던 구멍 봉쇄
       setMode(restoreMode(recent.mode));
-      setPlanStartIdx(Math.min(recent.planStartIdx ?? 0, recent.messages.length));
+      const restoredPlanStart = Math.min(recent.planStartIdx ?? 0, recent.messages.length);
+      setPlanStartIdx(restoredPlanStart);
+      setDraftReadiness(
+        recent.draftReadiness ?? inferSavedDraftReadiness(recent.messages, restoredPlanStart),
+      );
     } else {
       setConvoId(genId());
       setWizardStart("scope"); // 첫 방문 — 화면 0(무료·유료 범위 안내)부터 위저드로
@@ -564,6 +631,7 @@ export default function Chat() {
           messages: stripped,
           mode,
           planStartIdx,
+          ...(draftReadiness ? { draftReadiness } : {}),
           ...(profile ? { profile } : {}),
         },
         ...others,
@@ -571,7 +639,7 @@ export default function Chat() {
       persistConvos(next);
       return next;
     });
-  }, [messages, convoId, mode, planStartIdx, profile]);
+  }, [messages, convoId, mode, planStartIdx, profile, draftReadiness]);
 
   function newChat() {
     setMessages([{ role: "assistant", content: GREETING }]);
@@ -619,6 +687,9 @@ export default function Chat() {
     setMode(restoreMode(c.mode)); // 진행 단계 복원(2026-07-13 T3)
     setProfile(c.profile ?? null); // 3문항 프로필 복원(2026-07-14 P1) — 이전 대화 프로필 누수도 차단
     setPlanStartIdx(Math.min(c.planStartIdx ?? 0, c.messages.length));
+    setDraftReadiness(
+      c.draftReadiness ?? inferSavedDraftReadiness(c.messages, Math.min(c.planStartIdx ?? 0, c.messages.length)),
+    );
     resetEvidence();
     setReviewOpen(false);
     setReviewDone(false);
@@ -656,6 +727,9 @@ export default function Chat() {
     setDocSummary(null);
     setFormToc([]);
     setKitSheet(null);
+    setDraftReadiness(null);
+    setKickoffError(null);
+    planKickoffRef.current = null;
   }
 
   // 사후 점검 프롬프트 조립 — {{변수}} 자동 주입 (완성형 템플릿, 빈칸 없음)
@@ -712,7 +786,7 @@ export default function Chat() {
     return [...summaryHead(), ...lightened];
   }
 
-  // 어시스턴트 응답에서 자격·요약 마커를 읽어 상태를 갱신하고, 화면용으로 마커를 제거한 텍스트를 돌려준다
+  // 어시스턴트 응답에서 자격·요약·초안 준비도 마커를 읽어 상태를 갱신하고 화면에서는 숨긴다.
   function absorbEligMarkers(text: string): string {
     const req = text.match(ELIG_REQ_RE);
     if (req) {
@@ -730,6 +804,58 @@ export default function Chat() {
     if (judge) {
       setEligStatus(judge);
       if (judge === "충족") setEligOverride(false); // 충족되면 강행 상태 해제
+    }
+    let readiness: DraftReadiness | null = null;
+    for (const match of text.matchAll(DRAFT_READY_G_RE)) {
+      try {
+        const parsed = JSON.parse(match[1]) as Partial<DraftReadiness>;
+        const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 0)));
+        const missing = Array.isArray(parsed.missing)
+          ? parsed.missing.filter((item): item is string => typeof item === "string" && item.trim().length > 0).slice(0, 7)
+          : [];
+        readiness = {
+          ready: parsed.ready === true && score >= 80 && missing.length === 0,
+          score,
+          missing,
+        };
+      } catch {
+        /* 깨진 판정은 준비 미확인 상태로 유지 */
+      }
+    }
+    if (readiness) {
+      setDraftReadiness(readiness);
+    } else if (planUserTurns >= PLAN_MIN_TURNS && assistantTextClaimsDraftReady(text)) {
+      // 새로고침 전 구버전 응답이나 마커 누락 응답도, AI의 명시적 완료 선언으로 안전하게 복구한다.
+      setDraftReadiness({ ready: true, score: 80, missing: [] });
+    }
+    let application: ApplicationDecision | null = null;
+    for (const match of text.matchAll(APPLICATION_G_RE)) {
+      try {
+        const parsed = JSON.parse(match[1]) as ApplicationDecision;
+        const validKind = ["business-plan", "simple-application", "reservation", "unknown"].includes(
+          parsed.applicationKind ?? "",
+        );
+        const validRequirement =
+          parsed.requiresBusinessPlan === true ||
+          parsed.requiresBusinessPlan === false ||
+          parsed.requiresBusinessPlan === null;
+        if (validKind && validRequirement) application = parsed;
+      } catch {
+        /* 깨진 제출유형 판정은 미확인 상태로 둔다 */
+      }
+    }
+    if (application && selectedProgram) {
+      const nextProgram: Program = {
+        ...selectedProgram,
+        applicationKind: application.applicationKind,
+        requiresBusinessPlan: application.requiresBusinessPlan,
+        applicationKindReason:
+          typeof application.reason === "string"
+            ? application.reason.trim().slice(0, 160)
+            : selectedProgram.applicationKindReason,
+      };
+      setSelectedProgram(nextProgram);
+      persistProgram(nextProgram);
     }
     return stripEligMarks(text);
   }
@@ -806,12 +932,32 @@ export default function Chat() {
         }
         continue;
       }
-      // 한글(HWP/HWPX) — 업로드를 받고 텍스트 추출을 시도. 실패해도 조용히 버리지 않고 안내한다 (2026-07-12)
-      if (isHwpx || isHwp) {
+      // 구형 한글(HWP)은 브라우저 번들에서 파서가 깨질 수 있어 서버에서 텍스트만 추출한다.
+      if (isHwp) {
         try {
-          const { extractHwpxText, extractHwpText } = await import("@/lib/hwp/extract");
-          const buf = await f.arrayBuffer();
-          const text = isHwpx ? await extractHwpxText(buf) : await extractHwpText(buf);
+          const form = new FormData();
+          form.append("file", f);
+          const response = await fetch("/api/files/extract", { method: "POST", body: form });
+          const result = (await response.json().catch(() => ({}))) as { text?: string; error?: string };
+          const text = result.text ?? "";
+          if (text.trim().length >= 30) {
+            wordDocs.push({ name: f.name, text });
+            continue;
+          }
+          throw new Error(result.error || "추출된 글자가 너무 적음");
+        } catch (error) {
+          alert(
+            `${f.name}: ${error instanceof Error ? error.message : "한글 파일을 읽지 못했어요."}\n` +
+              `파일이 손상됐거나 암호가 설정된 경우에는 한글에서 PDF로 저장한 뒤 올려주세요.`,
+          );
+          continue;
+        }
+      }
+      // HWPX는 표준 ZIP/XML 형식이라 브라우저에서 바로 읽는다.
+      if (isHwpx) {
+        try {
+          const { extractHwpxText } = await import("@/lib/hwp/extract");
+          const text = await extractHwpxText(await f.arrayBuffer());
           if (text.trim().length >= 30) {
             wordDocs.push({ name: f.name, text });
             continue;
@@ -819,10 +965,7 @@ export default function Chat() {
           throw new Error("추출된 글자가 너무 적음");
         } catch {
           alert(
-            `${f.name}: 한글 파일을 읽지 못했어요. 다음 중 하나로 올려주세요:\n` +
-              `① 한글에서 [파일 → PDF로 저장] 후 PDF 업로드 (가장 정확)\n` +
-              `② 공고 페이지의 '지원내용·평가방법' 부분 화면 캡처\n` +
-              `③ 공고 링크 붙여넣기`,
+            `${f.name}: HWPX 파일을 읽지 못했어요. 파일이 손상됐거나 암호가 설정된 경우에는 PDF로 저장한 뒤 올려주세요.`,
           );
           continue;
         }
@@ -876,7 +1019,6 @@ export default function Chat() {
     } catch {
       /* ignore */
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 공고를 '보면' 자동으로 캘린더에 모음 (회원이면 서버, 비회원이면 이 브라우저 임시)
@@ -1037,6 +1179,7 @@ export default function Chat() {
     setEditingIndex(null);
     setEditingText("");
     if (!text) return;
+    if (mode === "plan") setDraftReadiness(null);
     // 결제 모달 상태 등 LLM 턴이 없는 화면에서는 내용만 교체 (기존 동작)
     if (mode === "paywall" || busy) {
       setMessages((prev) => prev.map((m, i) => (i === idx ? { ...m, content: text } : m)));
@@ -1088,6 +1231,7 @@ export default function Chat() {
   // 주어진 대화(마지막이 사용자 턴)를 기준으로 어시스턴트 응답을 새로 생성 — 재시도·메시지 수정 공용
   async function regenerateFrom(hist: Msg[]) {
     turnBusyRef.current = true;
+    if (mode === "plan") setDraftReadiness(null);
     setRetryable(false);
     setMessages([...hist, { role: "assistant", content: "" }]);
     setBusy(true);
@@ -1110,7 +1254,7 @@ export default function Chat() {
         const { done, value } = await reader.read();
         if (done) break;
         acc += decoder.decode(value, { stream: true });
-        replaceLast(acc);
+        replaceLast(mode === "plan" || mode === "fitcheck" ? stripEligMarks(acc) : acc);
       }
       if (!acc.trim()) {
         replaceLast("응답이 끊겼어요. 다시 시도해 주세요.");
@@ -1141,6 +1285,7 @@ export default function Chat() {
     )
       return;
     turnBusyRef.current = true;
+    if (mode === "plan") setDraftReadiness(null);
     // intake(추천 초기 대화)는 첨부를 모델에 보내지 않는다(stripImages 가 PDF/이미지 제거).
     // PDF·이미지만 올리면 빈 메시지가 돼 API 가 거부하므로, 에러 대신 안내하고 첨부는 떼어낸다.
     if (mode === "intake" && (pendingFiles.length > 0 || pendingImages.length > 0)) {
@@ -1226,7 +1371,7 @@ export default function Chat() {
         const { done, value } = await reader.read();
         if (done) break;
         acc += decoder.decode(value, { stream: true });
-        replaceLast(acc);
+        replaceLast(mode === "plan" || mode === "fitcheck" ? stripEligMarks(acc) : acc);
       }
       // 빈 응답으로 정상 종료(스트림 중단·무응답) — "..."로 멈춰 보이던 버그 (2026-07-12)
       if (!acc.trim()) {
@@ -1469,7 +1614,7 @@ export default function Chat() {
         const { done, value } = await reader.read();
         if (done) break;
         acc += decoder.decode(value, { stream: true });
-        replaceLast(acc);
+        replaceLast(stripEligMarks(acc));
         setWizAnalysis({ text: acc, busy: true });
       }
       // 자격요건 마커 흡수(2026-07-12) — 구조화 요건 저장 + 화면 텍스트에서 제거
@@ -1558,9 +1703,17 @@ export default function Chat() {
     }, 100);
   }
 
-  // 결제 트리거 — 39,900원 버튼. 초안 미리보기를 확인한 뒤에만 도달한다. (// TODO: PG 연동 자리)
+  // 결제 트리거 — PRICE_LABEL 가격 버튼. 초안 미리보기를 확인한 뒤에만 도달한다. (// TODO: PG 연동 자리)
   // 이메일은 진단 전 게이트에서 이미 받았으므로 결제 단계에선 추가 가입을 받지 않는다.
   async function clickPay() {
+    if (!selectedProgram || selectedProgram.requiresBusinessPlan !== true) {
+      alert(
+        selectedProgram?.requiresBusinessPlan === false
+          ? "이 공고는 사업계획서 초안 결제 대상이 아닙니다. 공고 원문에서 간단 신청을 진행해 주세요."
+          : "사업계획서가 실제 제출서류인지 무료 공고 분석에서 먼저 확인해 주세요.",
+      );
+      return;
+    }
     track("click_pay", { program: selectedProgram?.title ?? "", price: PRICE_KRW });
     track("checkout_start", { program: selectedProgram?.title ?? "", price: PRICE_KRW });
     // 이미 결제 확인(is_paid)된 계정: 이용권 소진 상태를 확인하고 진입 (2026-07-13)
@@ -1577,7 +1730,7 @@ export default function Chat() {
       } catch {
         /* 조회 실패 시엔 일단 진입 — 서버 관문(checkDraftAccess)이 최종 차단한다 */
       }
-      enterPlanMode(selectedProgram);
+      await enterPlanMode(selectedProgram);
       return;
     }
     setMode("paywall");
@@ -1586,36 +1739,44 @@ export default function Chat() {
   // ③ (결제 후) 본격 작성 시작 — 앞서 올린 문서/대화를 그대로 이어서.
   // 정적 안내만 내보내고 끝나면 "답해 주세요"만 나가고 질문이 없다(2026-07-12 버그) —
   // 반드시 kickoffPlan()으로 서버가 첫 턴(자격 판정 → 첫 질문)을 즉시 생성하게 한다.
-  function enterPlanMode(p: Program) {
+  async function enterPlanMode(p: Program) {
+    const kickoffKey = `${convoId}:${p.id}`;
+    if (planKickoffRef.current === kickoffKey) return;
+    planKickoffRef.current = kickoffKey;
+
     // 결제 완료 측정 — 현재는 코드 검증 통과 시점. (// TODO: PG 연동 후 실제 결제 완료로 교체)
     track("complete_payment", { program: p.title ?? "", price: PRICE_KRW });
     setWizardStart(null); // 위저드 종료 → 결제 후 작성은 챗에서 이어간다
     setMode("plan");
     setDraft(null);
     setCharts(null);
+    setDraftReadiness(null);
     resetEvidence();
-    setMessages((m) => [
-      ...m,
-      {
-        role: "assistant",
-        // 허위기재 고지(2026-07-12) — 코드 정적 삽입: LLM이 생략할 수 없는 필수 고지
-        content: `✅ 결제가 확인됐어요! 이제 '${p.title}' 사업계획서를 본격적으로 써드릴게요. 📝\n\n⚠️ 사업계획서의 모든 내용은 사실이어야 합니다. 허위 기재는 선정 취소·지원금 환수·형사처벌 사유가 됩니다. 본인이 증빙할 수 있는 내용만 답해 주세요.`,
-      },
-    ]);
-    void kickoffPlan(p);
+    setKickoffError(null);
+    setSelectedProgram(p);
+    persistProgram(p);
+
+    // setState 직후 오래된 messages 클로저를 읽으면 첫 질문이 빈 응답 슬롯과 엇갈려 사라진다.
+    // 결제 안내·빈 슬롯·API 입력이 모두 같은 스냅샷을 사용하도록 고정한다.
+    const paidNotice: Msg = {
+      role: "assistant",
+      content: `✅ 결제가 확인됐어요! 이제 '${p.title}' 사업계획서를 본격적으로 써드릴게요. 📝\n\n⚠️ 사업계획서의 모든 내용은 사실이어야 합니다. 허위 기재는 선정 취소·지원금 환수·형사처벌 사유가 됩니다. 본인이 증빙할 수 있는 내용만 답해 주세요.`,
+    };
+    const kickoffBase = [...messages, paidNotice];
+    setMessages([...kickoffBase, { role: "assistant", content: "" }]);
+    await kickoffPlan(p, kickoffBase, kickoffKey);
     focusInput();
   }
 
   // 결제 직후 첫 턴을 서버가 먼저 시작한다 — 자격 요건이 있으면 판정부터, 없으면 첫 질문부터.
   // (트리거 지시문은 화면·저장 대화에는 남기지 않는다)
-  async function kickoffPlan(p: Program) {
+  async function kickoffPlan(p: Program, baseHistory: Msg[], kickoffKey: string) {
     const instruction: Msg = {
       role: "user",
       content:
         "(시작 신호) 결제가 확인되었습니다. 지금까지 올린 공고문·양식과 제 답변을 바탕으로 시작해 주세요. 신청 자격 요건이 있다면 이미 아는 정보로 먼저 판정하거나 자격 확인 질문부터 하고, 그다음 첫 질문을 하나만 해주세요. 더 물어볼 것이 없다면 '사업계획서 초안 만들기' 버튼을 누르라고 안내해 주세요.",
     };
-    const history = [...messages, instruction];
-    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+    const history = [...baseHistory, instruction];
     setBusy(true);
     try {
       const res = await fetch("/api/plan/chat", {
@@ -1635,9 +1796,9 @@ export default function Chat() {
           replaceLast(typeof d?.error === "string" ? d.error : "결제 확인이 필요해요.");
           return;
         }
-        replaceLast(
-          "앞에서 올려주신 공고문·양식 기준으로 이어갈게요. 어떤 제품·서비스인지 한 문장으로 먼저 말씀해 주시겠어요?",
-        );
+        const data = (await res.json().catch(() => null)) as { error?: string } | null;
+        replaceLast(data?.error ?? "첫 작성 질문을 불러오지 못했어요. 아래 버튼으로 다시 시도해 주세요.");
+        setKickoffError(data?.error ?? "첫 작성 질문을 불러오지 못했어요.");
         return;
       }
       const reader = res.body.getReader();
@@ -1647,22 +1808,37 @@ export default function Chat() {
         const { done, value } = await reader.read();
         if (done) break;
         acc += decoder.decode(value, { stream: true });
-        replaceLast(acc);
+        replaceLast(stripEligMarks(acc));
       }
       if (!acc.trim()) {
-        replaceLast("응답이 끊겼어요. 다시 시도해 주세요.");
-        setRetryable(true);
+        const message = "첫 작성 질문 응답이 끊겼어요. 아래 버튼으로 다시 시작할 수 있습니다.";
+        replaceLast(message);
+        setKickoffError(message);
         return;
       }
       const clean = absorbEligMarkers(acc);
       if (clean !== acc) replaceLast(clean);
     } catch {
-      replaceLast(
-        "앞에서 올려주신 공고문·양식 기준으로 이어갈게요. 어떤 제품·서비스인지 한 문장으로 먼저 말씀해 주시겠어요?",
-      );
+      const message = "첫 작성 질문을 불러오는 중 연결이 끊겼어요. 아래 버튼으로 다시 시작할 수 있습니다.";
+      replaceLast(message);
+      setKickoffError(message);
     } finally {
+      if (planKickoffRef.current === kickoffKey) planKickoffRef.current = null;
       setBusy(false);
     }
+  }
+
+  async function retryPlanKickoff() {
+    if (!selectedProgram || busy || planKickoffRef.current) return;
+    const kickoffKey = `${convoId}:${selectedProgram.id}:retry`;
+    planKickoffRef.current = kickoffKey;
+    setKickoffError(null);
+    const baseHistory = messages.filter(
+      (message, index) => !(index === messages.length - 1 && message.role === "assistant"),
+    );
+    setMessages([...baseHistory, { role: "assistant", content: "" }]);
+    await kickoffPlan(selectedProgram, baseHistory, kickoffKey);
+    focusInput();
   }
 
   // 결제 화면 닫기 — 진단 결과(미리보기)에서 왔다면 그 화면으로 되돌린다
@@ -1698,6 +1874,12 @@ export default function Chat() {
     if (data?.ok) {
       setPaid(true);
       setNeedsRepurchase(false); // 새 주문번호로 이용권 교체됨 — 다음 진입은 정상 paid 화면
+      setReturningFromPayment(false);
+      try {
+        localStorage.removeItem(CHECKOUT_STARTED_KEY);
+      } catch {
+        /* ignore */
+      }
       // GA4 퍼널: 재구매 갱신과 최초 전환은 다른 이벤트로 구분 (QA 테스트 세션은 둘 다 측정 제외)
       if (!data.isQa) {
         if (data.renewed) track("repurchase_verified", { price: PRICE_KRW });
@@ -1709,7 +1891,7 @@ export default function Chat() {
   }
 
   async function generateDraft() {
-    if (!selectedProgram || drafting || !(paid || code)) return;
+    if (!selectedProgram || drafting || !(paid || code) || !draftAnswersReady) return;
     setDrafting(true);
     setCharts(null);
     const title = `${selectedProgram.title} 사업계획서`;
@@ -1747,6 +1929,7 @@ export default function Chat() {
             program: selectedProgram,
             section: { heading: sec.heading, guide: sec.guide },
             formToc: draftFormToc.length > 0 ? draftFormToc : undefined,
+            readiness: draftReadiness,
             provider,
           }),
         });
@@ -2070,10 +2253,17 @@ export default function Chat() {
             <Paywall
               program={mode === "paywall" ? selectedProgram : null}
               paid={paid && !needsRepurchase}
+              loggedIn={Boolean(session)}
+              returningFromPayment={returningFromPayment}
+              onRequireLogin={() => {
+                setPayOpen(false);
+                setPaymentAfterAuth(true);
+                setAuthOpen(true);
+              }}
               onUnlock={() => {
                 setPayOpen(false);
                 setNeedsRepurchase(false);
-                if (mode === "paywall" && selectedProgram) enterPlanMode(selectedProgram);
+                if (mode === "paywall" && selectedProgram) void enterPlanMode(selectedProgram);
               }}
               onCancel={closePaywall}
               verifyOrder={verifyOrder}
@@ -2088,6 +2278,11 @@ export default function Chat() {
           onClose={() => setAuthOpen(false)}
           onDone={() => {
             setAuthOpen(false);
+            if (paymentAfterAuth) {
+              setPaymentAfterAuth(false);
+              setPayOpen(true);
+              return;
+            }
             const p = pendingEvidence;
             setPendingEvidence(null);
             if (p) doSubmitEvidence(p.revenue, p.items);
@@ -2527,6 +2722,19 @@ export default function Chat() {
           )}
           {mode === "plan" && (
             <div className="border-t border-zinc-100 px-4 pt-3">
+              {kickoffError && (
+                <div className="mb-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-800">
+                  <p>{kickoffError}</p>
+                  <button
+                    type="button"
+                    onClick={() => void retryPlanKickoff()}
+                    disabled={busy}
+                    className="mt-2 w-full rounded-lg bg-red-600 py-2 font-bold text-white hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {busy ? "첫 질문을 다시 불러오는 중…" : "첫 작성 질문 다시 불러오기"}
+                  </button>
+                </div>
+              )}
               {/* 신청 자격 게이트(2026-07-12) — 판정 전·미충족·불확실 상태에선 초안 진행을 막는다 */}
               {eligStatus === "미충족" && !eligOverride ? (
                 <>
@@ -2569,6 +2777,7 @@ export default function Chat() {
                       drafting ||
                       busy ||
                       planUserTurns < PLAN_MIN_TURNS ||
+                      !draftAnswersReady ||
                       (Boolean(eligReqs?.found) && eligStatus === null)
                     }
                     className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
@@ -2579,12 +2788,28 @@ export default function Chat() {
                         ? "📄 초안 만들기 — 먼저 신청 자격 확인 질문에 답해 주세요"
                         : planUserTurns < PLAN_MIN_TURNS
                           ? `📄 초안 만들기 — 대화를 조금 더 해주세요 (${planUserTurns}/${PLAN_MIN_TURNS})`
-                          : "📄 사업계획서 초안 만들기"}
+                          : !draftAnswersReady
+                            ? `📄 초안 만들기 — 답변을 더 채워주세요 (${draftReadiness?.score ?? 0}%)`
+                            : "📄 사업계획서 초안 만들기"}
                   </button>
                   {planUserTurns < PLAN_MIN_TURNS && (
                     <p className="mt-1.5 text-center text-[11px] text-zinc-400">
                       질문에 충분히 답할수록 사업계획서가 좋아져요. 위 대화를 이어가 주세요.
                     </p>
+                  )}
+                  {planUserTurns >= PLAN_MIN_TURNS && !draftAnswersReady && (
+                    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">
+                      <b>아직 초안을 만들기엔 답변이 부족해요.</b>
+                      {draftReadiness?.missing.length ? (
+                        <ul className="mt-1 list-disc pl-4">
+                          {draftReadiness.missing.slice(0, 3).map((item) => (
+                            <li key={item}>{item}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-1">위 질문에 구체적인 상황·근거·숫자를 포함해 답해 주세요.</p>
+                      )}
+                    </div>
                   )}
                   {eligStatus === "충족" && (
                     <p className="mt-1.5 text-center text-[11px] text-emerald-600">
@@ -2601,7 +2826,7 @@ export default function Chat() {
           <div className="border-t border-zinc-100 p-4">
             {programStage && (
               <p className="mb-2 text-center text-[11px] leading-4 text-zinc-400">
-                💡 사진·PDF·워드·한글(hwpx) 모두 괜찮아요 — 📎로 올리면 진단과 사업계획서가 더 정확해져요
+                💡 사진·PDF·워드·한글(.hwp/.hwpx) 모두 괜찮아요 — 📎로 올리면 진단과 사업계획서가 더 정확해져요
               </p>
             )}
             {(pendingImages.length > 0 || pendingFiles.length > 0 || pendingDocs.length > 0) && (
@@ -3091,12 +3316,18 @@ function Recommendations({
 function Paywall({
   program,
   paid,
+  loggedIn,
+  returningFromPayment,
+  onRequireLogin,
   onUnlock,
   onCancel,
   verifyOrder,
 }: {
   program: Program | null;
   paid: boolean;
+  loggedIn: boolean;
+  returningFromPayment: boolean;
+  onRequireLogin: () => void;
   onUnlock: () => void;
   onCancel: () => void;
   verifyOrder: (orderNo: string) => Promise<{ ok: boolean; error?: string }>;
@@ -3105,13 +3336,14 @@ function Paywall({
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
-  // 환불정책(2026-07-14) — 결제 진입(그로블 링크 클릭) 전 필수 동의. 미동의 시 결제 진행 불가.
+  // 결제 진입 전 정책 확인과, 결제 확인 후 유료 맞춤 작성 시작 동의를 분리한다.
   const [refundConsent, setRefundConsent] = useState(false);
+  const [startConsent, setStartConsent] = useState(false);
 
   // QA 우회 형식("QA"+16자리, QA_MODE 배포 한정)도 서버로 보낼 수 있게 영숫자를 남긴다
   const orderCleaned = entered.toUpperCase().replace(/[^A-Z0-9]/g, "");
   const orderDigits = orderCleaned.replace(/\D/g, "");
-  const formatOk = /^\d{18}$/.test(orderCleaned) || /^QA\d{16}$/.test(orderCleaned);
+  const formatOk = /^\d{18,19}$/.test(orderCleaned) || /^QA\d{16}$/.test(orderCleaned);
 
   async function submit() {
     if (!formatOk || checking) return;
@@ -3132,6 +3364,11 @@ function Paywall({
       e.preventDefault();
       return;
     }
+    try {
+      localStorage.setItem(CHECKOUT_STARTED_KEY, String(Date.now()));
+    } catch {
+      /* ignore */
+    }
     // GA4 퍼널: 그로블 결제 링크 클릭 (③ 결정 — 전환 트리거 측정)
     track("groble_click", { program: program?.title ?? "", price: PRICE_KRW });
   }
@@ -3143,11 +3380,55 @@ function Paywall({
         <p className="mt-1 text-sm leading-6 text-zinc-700">
           사업계획서 초안 작성 기능이 열렸어요. 이 계정으로 로그인하면 언제든 이용할 수 있어요.
         </p>
+        {program && (
+          <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-emerald-200 bg-white p-3 text-[11px] leading-4 text-zinc-700">
+            <input
+              type="checkbox"
+              checked={startConsent}
+              onChange={(e) => setStartConsent(e.target.checked)}
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-emerald-600"
+            />
+            <span>
+              유료 맞춤 작성 서비스를 시작합니다. 시작 후에는 개인화된 디지털콘텐츠 제공 특성상 관련 법령이
+              허용하는 범위에서 청약철회가 제한될 수 있음을 확인했습니다.{" "}
+              <a href="/refund" target="_blank" rel="noopener noreferrer" className="underline">
+                환불정책 보기
+              </a>
+            </span>
+          </label>
+        )}
         <button
           onClick={onUnlock}
-          className="mt-3 w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+          disabled={Boolean(program) && !startConsent}
+          className="mt-3 w-full rounded-xl bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
         >
           {program ? `'${program.title}' 사업계획서 쓰러 가기 →` : "닫기"}
+        </button>
+      </div>
+    );
+  }
+
+  // 결제를 계정과 묶지 않은 채 진행하면 결제 후 다시 로그인·인증해야 한다.
+  // 따라서 신규 결제와 기존 결제 복구 모두 로그인부터 시작시킨다.
+  if (!loggedIn) {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+        <h3 className="text-lg font-extrabold leading-7 text-zinc-900">
+          {returningFromPayment ? "이미 결제하셨다면 다시 결제하지 마세요" : "먼저 로그인해 주세요"}
+        </h3>
+        <p className="mt-2 text-sm leading-6 text-zinc-700">
+          {returningFromPayment
+            ? "결제 내역을 내 계정에 연결하는 단계만 남았어요. 로그인하면 같은 결제 이메일을 먼저 자동으로 찾아보고, 필요할 때만 주문번호를 받습니다."
+            : "결제 내역을 안전하게 보관하고 재결제를 막기 위해 로그인한 뒤 결제를 진행합니다."}
+        </p>
+        <button
+          onClick={onRequireLogin}
+          className="mt-4 w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white hover:bg-blue-700"
+        >
+          {returningFromPayment ? "로그인하고 결제 내역 연결하기 →" : "로그인 후 계속하기 →"}
+        </button>
+        <button onClick={onCancel} className="mt-3 text-xs text-zinc-500 hover:underline">
+          닫기
         </button>
       </div>
     );
@@ -3156,14 +3437,22 @@ function Paywall({
   return (
     <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-5">
       <h3 className="text-lg font-extrabold leading-7 text-zinc-900">
-        내 사업 정보로
-        <br />
-        사업계획서 초안을 생성합니다
+        {returningFromPayment ? "결제 내역을 연결해 주세요" : "내 사업 정보로"}
+        {!returningFromPayment && (
+          <>
+            <br />
+            사업계획서 초안을 생성합니다
+          </>
+        )}
       </h3>
-      <p className="mt-1 text-[13px] text-zinc-500">결제 전, 무엇을 받는지 마지막으로 확인하세요.</p>
+      <p className="mt-1 text-[13px] text-zinc-500">
+        {returningFromPayment
+          ? "이미 결제하셨으므로 다시 결제할 필요가 없습니다."
+          : "결제 전, 무엇을 받는지 마지막으로 확인하세요."}
+      </p>
 
       {/* 결제 상품 요약 — 무엇을 사는지 한 박스에 (2026-07-11 디자인수정 §8) */}
-      <div className="mt-3 overflow-hidden rounded-xl border border-zinc-200 bg-white">
+      {!returningFromPayment && <div className="mt-3 overflow-hidden rounded-xl border border-zinc-200 bg-white">
         {program && (
           <div className="flex gap-3 border-b border-zinc-100 px-4 py-3 text-sm">
             <span className="shrink-0 font-semibold text-zinc-500">선택한 공고</span>
@@ -3183,13 +3472,13 @@ function Paywall({
           <span className="text-sm font-bold text-zinc-700">가격</span>
           <span className="text-base font-extrabold text-zinc-900">1회 생성 {PRICE}</span>
         </div>
-      </div>
+      </div>}
 
       {/* 1단계: 그로블에서 결제 */}
-      <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3">
+      {!returningFromPayment && <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3">
         <div className="text-xs font-semibold text-zinc-500">① 그로블에서 결제</div>
 
-        {/* 환불정책(2026-07-14): 결제 진입 전 필수 동의 — 미동의 시 결제 버튼 비활성 */}
+        {/* 결제 전 유료 제공 범위·환불정책 확인 — 미동의 시 결제 버튼 비활성 */}
         <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] leading-4 text-zinc-700">
           <input
             type="checkbox"
@@ -3198,7 +3487,8 @@ function Paywall({
             className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-blue-600"
           />
           <span>
-            결제 즉시 초안 생성이 개시되어 <b>환불이 불가</b>함에 동의합니다.{" "}
+            유료 제공 범위와 환불정책을 확인했습니다. 결제 후 <b>유료 맞춤 작성을 시작하기 전</b>에는
+            고객문의 채널로 청약철회를 요청할 수 있습니다.{" "}
             <a href="/refund" target="_blank" rel="noopener noreferrer" className="underline">
               환불정책 자세히 보기
             </a>
@@ -3226,12 +3516,17 @@ function Paywall({
         <p className="mt-1.5 text-[11px] leading-4 text-zinc-400">
           카드 명세서에는 결제대행사 <b>‘주식회사 페이플’</b>로 표기돼요 (정상 결제입니다).
         </p>
-      </div>
+        <p className="mt-2 rounded-lg bg-blue-50 px-2.5 py-2 text-[11px] font-medium leading-4 text-blue-800">
+          결제는 새 탭에서 열려요. 결제 완료 화면의 주문번호를 복사한 뒤, 초록색 <b>‘도우미로 돌아가기’</b>를
+          누르고 아래에 입력해 주세요.
+        </p>
+      </div>}
 
       {/* 2단계: 주문번호 입력 → 즉시 오픈 */}
-      <div className="mt-2 rounded-xl border border-zinc-200 bg-white p-3">
+      <div className={`${returningFromPayment ? "mt-4 border-emerald-300" : "mt-2 border-zinc-200"} rounded-xl border bg-white p-3`}>
         <div className="text-xs font-semibold text-zinc-500">
-          ② 결제 후, 그로블 주문내역의 <b>주문번호(숫자 18자리)</b>를 입력하면 즉시 열려요
+          {returningFromPayment ? "결제 이메일 자동 확인 후, 필요하면 " : "② 결제 후, "}
+          그로블 주문내역의 <b>주문번호(숫자 18~19자리)</b>를 입력하면 즉시 열려요
         </div>
         <p className="mt-1 text-[11px] leading-4 text-zinc-400">
           가입 이메일이 결제 이메일과 달라도 괜찮아요 — 주문번호가 열쇠예요.
@@ -3240,7 +3535,7 @@ function Paywall({
           <input
             value={entered}
             onChange={(e) => setEntered(e.target.value)}
-            placeholder="예: 202607090949499786"
+            placeholder="예: 2026080315052711964"
             inputMode="numeric"
             className="flex-1 rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
             onKeyDown={(e) => {
@@ -3256,7 +3551,9 @@ function Paywall({
           </button>
         </div>
         {entered && !formatOk && (
-          <p className="mt-1 text-[11px] text-zinc-400">숫자 18자리를 입력해 주세요. ({orderDigits.length}/18)</p>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            숫자 18~19자리를 입력해 주세요. (현재 {orderDigits.length}자리)
+          </p>
         )}
         {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
       </div>

@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { PolicyPage, Article, Placeholder } from "@/components/legal/PolicyPage";
+import { PolicyPage, Article } from "@/components/legal/PolicyPage";
+import { PRICE_LABEL } from "@/lib/config";
 
 export const metadata: Metadata = { title: "이용약관 | 정부지원사업 도우미" };
 
 export default function TermsPage() {
   return (
-    <PolicyPage title="이용약관" updatedLabel="작성일: 2026-07-14">
+    <PolicyPage title="이용약관" updatedLabel="최종 수정일: 2026-08-14">
       <Article title="제1조 (목적)">
         <p>
           본 약관은 비즈니스커리어컨설팅(이하 &ldquo;회사&rdquo;)이 제공하는 정부지원사업 도우미 서비스(이하
@@ -35,7 +36,7 @@ export default function TermsPage() {
             회사는 다음의 서비스를 제공합니다.
             <ul className="mt-1 list-disc space-y-0.5 pl-5">
               <li>정부지원사업 공고 자격 진단 (무료)</li>
-              <li>사업정보 기반 사업계획서 초안 작성 (유료, 1건 39,900원)</li>
+              <li>사업정보 기반 사업계획서 초안 작성 (유료, 1건 {PRICE_LABEL})</li>
               <li>작성된 초안 DOCX 다운로드</li>
             </ul>
           </li>
@@ -70,8 +71,19 @@ export default function TermsPage() {
         <p>본 약관과 관련한 분쟁은 관련 법령 및 상관례에 따라 해결하며, 소송이 필요한 경우 회사 소재지 관할 법원을 관할로 합니다.</p>
       </Article>
 
+      <Article title="제9조 (사업자 정보 및 고객문의)">
+        <p>
+          상호: 비즈니스커리어컨설팅(BCC) · 대표: 오예림 · 사업자등록번호: 153-15-01286
+          <br />
+          고객문의:{" "}
+          <a href="https://open.kakao.com/o/gmPptFti" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+            BCC 카카오톡 고객문의
+          </a>
+        </p>
+      </Article>
+
       <p className="pt-4 text-sm text-zinc-500">
-        <b>부칙</b> — 본 약관은 <Placeholder>[시행일자]</Placeholder>부터 시행합니다.
+        <b>부칙</b> — 본 약관은 2026년 8월 14일부터 시행합니다.
       </p>
     </PolicyPage>
   );

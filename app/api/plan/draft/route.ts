@@ -4,8 +4,14 @@ import { checkDraftAccess, markCreditUsed, paymentRequiredResponse } from "@/lib
 import { maintenanceGate } from "@/lib/config";
 import { googleLoginGate } from "@/lib/auth/googleUser";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
-import { MISSING_INFO_PLACEHOLDER, PROOF_NEEDED_PLACEHOLDER, sanitizeFormToc } from "@/lib/plan/sections";
+import {
+  MISSING_INFO_PLACEHOLDER,
+  PROOF_NEEDED_PLACEHOLDER,
+  reviewChecklistForHeading,
+  sanitizeFormToc,
+} from "@/lib/plan/sections";
 import { generateChunked, CONTINUE_PROMPT } from "@/lib/plan/draftChunking";
+import { decideDraftApplication, draftApplicationError } from "@/lib/plan/applicationGuard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,13 +25,23 @@ export async function POST(req: Request) {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
 
-  const { messages, code, program, programTitle, section, formToc, provider: rawProvider } = (body ?? {}) as {
+  const { messages, code, program, programTitle, section, formToc, readiness, provider: rawProvider } = (body ?? {}) as {
     messages?: ChatMsg[];
     code?: string;
-    program?: { id?: string; title?: string; summary?: string; target?: string; supportField?: string };
+    program?: {
+      id?: string;
+      title?: string;
+      summary?: string;
+      target?: string;
+      supportField?: string;
+      applicationKind?: "business-plan" | "simple-application" | "reservation" | "unknown";
+      requiresBusinessPlan?: boolean | null;
+      applicationKindReason?: string;
+    };
     programTitle?: string;
     section?: { heading?: string; guide?: string };
     formToc?: unknown;
+    readiness?: { ready?: unknown; score?: unknown; missing?: unknown };
     provider?: unknown;
   };
 
@@ -38,13 +54,26 @@ export async function POST(req: Request) {
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
   // 유료 관문(2026-07-09): 주문번호 인증(is_paid) 또는 마스터 코드
   const access = await checkDraftAccess(req, code, program?.id);
+  if (!access.ok) return paymentRequiredResponse(access.reason);
+  const application = decideDraftApplication(program);
+  if (!application.ok) return draftApplicationError(application);
+  if (!Array.isArray(messages) || !section?.heading) {
+    return Response.json({ error: "필요한 정보가 부족해요." }, { status: 400 });
+  }
+  const ready =
+    readiness?.ready === true &&
+    Number(readiness.score) >= 80 &&
+    Array.isArray(readiness.missing) &&
+    readiness.missing.length === 0;
+  if (!ready) {
+    return Response.json(
+      { error: "질문 답변이 아직 충분하지 않아요. 부족한 항목을 더 답한 뒤 초안을 만들어 주세요." },
+      { status: 409 },
+    );
+  }
   if (access.ok && access.user && program?.id) {
     // 이용권 소진(2026-07-13): 첫 초안 생성 시점에 이 공고에 바인딩 (이미 바인딩됐으면 유지)
     await markCreditUsed(access.user.id, program.id);
-  }
-  if (!access.ok) return paymentRequiredResponse(access.reason);
-  if (!Array.isArray(messages) || !section?.heading) {
-    return Response.json({ error: "필요한 정보가 부족해요." }, { status: 400 });
   }
 
   const provider = parseProvider(rawProvider);
@@ -82,6 +111,9 @@ export async function POST(req: Request) {
 - 지금 작성할 것은 전체 ${safeFormToc.length}개 중 ${formTocIndex >= 0 ? formTocIndex + 1 : "해당"}번째 항목 하나입니다.
 `
       : "";
+  const reviewChecklist = reviewChecklistForHeading(section.heading)
+    .map((item) => `- ${item}`)
+    .join("\n");
   const progCtx = [
     program?.summary ? `- 공고 개요: ${program.summary}` : "",
     program?.target ? `- 지원대상: ${program.target}` : "",
@@ -120,14 +152,21 @@ ${PROOF_NEEDED_PLACEHOLDER}
 - 사업 소재지는 사용자가 실제 입력한 지역만 쓰세요. 지역을 확인할 수 있으면 "사업 소재지: 사용자가 실제 입력한 지역" 형식으로, 확인할 수 없으면 "사업 소재지: 아직 입력하지 않음"이라고 쓰세요.
 - 지역 자격은 업로드한 공고문이 요구하는 본사·사업장·공장 등의 소재지 기준에 맞춰 판단하세요.
 - 지역 정보가 부족하면 임의로 추정하지 마세요. 단, 화면에 보이는 소재지 보완 문구는 시스템이 신청현황/일반현황 중 한 곳에만 조건부로 표시하므로 다른 항목에 반복하지 마세요.
-- 이 항목에 해당하는 내용만 쓰세요(제목은 다시 쓰지 말 것). 분량은 2~4문단.
+- 이 항목에 해당하는 내용만 쓰세요(제목은 다시 쓰지 말 것). 공식 양식의 분량 제한이 있으면 우선 적용하고, 없으면 3~7개의 짧은 문단으로 쓰세요.
+- 고객·비교대상·일정·KPI·예산처럼 병렬 비교가 필요한 내용은 장문 산문으로 뭉개지 말고 '항목명: 내용' 형식의 줄을 2개 이상 연속으로 작성하세요. DOCX에서 표로 변환됩니다.
+
+[이 항목의 심사 체크포인트]
+${reviewChecklist}
 
 [심사위원 시선 필터 — 작성하며 반드시 점검]
 - 13년·380개 공공기관 심사 노하우를 학습한 심사 관점으로, 심사위원이 읽는다는 전제로 논리적·구조적으로 쓰세요.
 - 과장 표현("국내 최초/유일/독보적")은 근거가 대화에 없으면 쓰지 말고, 사실 기반의 차분한 표현으로 낮추세요.
 - 근거 없는 수치(매출·시장 규모 등)는 단정하지 마세요. 출처가 대화·첨부·공고에 있거나 사용자가 근거 있는 추정치를 요청한 경우에만 출처·가정과 함께 적으세요.
 - 대화에 7단계 자가진단 내용이 있으면 이 항목과 연결되는 강점/근거를 자연스럽게 반영하세요.
-- 사용자가 첨부 양식을 냈다면 그 양식 항목의 취지에 맞게 쓰되, 항목 구조 자체는 바꾸지 마세요.`;
+- 사용자가 첨부 양식을 냈다면 그 양식 항목의 취지에 맞게 쓰되, 항목 구조 자체는 바꾸지 마세요.
+- 고객과 수익 항목에서는 사용자·결제자·예산 결정권자를 구분하고, 결제 시점·반복 주기·고객당 금액·제공원가·검증 근거를 대화에서 확인된 범위만 반영하세요.
+- 경쟁사 이름 나열보다 고객이 지금 쓰는 대안과 그 대안의 시간·비용·불편을 먼저 대비하세요.
+- 모든 핵심 주장에는 대화에서 확인된 근거를 연결하고, 근거가 없으면 보완 또는 증빙 필요 표시를 남기세요.`;
 
   // [대화]를 앞 턴으로, [작성할 항목]을 뒤 턴으로 분리 — 5회 연속 호출이 같은
   // "system+[대화]" 프리픽스를 공유하고, 그 경계(직전 사용자 턴)에 캐시 breakpoint가

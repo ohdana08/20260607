@@ -100,6 +100,12 @@ export function regionConflict(p: Program, userSido: string | null): boolean {
 
 // ── 공고 유형 분류 (2026-07-12 QA #2) — 자금지원형 / 시설·공간형 / 교육·행사형 ──
 export type ProgramKind = "funding" | "facility" | "event" | "other";
+export type ApplicationKind = "business-plan" | "simple-application" | "reservation" | "unknown";
+export interface ApplicationClassification {
+  applicationKind: ApplicationKind;
+  requiresBusinessPlan: boolean | null;
+  applicationKindReason: string;
+}
 const EVENT_RE =
   /교육|행사|세미나|밋업|네트워킹|교류회|포럼|데모데이|경진|공모전|아카데미|특강|캠프|박람회|설명회|워크숍|컨퍼런스|페스티벌|멘토링|컨설팅/;
 const FACILITY_RE = /입주|시설|공간|보육|사무실|공장|센터\s*입주|오피스/;
@@ -112,6 +118,62 @@ export function classifyKind(p: Program): ProgramKind {
   if (EVENT_RE.test(hay)) return "event";
   if (FUNDING_RE.test(`${p.summary}`)) return "funding";
   return "other";
+}
+
+// 유료 초안 대상 판정은 "지원유형"이 아니라 실제 제출서류 신호로 보수적으로 판단한다.
+// 애매한 공고는 unknown으로 두고 무료 공고 분석에서 원문·양식을 확인한 뒤에만 결제를 연다.
+const BUSINESS_PLAN_RE =
+  /사업\s*계획서|사업\s*수행\s*계획서|수행\s*계획서|사업\s*제안서|사업화\s*계획|발표\s*평가/;
+const RESERVATION_RE =
+  /(장비|시설|회의실|공간|스튜디오|테스트베드)\s*(예약|대관|이용|사용|대여|임차)/;
+const SIMPLE_APPLICATION_RE =
+  /(교육생|수강생|참가자|참여자)\s*(모집|신청)|(?:설명회|세미나|특강|포럼|박람회|컨퍼런스|워크숍)\s*(?:참가|참여)?\s*(?:신청|모집)/;
+
+export function classifyApplicationKind(p: Program): ApplicationClassification {
+  if (p.requiresBusinessPlan === true) {
+    return {
+      applicationKind: "business-plan",
+      requiresBusinessPlan: true,
+      applicationKindReason: p.applicationKindReason || "공고 분석에서 사업계획서 제출을 확인함",
+    };
+  }
+  if (p.requiresBusinessPlan === false) {
+    const applicationKind =
+      p.applicationKind === "reservation" ? "reservation" : "simple-application";
+    return {
+      applicationKind,
+      requiresBusinessPlan: false,
+      applicationKindReason: p.applicationKindReason || "공고 분석에서 간단 신청 유형으로 확인함",
+    };
+  }
+
+  const hay = `${p.title} ${p.summary} ${p.target} ${p.supportField}`;
+  if (BUSINESS_PLAN_RE.test(hay)) {
+    return {
+      applicationKind: "business-plan",
+      requiresBusinessPlan: true,
+      applicationKindReason: "공고 정보에 사업계획서·수행계획서 제출 신호가 있음",
+    };
+  }
+  if (RESERVATION_RE.test(hay)) {
+    return {
+      applicationKind: "reservation",
+      requiresBusinessPlan: false,
+      applicationKindReason: "장비·시설 예약 또는 이용 신청 유형",
+    };
+  }
+  if (SIMPLE_APPLICATION_RE.test(hay)) {
+    return {
+      applicationKind: "simple-application",
+      requiresBusinessPlan: false,
+      applicationKindReason: "교육·행사 참가를 위한 간단 신청 유형",
+    };
+  }
+  return {
+    applicationKind: "unknown",
+    requiresBusinessPlan: null,
+    applicationKindReason: "공고 원문 또는 제출양식에서 사업계획서 필요 여부 확인 필요",
+  };
 }
 
 // 지원 금액 추출 — 카드별 개별 근거용 (없으면 null, 문구 생략)
@@ -291,14 +353,18 @@ export function matchByButtons(programs: Program[], profile: ButtonProfile): But
     if (amount) conditions.push(`💰 ${amount}`);
     if (s.sectorHit && profile.sector) conditions.push(`✓ ${profile.sector} 분야`);
     for (const c of s.cautions) conditions.push(`⚠️ ${c}`);
+    const application = classifyApplicationKind(s.p);
+    const program = { ...s.p, ...application };
     return {
-      program: s.p,
+      program,
       whatItIs: "",
       fitReason: conditions.join(" · "),
       eligibility: s.eligible ? "조건 충족" : "확인 필요",
       conditions,
       kind: s.kind,
       checkReason: s.checkReason,
+      applicationKind: application.applicationKind,
+      requiresBusinessPlan: application.requiresBusinessPlan,
       ...(s.special ? { relevance: "low" as const } : {}),
     };
   });

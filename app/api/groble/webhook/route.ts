@@ -2,6 +2,7 @@ import { Redis } from "@upstash/redis";
 import { isMasterCode } from "@/lib/plan/access";
 import {
   GROBLE_RAW_EVENTS,
+  ORDER_NO_RE,
   ORDER_USED_KEY,
   PAID_KEY,
   VALID_ORDER_KEY,
@@ -13,13 +14,13 @@ export const dynamic = "force-dynamic";
 
 // ── 그로블 웹훅 수신 (실제 결제 검증의 원장 생성) ──────────────────────────
 // 그로블 Pro → 설정 → 웹훅에 아래 URL을 등록한다:
-//   https://20260607.vercel.app/api/groble/webhook?key=<GROBLE_WEBHOOK_KEY>
+//   https://ddakfit.bccconsulting.kr/api/groble/webhook?key=<GROBLE_WEBHOOK_KEY>
 // 지원 이벤트: 일반결제 완료 / 일반결제 취소 요청 / 정기결제 완료 / 정기결제 해지 신청
 // 그로블이 서명을 제공하지 않으므로 URL 안의 비밀 key 로 위조를 차단한다.
 //
 // 페이로드 필드 스펙이 비공개라 방어적으로 파싱한다:
 //   1) 흔한 필드명 후보에서 주문번호를 찾고
-//   2) 없으면 페이로드 전체에서 18자리 숫자 패턴을 찾는다
+//   2) 없으면 페이로드 전체에서 18~19자리 숫자 패턴을 찾는다
 //   3) 원본은 gp:groble_raw 에 최근 100건 보관 (스펙 확인·디버깅용)
 
 function getRedis(): Redis | null {
@@ -67,15 +68,40 @@ function findProductId(payload: unknown): string | undefined {
   return typeof content?.id === "string" ? content.id : undefined;
 }
 
-// 18자리 주문번호로 정규화. merchantUid 가 18자리가 아니면(테스트 이벤트 등) null.
+// 그로블 계정은 웹훅 URL을 하나만 등록할 수 있으므로, 기존 딱지원핏 원장을 유지한 채
+// Claude 101 결제만 BCC 수강권 서버로 전달한다. 비밀값은 서버 간 헤더에만 실린다.
+async function forwardClaude101Event(payload: unknown): Promise<void> {
+  const productId = findProductId(payload);
+  const claudeContentId = process.env.BCC_CLAUDE101_GROBLE_CONTENT_ID;
+  if (!claudeContentId || productId !== claudeContentId) return;
+
+  const url = process.env.BCC_GROBLE_FORWARD_URL;
+  const secret = process.env.BCC_GROBLE_FORWARD_SECRET;
+  if (!url || !secret) throw new Error("BCC Groble forward configuration missing");
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-BCC-Groble-Secret": secret,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`BCC Groble forward failed (${response.status}): ${detail.slice(0, 180)}`);
+  }
+}
+
+// 18~19자리 주문번호로 정규화. 실주문 형식이 아니면(테스트 이벤트 등) null.
 function toOrderNo(uid: string | null, payload: unknown): string | null {
   if (uid) {
     const digits = uid.replace(/\D/g, "");
-    if (/^\d{18}$/.test(digits)) return digits;
+    if (ORDER_NO_RE.test(digits)) return digits;
     return null; // merchantUid 는 있는데 주문번호 형식이 아님 (테스트 이벤트)
   }
-  // 구조가 예상과 다를 때 최후 폴백: 직렬화 전체에서 18자리 숫자 패턴
-  const m = JSON.stringify(payload ?? "").match(/\d{18}/);
+  // 구조가 예상과 다를 때 최후 폴백: 직렬화 전체에서 독립된 18~19자리 숫자 패턴
+  const m = JSON.stringify(payload ?? "").match(/\b\d{18,19}\b/);
   return m ? m[0] : null;
 }
 
@@ -112,12 +138,12 @@ export async function POST(req: Request) {
   const uid = findMerchantUid(payload);
   const orderNo = toOrderNo(uid, payload);
   if (!orderNo) {
-    // merchantUid 가 주문번호(18자리) 형식이 아님 — 그로블 "테스트 발송"이 이 경우.
-    // 실결제는 18자리 merchantUid 로 들어와 정상 등록된다. (원본 보관됨)
+    // merchantUid 가 주문번호(18~19자리) 형식이 아님 — 그로블 "테스트 발송"이 이 경우.
+    // 실결제는 18~19자리 merchantUid 로 들어와 정상 등록된다. (원본 보관됨)
     if (uid) {
       return Response.json({
         ok: true,
-        note: `연동 정상. merchantUid '${uid}' 는 테스트 값이라 등록하지 않았어요 — 실결제(18자리)는 자동 등록됩니다.`,
+        note: `연동 정상. merchantUid '${uid}' 는 테스트 값이라 등록하지 않았어요 — 실결제(18~19자리)는 자동 등록됩니다.`,
       });
     }
     return Response.json({ ok: false, note: "order number not found in payload (raw saved)" });
@@ -134,6 +160,12 @@ export async function POST(req: Request) {
     } satisfies ValidOrder);
     const usedBy = await r.get<string>(ORDER_USED_KEY(orderNo));
     if (usedBy) await r.del(PAID_KEY(usedBy));
+    try {
+      await forwardClaude101Event(payload);
+    } catch (error) {
+      console.error("[groble webhook] Claude101 forwarding failed", error);
+      return Response.json({ error: "downstream unavailable" }, { status: 502 });
+    }
     return Response.json({ ok: true, orderNo, action: "cancelled" });
   }
 
@@ -146,12 +178,18 @@ export async function POST(req: Request) {
     status: "valid",
     ...(productId ? { productId } : {}),
   } satisfies ValidOrder);
+  try {
+    await forwardClaude101Event(payload);
+  } catch (error) {
+    console.error("[groble webhook] Claude101 forwarding failed", error);
+    return Response.json({ error: "downstream unavailable" }, { status: 502 });
+  }
   return Response.json({ ok: true, orderNo, action: "registered" });
 }
 
 // GET — 운영자 확인용 (마스터코드 또는 웹훅 키):
 //   ?code=<마스터코드>              → 최근 웹훅 원본 10건
-//   ?code=<마스터코드>&register=<18자리> → 주문번호 수동 등록 (웹훅 유실·과거 결제 대조 후)
+//   ?code=<마스터코드>&register=<18~19자리> → 주문번호 수동 등록 (웹훅 유실·과거 결제 대조 후)
 //   ?key=<웹훅키>                   → 원본 조회만 가능 (파서 디버깅용, 수동 등록은 마스터코드만)
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -168,8 +206,8 @@ export async function GET(req: Request) {
   const reg = url.searchParams.get("register");
   if (reg) {
     const digits = reg.replace(/\D/g, "");
-    if (!/^\d{18}$/.test(digits)) {
-      return Response.json({ ok: false, error: "18자리 숫자가 아니에요." }, { status: 400 });
+    if (!ORDER_NO_RE.test(digits)) {
+      return Response.json({ ok: false, error: "18~19자리 숫자가 아니에요." }, { status: 400 });
     }
     await r.set(VALID_ORDER_KEY(digits), {
       orderNo: digits,

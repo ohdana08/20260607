@@ -19,7 +19,7 @@ export type GaEvent =
   | "start_diagnosis" // 7단계 자가진단 시작
   | "view_diagnosis_result" // 진단 결과 화면(맛보기) 도달
   | "view_diagnosis_report" // (구) 진단 리포트 도달 — 호환 유지
-  | "click_pay" // 유료 초안 버튼 클릭 (price 파라미터에 당시 판매가 — 2026-07-11부터 39,900원)
+  | "click_pay" // 유료 초안 버튼 클릭 (price 파라미터는 lib/config.ts의 판매가 사용)
   | "complete_payment" // 결제 완료 (// TODO: PG연동 후)
   | "complete_draft" // 유료 초안 생성 완료
   | "review_prompt_shown" // 후기 팝업 노출
@@ -45,6 +45,7 @@ export type GaEvent =
   | "repurchase_verified" // 소진 후 새 주문번호로 이용권 갱신 성공 (2026-07-14, QA 제외)
   // 랜딩 리뉴얼(2026-07-14) — /landing 전용 클릭 이벤트
   | "cta_free_diagnosis" // "무료 진단 시작" 계열 CTA 클릭 (location 파라미터로 위치 구분)
+  | "cta_view_finder" // "무료로 어떻게 찾아주는지 보기" 계열 CTA 클릭
   | "cta_view_demo" // "가상 결과 예시 보기" CTA 클릭
   | "cta_paid_checkout" // 가격 카드 "DOCX 받기" 결제 CTA 클릭
   | "demo_tab_view" // 랜딩 데모 탭 전환(초기창업자/예비창업자/기관납품형)

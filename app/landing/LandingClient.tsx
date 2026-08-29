@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { track } from "@/lib/ga";
 import { captureUtm } from "@/lib/utm";
-import { GROBLE_CHECKOUT_URL } from "@/lib/config";
+import { GROBLE_CHECKOUT_URL, PRICE_KRW, PRICE_LABEL } from "@/lib/config";
 
 // 배포 전 설정 — 실제 URL만 여기서 관리한다.
 const FREE_DIAGNOSIS_URL = "/embed"; // 도우미 진단 진입 (app/page.tsx와 동일한 실제 제품 입구)
@@ -19,7 +19,7 @@ const POLICY = {
   regeneration: "초안을 생성한 공고는 소진되지 않고 유지되어, 같은 공고의 DOCX를 다시 내려받거나 이어서 작업할 수 있습니다.",
   systemError: "시스템 오류로 초안 생성에 실패한 경우, 사용된 이용권을 복구해 다시 생성할 수 있도록 합니다.",
   refund:
-    "초안을 생성하기 전에는 환불이 가능합니다. 초안 생성이 완료된 후에는 디지털 콘텐츠 제공이 이루어진 것으로 보아 환불이 제한될 수 있으며, 구체적 기준은 환불정책 페이지를 따릅니다.",
+    "결제 후 유료 맞춤 작성을 시작하기 전에는 청약철회를 요청할 수 있습니다. 별도 동의 후 개인화된 작성 서비스가 시작되면 관련 법령이 허용하는 범위에서 환불이 제한될 수 있으며, 구체적 기준은 환불정책 페이지를 따릅니다.",
   dataHandling:
     "입력하신 사업정보와 첨부자료는 초안 생성을 위해 외부 AI 모델(Anthropic)에 전달되며, 초안 생성 목적 외에는 사용하지 않습니다. 보관 기간과 삭제 요청 방법은 개인정보처리방침을 따릅니다.",
 };
@@ -86,6 +86,18 @@ const DEMO_ORDER: DemoKey[] = ["early", "pre", "b2g"];
 
 const FAQS: { q: string; a: string }[] = [
   {
+    q: "정부지원사업 찾기는 정말 무료인가요?",
+    a: `네. 내 조건에 맞는 공고 추천, 공고 핵심 확인과 신청 자격 진단까지 무료입니다. 지원할 공고를 정한 뒤 공고 양식에 맞춘 전체 사업계획서 DOCX 초안이 필요할 때만 1건 ${PRICE_LABEL}을 결제합니다.`,
+  },
+  {
+    q: "정부지원사업 공고는 어디에서 찾나요?",
+    a: "K-Startup, 기업마당 등 공개된 정부지원사업 모집 공고를 한곳에서 살펴볼 수 있도록 모으고 있습니다. 추천 결과마다 공고 원문 링크를 함께 제공하므로, 최종 신청 전에는 반드시 주관기관의 최신 원문을 확인할 수 있습니다.",
+  },
+  {
+    q: "추천받은 공고는 바로 신청할 수 있는 공고인가요?",
+    a: "모집 중인 공고 가운데 입력한 지역·업력·사업단계·관심분야와 가까운 공고를 우선 보여드립니다. 다만 세부 자격과 제출서류는 공고마다 다르고 변경될 수 있으므로, 추천 뒤 무료 자격 진단과 공고 원문을 최종 확인해야 합니다.",
+  },
+  {
     q: "실제 고객 사업계획서 비포·애프터는 왜 없나요?",
     a: "사업계획서에는 매출, 거래처, 특허, 투자계획과 같은 민감한 정보가 포함됩니다. 이름을 가려도 여러 정보를 조합하면 특정 사업자를 추정할 수 있어 실제 고객 문서를 홍보에 사용하지 않습니다. 대신 가상 사업 데모와 고객 본인의 비공개 문장 미리보기를 제공합니다.",
   },
@@ -107,7 +119,11 @@ const FAQS: { q: string; a: string }[] = [
   },
   {
     q: "어떤 대표자에게 가장 적합한가요?",
-    a: "실제 사업 또는 구체화된 아이템이 있고, 매출·고객·거래처·개발·투자·팀 이력 같은 재료는 설명할 수 있지만 이를 특정 공고의 평가항목과 양식에 맞게 배치하기 어려운 대표자에게 적합합니다.",
+    a: "마감이 다가오는 실제 공고가 있고, 매출·고객·거래처·개발·투자·팀 이력 같은 재료는 설명할 수 있지만 이를 공고의 평가항목과 공식 양식에 맞게 배치하기 어려운 대표자에게 가장 적합합니다. 아이템 자체가 없거나 아직 지원할 공고를 고르지 못했다면 무료 추천과 진단부터 이용하세요.",
+  },
+  {
+    q: "사업계획서가 필요 없는 공고도 결제해야 하나요?",
+    a: "아닙니다. 장비·공간 예약, 교육·행사 참가처럼 간단 신청만 필요한 공고는 유료 초안 대상으로 열지 않습니다. 무료 분석에서 제출서류를 먼저 확인하고, 사업계획서가 실제로 필요한 공고에만 결제 안내를 보여드립니다.",
   },
 ];
 
@@ -157,9 +173,9 @@ export default function LandingClient() {
     <div className="landing-root" id="top">
       <div className="notice-bar">
         <div className="container notice-inner">
-          <span><b>자격·준비 상태 진단 0원</b></span>
+          <span><b>정부지원사업 찾기·자격 확인 0원</b></span>
           <span>·</span>
-          <span>공고 맞춤 DOCX 초안 1건 39,900원</span>
+          <span>사업계획서 초안은 필요할 때만</span>
         </div>
       </div>
 
@@ -168,22 +184,22 @@ export default function LandingClient() {
           <a className="brand" href="#top" aria-label="정부지원사업 도우미 홈">
             <span className="brand-mark">BCC</span>
             <span className="brand-copy">
-              <strong>정부지원사업 도우미</strong>
-              <span>비즈니스커리어컨설팅</span>
+              <strong>딱, 지원핏</strong>
+              <span>정부지원사업 도우미</span>
             </span>
           </a>
 
           <nav className="nav-links" aria-label="주요 메뉴">
-            <a href="#demo">결과 예시</a>
-            <a href="#preview">무료 미리보기</a>
-            <a href="#difference">차이점</a>
+            <a href="#why-find">왜 필요한가요?</a>
+            <a href="#how-to-find">무료로 찾는 방법</a>
+            <a href="#demo">사업계획서 초안</a>
             <a href="#price">가격</a>
             <a href="#faq">FAQ</a>
           </nav>
 
           <div className="nav-actions">
             <FreeDiagnosisLink className="btn btn-gold btn-sm" location="header">
-              무료 진단 시작
+              내 지원사업 무료로 찾기
             </FreeDiagnosisLink>
             <button
               className="menu-button"
@@ -200,13 +216,13 @@ export default function LandingClient() {
 
       {!menuOpen ? null : (
         <nav className="mobile-menu" id="mobileMenu" aria-label="모바일 메뉴">
-          <a href="#demo" onClick={() => setMenuOpen(false)}>결과 예시</a>
-          <a href="#preview" onClick={() => setMenuOpen(false)}>무료 미리보기</a>
-          <a href="#difference" onClick={() => setMenuOpen(false)}>차이점</a>
+          <a href="#why-find" onClick={() => setMenuOpen(false)}>왜 필요한가요?</a>
+          <a href="#how-to-find" onClick={() => setMenuOpen(false)}>무료로 찾는 방법</a>
+          <a href="#demo" onClick={() => setMenuOpen(false)}>사업계획서 초안</a>
           <a href="#price" onClick={() => setMenuOpen(false)}>가격</a>
           <a href="#faq" onClick={() => setMenuOpen(false)}>FAQ</a>
           <FreeDiagnosisLink className="btn btn-gold" location="mobile_menu">
-            무료 진단 시작
+            내 지원사업 무료로 찾기
           </FreeDiagnosisLink>
         </nav>
       )}
@@ -215,54 +231,54 @@ export default function LandingClient() {
         <section className="hero">
           <div className="container hero-grid">
             <div>
-              <div className="hero-badge">쓸 내용은 있는데, 어디에 써야 할지 모르는 대표자를 위해</div>
+              <div className="hero-badge">정부지원사업, 어디서 찾아야 할지 모르겠다면</div>
               <h1>
-                매출·고객·거래처는 있는데
+                내가 받을 수 있는
                 <br />
-                <mark>사업계획서 어디에 써야 할지</mark>
+                <mark>정부지원사업을</mark>
                 <br />
-                막혔나요?
+                무료로 찾아보세요.
               </h1>
               <p className="hero-lead">
-                가지고 있는 사업의 증거를 공고 평가항목과 공식 양식 순서에 맞춰 배치하고, 부족한 자료까지 표시한 수정 가능한 DOCX
-                초안을 만드세요.
+                지역·업력·사업단계·관심분야 몇 가지만 알려주면 지금 확인할 공고를 먼저 추천하고, 신청 자격과 마감일,
+                공고 원문까지 한 번에 보여드립니다.
               </p>
               <div className="hero-actions">
                 <FreeDiagnosisLink className="btn btn-gold" location="hero">
-                  내 공고 무료로 진단하기 <span className="arrow">→</span>
+                  내 지원사업 무료로 찾기 <span className="arrow">→</span>
                 </FreeDiagnosisLink>
-                <a className="btn btn-light" href="#demo" onClick={() => track("cta_view_demo", { location: "hero" })}>
-                  가상 결과 예시 먼저 보기
+                <a className="btn btn-light" href="#how-to-find" onClick={() => track("cta_view_finder", { location: "hero" })}>
+                  어떻게 찾아주는지 보기
                 </a>
               </div>
               <p className="hero-note">
-                <b>진단까지 무료</b> · 초안이 필요할 때만 39,900원 · 입력하지 않은 실적은 사실처럼 쓰지 않습니다.
+                <b>결제 없이 공고 추천·자격 확인까지 무료</b> · 사업계획서 초안은 지원할 공고를 정한 뒤 선택하세요.
               </p>
             </div>
 
-            <div className="hero-card-wrap" aria-label="증거가 평가항목과 문장으로 변환되는 예시">
+            <div className="hero-card-wrap" aria-label="정부지원사업 무료 추천 결과 화면 예시">
               <div className="hero-orbit" aria-hidden="true" />
               <article className="proof-card">
                 <div className="proof-head">
-                  <small>EVIDENCE MAP</small>
-                  <span className="proof-status">가상 데모</span>
+                  <small>FREE PROGRAM MATCH</small>
+                  <span className="proof-status">무료 추천</span>
                 </div>
                 <h2>
-                  내가 가진 재료를
+                  지금 확인할 공고를
                   <br />
-                  평가항목의 제자리로
+                  내 조건에 맞는 순서로
                 </h2>
-                <div className="proof-sub">초기창업기업 · AI 실무교육 서비스 예시</div>
+                <div className="proof-sub">부산 · 예비창업 · AI·콘텐츠 · 사업화 희망 예시</div>
                 <div className="proof-flow">
-                  <div className="proof-row"><b>입력한 사실</b><span>유료 고객 27개사 · 재계약 8개사 · 기관 납품 2건</span></div>
-                  <div className="proof-row"><b>평가항목</b><span>실현가능성 · 성장전략 · 팀 역량으로 분리 배치</span></div>
-                  <div className="proof-row"><b>확인 필요</b><span>집계 기간 · 매출 증빙 · 재계약 기준</span></div>
+                  <div className="proof-row"><b>조건 확인</b><span>지역 · 업력 · 사업단계 · 필요한 지원</span></div>
+                  <div className="proof-row"><b>추천 이유</b><span>내 조건과 맞는 항목, 마감일, 지원 내용을 요약</span></div>
+                  <div className="proof-row"><b>바로 확인</b><span>신청 자격 진단 · 주관기관 공고 원문 링크</span></div>
                 </div>
                 <div className="proof-result">
-                  <b>실제 초안 문장 예시</b>
+                  <b>추천 결과 화면 예시</b>
                   <p>
-                    &ldquo;2026년 상반기 유료 고객 27개사를 확보했으며, 이 중 8개사가 추가 계약으로 이어져 초기 수요와 반복
-                    구매 가능성을 확인하였다.&rdquo;
+                    &ldquo;예비창업 단계와 지역 조건이 맞는 공고입니다. 마감일과 제외 조건을 확인한 뒤 무료 자격 진단을
+                    이어가세요.&rdquo;
                   </p>
                 </div>
               </article>
@@ -271,45 +287,74 @@ export default function LandingClient() {
 
           <div className="hero-trust">
             <div className="container trust-strip">
-              <div className="trust-item"><strong>자격부터 확인</strong><span>쓰기 전에 지원 가능 여부부터</span></div>
-              <div className="trust-item"><strong>입력 사실 중심</strong><span>없는 숫자와 실적은 만들지 않음</span></div>
-              <div className="trust-item"><strong>공식 양식 순서</strong><span>업로드한 공고와 목차 기준</span></div>
-              <div className="trust-item"><strong>수정 가능한 DOCX</strong><span>제출 전 직접 검토하고 보완</span></div>
+              <div className="trust-item"><strong>여러 공고를 한곳에서</strong><span>흩어진 모집 공고를 모아 확인</span></div>
+              <div className="trust-item"><strong>내 조건부터 맞춤</strong><span>지역·업력·사업단계 기준 추천</span></div>
+              <div className="trust-item"><strong>마감일·원문까지</strong><span>요약만 보지 않고 공식 공고 확인</span></div>
+              <div className="trust-item"><strong>추천·자격 확인 0원</strong><span>결제 없이 지원할 공고부터 선택</span></div>
             </div>
           </div>
         </section>
 
-        <section className="section">
+        <section className="section" id="why-find">
           <div className="container">
             <div className="max-copy center">
-              <span className="eyebrow">THE REAL PROBLEM</span>
+              <span className="eyebrow">WHY IT FEELS HARD</span>
               <h2 className="section-title">
-                글을 못 쓰는 게 아니라,
+                공고가 없는 게 아니라,
                 <br />
-                <span className="gold-text">증거를 어디에 배치할지</span> 모르는 겁니다.
+                <span className="gold-text">나에게 맞는 공고를 찾기</span> 어려운 겁니다.
               </h2>
               <p className="section-copy">
-                일반적인 회사 소개문은 만들 수 있습니다. 문제는 심사위원이 보는 평가항목에 맞춰 매출·고객·거래처·경험을
-                재배치하는 일입니다.
+                정부지원사업은 여러 사이트와 기관에 흩어져 있고, 제목만으로는 내가 신청할 수 있는지 판단하기 어렵습니다.
+                그래서 검색보다 먼저 내 조건에 맞춰 거르는 과정이 필요합니다.
               </p>
             </div>
 
             <div className="pain-grid">
               <article className="pain-card">
                 <span className="num">01</span>
-                <h3>실적은 많은데<br />전부 성장전략에 몰아넣습니다.</h3>
-                <p>고객 검증, 실행 역량, 확장 가능성은 각각 다른 평가항목의 증거입니다.</p>
+                <h3>공고 사이트가 너무 많아<br />어디부터 봐야 할지 모릅니다.</h3>
+                <p>기관과 플랫폼마다 흩어진 공고를 매번 찾아다니면 중요한 모집 시기를 놓치기 쉽습니다.</p>
               </article>
               <article className="pain-card">
                 <span className="num">02</span>
-                <h3>ChatGPT가 그럴듯한 계획을<br />사실처럼 덧붙입니다.</h3>
-                <p>사업계획서는 나중에 증빙을 요구받습니다. 확인되지 않은 내용은 반드시 분리해야 합니다.</p>
+                <h3>제목만 봐서는<br />내가 받을 수 있는지 모릅니다.</h3>
+                <p>지역, 업력, 사업단계와 제외 조건을 읽어야 비로소 신청 가능성을 판단할 수 있습니다.</p>
               </article>
               <article className="pain-card">
                 <span className="num">03</span>
-                <h3>공고마다 양식이 다른데<br />일반 목차로 다시 씁니다.</h3>
-                <p>좋은 문장보다 먼저 공식 양식의 항목명과 순서를 정확히 따라야 합니다.</p>
+                <h3>찾았을 때는 마감이 임박하거나<br />자격이 맞지 않습니다.</h3>
+                <p>내 조건과 가까운 공고부터 보고 마감일과 원문을 함께 확인해야 준비할 시간을 확보할 수 있습니다.</p>
               </article>
+            </div>
+          </div>
+        </section>
+
+        <section className="section cream" id="how-to-find">
+          <div className="container">
+            <div className="max-copy center">
+              <span className="eyebrow">FREE FINDER</span>
+              <h2 className="section-title">
+                어려운 검색어 대신,
+                <br />
+                <span className="gold-text">내 사업 조건만 알려주세요.</span>
+              </h2>
+              <p className="section-copy">
+                공고 제목을 몰라도 괜찮습니다. 네 단계로 지금 확인할 지원사업과 신청 가능성을 무료로 좁혀드립니다.
+              </p>
+            </div>
+
+            <div className="process">
+              <article className="process-step"><span className="step">STEP 01</span><h3>사업단계 선택</h3><p>예비창업, 창업연차 등 현재 사업 상태를 알려주세요.</p></article>
+              <article className="process-step"><span className="step">STEP 02</span><h3>지역·분야 선택</h3><p>소재 지역과 사업 분야, 필요한 지원을 간단히 고릅니다.</p></article>
+              <article className="process-step"><span className="step">STEP 03</span><h3>맞는 공고 추천</h3><p>조건이 가까운 모집 공고를 이유와 마감일과 함께 보여드립니다.</p></article>
+              <article className="process-step"><span className="step">STEP 04</span><h3>자격·원문 확인</h3><p>무료 진단을 거쳐 주관기관의 최신 공고 원문으로 이동합니다.</p></article>
+            </div>
+
+            <div className="center" style={{ marginTop: 38 }}>
+              <FreeDiagnosisLink className="btn btn-gold" location="finder_process">
+                지금 내 지원사업 찾아보기 <span className="arrow">→</span>
+              </FreeDiagnosisLink>
             </div>
           </div>
         </section>
@@ -317,15 +362,15 @@ export default function LandingClient() {
         <section className="section dark" id="demo">
           <div className="container">
             <div className="max-copy">
-              <span className="eyebrow">PRODUCT PROOF</span>
+              <span className="eyebrow">OPTIONAL NEXT STEP</span>
               <h2 className="section-title">
-                39,900원을 내면 무엇이 달라지는지
+                지원할 공고를 찾았다면,
                 <br />
-                <span className="gold-text">가상 사업으로 먼저 확인하세요.</span>
+                <span className="gold-text">작성까지 필요할 때만 이용하세요.</span>
               </h2>
               <p className="section-copy">
-                실제 고객의 민감한 사업계획서를 공개하는 대신, 완전히 가상의 사업정보를 서비스 구조에 맞춰 변환한 예시를
-                보여드립니다.
+                공고 찾기와 자격 확인은 계속 무료입니다. 사업계획서 작성이 막힐 때만 내 사업의 증거를 공고 평가항목과 공식
+                양식에 배치한 수정 가능한 DOCX 초안을 선택할 수 있습니다.
               </p>
             </div>
 
@@ -448,15 +493,15 @@ export default function LandingClient() {
         <section className="section" id="preview">
           <div className="container">
             <div className="max-copy">
-              <span className="eyebrow">FREE PERSONAL PREVIEW</span>
+              <span className="eyebrow">AFTER YOU PICK A PROGRAM</span>
               <h2 className="section-title">
-                남의 후기를 믿기 전에,
+                지원할 공고를 골랐다면,
                 <br />
-                <span className="gold-text">내 결과 일부를 무료로 보세요.</span>
+                <span className="gold-text">작성 준비 상태도 무료로 보세요.</span>
               </h2>
               <p className="section-copy">
-                무료 진단을 완료하면 결제 전에 내 사업의 강점, 평가항목 배치, 부족한 자료와 실제 초안 문장 일부를 확인할 수
-                있습니다.
+                선택한 공고의 자격과 핵심 조건을 확인하고, 결제 전에 내 사업의 강점과 부족한 자료, 실제 초안 문장 일부까지
+                확인할 수 있습니다.
               </p>
             </div>
 
@@ -476,7 +521,7 @@ export default function LandingClient() {
                 </article>
                 <article className="preview-item">
                   <div className="preview-icon">4</div>
-                  <div><h3>내 정보가 반영된 문장 1개</h3><p>39,900원 결제 전에 실제 작성 방향과 문장 수준을 확인합니다.</p></div>
+                  <div><h3>내 정보가 반영된 문장 1개</h3><p>{PRICE_LABEL} 결제 전에 실제 작성 방향과 문장 수준을 확인합니다.</p></div>
                 </article>
               </div>
 
@@ -506,7 +551,7 @@ export default function LandingClient() {
 
             <div className="center" style={{ marginTop: 38 }}>
               <FreeDiagnosisLink className="btn btn-gold" location="preview">
-                내 사업정보로 무료 미리보기 <span className="arrow">→</span>
+                지원사업 찾기부터 무료로 시작 <span className="arrow">→</span>
               </FreeDiagnosisLink>
             </div>
           </div>
@@ -517,17 +562,17 @@ export default function LandingClient() {
             <div className="max-copy center">
               <span className="eyebrow">WHY DIFFERENT</span>
               <h2 className="section-title">
-                그럴듯한 글을 만드는 AI가 아니라,
+                아이디어 생성만 하거나 완성본 리뷰만 하는 도구가 아니라,
                 <br />
-                <span className="gold-text">심사 기준에 증거를 배치하는 도구</span>입니다.
+                <span className="gold-text">실제 공고 선택부터 제출 준비까지 잇는 도구</span>입니다.
               </h2>
             </div>
 
             <div className="difference-grid">
-              <article className="difference-card"><span className="tag">01 · 자격판정</span><h3>쓰기 전에<br />지원 가능 여부부터</h3><p>공고의 필수 자격과 제한 조건을 먼저 확인해 불필요한 작성을 줄입니다.</p></article>
-              <article className="difference-card"><span className="tag">02 · 증거 인터뷰</span><h3>막연한 질문 대신<br />매출·고객·거래처부터</h3><p>실제 사실을 하나씩 확인해 평가항목에 사용할 재료를 수집합니다.</p></article>
-              <article className="difference-card"><span className="tag">03 · 양식 보존</span><h3>일반 목차가 아니라<br />공식 양식 순서대로</h3><p>선택한 공고와 업로드한 양식의 항목명·순서에 맞춰 초안을 구성합니다.</p></article>
-              <article className="difference-card"><span className="tag">04 · 허위 방지</span><h3>모르는 내용은<br />[확인 필요]로 남김</h3><p>입력하지 않은 실적을 확정하지 않고, 추가 확인할 정보와 증빙을 표시합니다.</p></article>
+              <article className="difference-card"><span className="tag">01 · 모집 중 공고</span><h3>마감 공고를 걷어내고<br />지금 볼 공고부터</h3><p>지역·업력·단계를 기준으로 모집 중인 공식 공고와 원문을 먼저 좁힙니다.</p></article>
+              <article className="difference-card"><span className="tag">02 · 결제 전 자격</span><h3>신청 가능성과 제출서류를<br />무료로 먼저 확인</h3><p>사업계획서가 필요 없는 간단 신청 공고에는 유료 초안 결제를 열지 않습니다.</p></article>
+              <article className="difference-card"><span className="tag">03 · 근거 인터뷰</span><h3>아이디어를 꾸미기보다<br />실제 증거를 평가항목에</h3><p>고객·매출·계약·팀 이력을 묻고 확인되지 않은 사실은 보완·증빙 필요로 남깁니다.</p></article>
+              <article className="difference-card"><span className="tag">04 · 제출 전 점검</span><h3>공식 목차 DOCX와<br />위험 검토표까지</h3><p>양식 순서를 보존한 초안과 항목별 보완·증빙 목록으로 마지막 확인까지 이어갑니다.</p></article>
             </div>
           </div>
         </section>
@@ -537,16 +582,16 @@ export default function LandingClient() {
             <div className="max-copy center">
               <span className="eyebrow">HOW IT WORKS</span>
               <h2 className="section-title">
-                공고를 고르고, 사실을 답하면,
+                지원할 공고를 정한 다음에도,
                 <br />
-                <span className="gold-text">양식에 맞춘 초안이 만들어집니다.</span>
+                <span className="gold-text">신청 준비를 이어갈 수 있습니다.</span>
               </h2>
             </div>
 
             <div className="process">
-              <article className="process-step"><span className="step">STEP 01</span><h3>공고 선택·업로드</h3><p>신청할 공고와 공식 양식을 기준으로 작업을 시작합니다.</p></article>
+              <article className="process-step"><span className="step">STEP 01</span><h3>추천 공고 선택</h3><p>내 조건에 맞는 공고의 지원 내용과 원문을 확인합니다.</p></article>
               <article className="process-step"><span className="step">STEP 02</span><h3>무료 자격 진단</h3><p>필수 요건, 준비 상태와 결격 가능성을 먼저 확인합니다.</p></article>
-              <article className="process-step"><span className="step">STEP 03</span><h3>증거 인터뷰</h3><p>매출, 고객, 거래처, 개발, 투자와 팀 이력을 질문합니다.</p></article>
+              <article className="process-step"><span className="step">STEP 03</span><h3>필요할 때 인터뷰</h3><p>초안을 원할 때만 매출, 고객, 개발, 투자와 팀 이력을 답합니다.</p></article>
               <article className="process-step"><span className="step">STEP 04</span><h3>DOCX 초안 생성</h3><p>공식 양식 순서, 확인 필요 항목과 증빙 목록을 함께 제공합니다.</p></article>
             </div>
           </div>
@@ -557,34 +602,34 @@ export default function LandingClient() {
             <div className="max-copy center">
               <span className="eyebrow">PRICE</span>
               <h2 className="section-title">
-                먼저 무료로 확인하고,
+                공고 찾기와 자격 확인은 무료,
                 <br />
-                <span className="gold-text">내 결과가 필요할 때만 결제하세요.</span>
+                <span className="gold-text">사업계획서 초안만 선택 결제.</span>
               </h2>
-              <p className="section-copy">무료 진단과 유료 결과물의 범위를 처음부터 분명하게 나눴습니다.</p>
+              <p className="section-copy">내게 맞는 공고를 찾는 단계에서 결제를 요구하지 않습니다.</p>
             </div>
 
             <div className="pricing-wrap">
-              <article className="price-card">
-                <div className="plan">무료 진단</div>
+              <article className="price-card featured">
+                <div className="plan">정부지원사업 찾기 + 자격 진단</div>
                 <div className="price">0<small>원</small></div>
-                <div className="price-desc">지원 가능성과 준비 상태를 먼저 확인</div>
+                <div className="price-desc">내 조건에 맞는 지원사업부터 무료로 확인</div>
                 <ul className="price-list">
+                  <li>지역·업력·사업단계 맞춤 공고 추천</li>
+                  <li>추천 이유와 마감일 확인</li>
+                  <li>공고 원문 바로가기</li>
                   <li>공고 필수 자격 확인</li>
-                  <li>활용 가능한 핵심 증거 요약</li>
-                  <li>평가항목 배치 방향</li>
-                  <li>부족한 자료와 확인 항목</li>
-                  <li>내 정보가 반영된 문장 일부</li>
+                  <li>준비 상태와 부족한 자료 확인</li>
                 </ul>
-                <FreeDiagnosisLink className="btn btn-line btn-full" location="pricing_free">
-                  무료 진단 시작하기
+                <FreeDiagnosisLink className="btn btn-gold btn-full" location="pricing_free">
+                  내 지원사업 무료로 찾기
                 </FreeDiagnosisLink>
               </article>
 
-              <article className="price-card featured">
-                <div className="plan">공고 맞춤 DOCX 초안 1건</div>
-                <div className="price">39,900<small>원</small></div>
-                <div className="price-desc">선택한 공고와 공식 양식 기준</div>
+              <article className="price-card">
+                <div className="plan">선택 기능 · 공고 맞춤 DOCX 초안 1건</div>
+                <div className="price">{PRICE_KRW.toLocaleString("ko-KR")}<small>원</small></div>
+                <div className="price-desc">지원할 공고를 정한 뒤 필요할 때만</div>
                 <ul className="price-list">
                   <li>공고·양식 기반 증거 인터뷰</li>
                   <li>원문 목차 순서의 전체 초안</li>
@@ -593,13 +638,13 @@ export default function LandingClient() {
                   <li>수정 가능한 DOCX 다운로드</li>
                 </ul>
                 <a
-                  className="btn btn-gold btn-full"
+                  className="btn btn-line btn-full"
                   href={PAID_CHECKOUT_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => track("cta_paid_checkout", { location: "pricing_paid" })}
                 >
-                  이 공고 맞춤 DOCX 받기 · 39,900원
+                  공고 맞춤 DOCX 초안 · {PRICE_LABEL}
                 </a>
                 <div className="price-foot">무료 진단 후 내 문장 미리보기를 확인하고 결제할 수 있습니다.</div>
               </article>
@@ -660,9 +705,9 @@ export default function LandingClient() {
             <div className="max-copy center">
               <span className="eyebrow">FAQ</span>
               <h2 className="section-title">
-                결제 전에 가장 많이
+                무료 추천부터 작성까지,
                 <br />
-                <span className="gold-text">망설이는 질문</span>부터 답합니다.
+                <span className="gold-text">궁금한 질문</span>부터 답합니다.
               </h2>
             </div>
 
@@ -684,18 +729,18 @@ export default function LandingClient() {
           <div className="container final-inner">
             <div>
               <h2>
-                타인의 사업계획서를 믿지 마세요.
+                정부지원사업을 찾고 싶은데,
                 <br />
-                내 사업정보가 어떻게 바뀌는지 직접 확인하세요.
+                어디서 찾아야 할지 모르겠다면.
               </h2>
-              <p>자격과 준비 상태는 무료로 진단하고, 내 문장 미리보기를 확인한 뒤 결제하세요.</p>
+              <p>내 조건만 알려주세요. 맞는 공고 추천과 신청 자격 확인까지 무료로 시작할 수 있습니다.</p>
             </div>
             <div className="final-actions">
               <FreeDiagnosisLink className="btn btn-dark" location="final">
-                내 공고 무료로 진단하기 <span className="arrow">→</span>
+                내 지원사업 무료로 찾기 <span className="arrow">→</span>
               </FreeDiagnosisLink>
-              <a className="btn btn-light" href="#demo" onClick={() => track("cta_view_demo", { location: "final" })}>
-                가상 결과 예시 다시 보기
+              <a className="btn btn-light" href="#how-to-find" onClick={() => track("cta_view_finder", { location: "final" })}>
+                무료 추천 과정 다시 보기
               </a>
             </div>
           </div>
@@ -706,25 +751,28 @@ export default function LandingClient() {
         <div className="container">
           <div className="footer-grid">
             <div>
-              <div className="footer-brand"><span className="brand-mark">BCC</span><strong>정부지원사업 도우미</strong></div>
-              <p className="footer-copy">매출·고객·거래처·경험 같은 실제 사업의 증거를 특정 공고의 평가항목과 공식 양식에 맞춰 정리하는 사업계획서 초안 도구입니다.</p>
+              <div className="footer-brand"><span className="brand-mark">BCC</span><strong>딱, 지원핏</strong></div>
+              <p className="footer-copy">지역·업력·사업단계에 맞는 정부지원사업을 무료로 찾고, 자격과 원문을 확인한 뒤 필요할 때만 공고 맞춤 사업계획서 초안까지 이어가는 도구입니다.</p>
             </div>
             <div>
               <div className="footer-title">SERVICE</div>
-              <div className="footer-links"><a href="#demo">결과 예시</a><a href="#preview">무료 미리보기</a><a href="#price">가격</a><a href="#faq">FAQ</a></div>
+              <div className="footer-links"><a href="#how-to-find">무료 공고 찾기</a><a href="#demo">사업계획서 초안</a><a href="#price">가격</a><a href="#faq">FAQ</a></div>
             </div>
             <div>
               <div className="footer-title">LEGAL</div>
               <div className="footer-links"><a href="/terms">이용약관</a><a href="/privacy">개인정보처리방침</a><a href="/refund">환불정책</a><a href="/data-policy">AI·첨부자료 처리 안내</a></div>
             </div>
           </div>
-          <div className="copyright">© {new Date().getFullYear()} Business Career Consulting. All rights reserved. · 사업자 정보와 고객문의 채널은 실제 정보로 교체하세요.</div>
+          <div className="copyright">
+            © {new Date().getFullYear()} 비즈니스커리어컨설팅(BCC) · 대표 오예림 · 사업자등록번호 153-15-01286 ·{" "}
+            <a href="https://open.kakao.com/o/gmPptFti" target="_blank" rel="noopener noreferrer">고객문의</a>
+          </div>
         </div>
       </footer>
 
       <div className="sticky-mobile-cta">
         <FreeDiagnosisLink className="btn btn-gold" location="sticky_mobile">
-          내 공고 무료로 진단하기
+          내 지원사업 무료로 찾기
         </FreeDiagnosisLink>
       </div>
     </div>

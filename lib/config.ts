@@ -1,13 +1,13 @@
-// 그로블 결제창 링크 (39,900원 사업계획서 초안 이용권).
+// 그로블 결제창 링크 (29,900원 사업계획서 초안 이용권).
 // 비어 있으면 결제 버튼 대신 안내문이 뜬다.
-// 2026-07-11 신상품 전환: 구 상품 products/9CYRhi(49,900원, 판매중단) → 새 상품 payment/RJczGx(39,900원).
+// 2026-08-04 가격 조정: payment/RJczGx 상품을 29,900원으로 운영.
 export const GROBLE_CHECKOUT_URL = "https://www.groble.im/payment/RJczGx";
 // 그로블 웹훅 payload의 data.object.content.id 값 — 재구매 verify가 이 상품만 인정한다(2026-07-14).
 export const GROBLE_PRODUCT_ID = "RJczGx";
 
-// 유료 초안 판매가 — 화면 표기용(2026-07-11 그로블 신상품 가격). 숫자는 GA4 price 파라미터용.
-export const PRICE_LABEL = "39,900원";
-export const PRICE_KRW = 39900;
+// 유료 초안 판매가 — 화면 표기와 GA4 price 파라미터의 단일 출처.
+export const PRICE_LABEL = "29,900원";
+export const PRICE_KRW = 29900;
 
 // 서비스 잠금(리뉴얼/Coming Soon) 스위치.
 // true  → 모든 AI 호출(=비용) 차단 + 화면에 "리뉴얼 중" 표시

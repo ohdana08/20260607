@@ -4,9 +4,10 @@ import { GoogleAnalytics } from "@next/third-parties/google";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "정부지원사업 사업계획서 도우미",
+  metadataBase: new URL("https://ddakfit.bccconsulting.kr"),
+  title: "딱, 지원핏 | 정부지원사업 무료 추천",
   description:
-    "예비창업자를 위한 정부지원사업 추천 + 사업계획서 작성 도우미. 어려운 용어 없이, 대화하면서 나에게 맞는 지원사업을 찾고 사업계획서 초안까지.",
+    "지역·업력·사업단계에 맞는 정부지원사업을 무료로 찾고 신청 자격과 원문을 확인하세요. 사업계획서 초안은 필요할 때만 선택할 수 있습니다.",
 };
 
 // GA4 측정 ID는 공개돼도 되는 값(비밀 아님) → NEXT_PUBLIC_ 로 둔다.

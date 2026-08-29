@@ -10,6 +10,10 @@ export interface Program {
   url: string; // 공고 상세/신청 페이지
   formUrl: string | null; // 사업계획서 양식 다운로드 (있으면)
   source: "kstartup" | "bizinfo" | "nipa" | "kocca" | "smtech" | "sample";
+  // 결제 가능 여부는 지원유형이 아니라 실제 제출서류 기준으로 판단한다.
+  applicationKind?: "business-plan" | "simple-application" | "reservation" | "unknown";
+  requiresBusinessPlan?: boolean | null;
+  applicationKindReason?: string;
 }
 
 // One recommended program with a plain-language explanation.
@@ -25,6 +29,8 @@ export interface Recommendation {
   // 아이템 적합성(2026-07-12) — 정렬 전용, 필터 금지. "low"는 하단 접힘(제외 아님)
   relevance?: "high" | "low";
   bizWhy?: string; // "내 사업과의 연관" 한 줄 — 근거를 못 만들면 생략(빈 값)
+  applicationKind?: "business-plan" | "simple-application" | "reservation" | "unknown";
+  requiresBusinessPlan?: boolean | null;
 }
 
 // What the LLM returns when ranking (merged back to Program by id).

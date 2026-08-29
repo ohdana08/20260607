@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect -- 부모의 비동기 진단 결과를 위저드 단계에 동기화합니다. */
 
 import { useEffect, useRef, useState } from "react";
 import type { Program, Recommendation } from "@/lib/match/types";
@@ -242,14 +243,15 @@ export default function DiagnosisWizard({
 
   // 결과 3분할(2026-07-12): 본 목록 / 연관 낮음(접힘, 제외 아님) / 교육·행사(접힘)
   function splitRecs(recs: Recommendation[]) {
-    const events = fType !== "멘토링·교육" ? recs.filter((r) => r.kind === "event") : [];
+    const events = recs.filter((r) => r.requiresBusinessPlan === false);
     const evIds = new Set(events.map((r) => r.program.id));
     const main = recs.filter((r) => !evIds.has(r.program.id) && r.relevance !== "low");
     const lows = recs.filter((r) => !evIds.has(r.program.id) && r.relevance === "low");
     return { main, lows, events };
   }
   const [payload, setPayload] = useState<WizPayload>(EMPTY_PAYLOAD);
-  const [note, setNote] = useState("");
+  // 추천에서 선택한 공식 공고 URL을 사용자가 다시 복사하지 않아도 분석 입력에 그대로 이월한다.
+  const [note, setNote] = useState(program?.url ?? "");
   const noticeInputRef = useRef<HTMLInputElement>(null);
   const formInputRef = useRef<HTMLInputElement>(null);
   const fileCount = payload.imgs.length + payload.pdfs.length + payload.docs.length;
@@ -899,19 +901,18 @@ export default function DiagnosisWizard({
                 );
               })()}
 
-              {/* 교육·행사형 분리(QA #2) — 하단 접힘 + '사업계획서 불필요' 라벨 + 유료 CTA 없음 */}
-              {fType !== "멘토링·교육" &&
-                (() => {
+              {/* 제출서류 기준 분리 — 사업계획서 불필요 공고에는 유료 CTA를 붙이지 않는다 */}
+              {(() => {
                   const events = splitRecs(findRes.recommendations).events;
                   if (events.length === 0) return null;
                   return (
                     <details className="rounded-2xl border border-zinc-200 bg-white p-5">
                       <summary className="cursor-pointer text-sm font-semibold text-zinc-600">
-                        🎓 교육·행사 공고 {events.length}건 보기
+                        🧾 간단 신청 공고 {events.length}건 보기
                       </summary>
                       <p className="mt-2 text-xs leading-5 text-zinc-500">
-                        아래 공고들은 사업계획서가 필요 없어요 — 신청서만 내면 됩니다. (초안 서비스
-                        대상이 아니라 결제 안내를 붙이지 않아요)
+                        아래 공고들은 사업계획서가 필요 없어요. 장비·공간 예약 또는 교육·행사 참가처럼
+                        원문에서 바로 신청하면 됩니다. 초안 서비스 결제 안내는 붙이지 않아요.
                       </p>
                       <div className="mt-3 space-y-2">
                         {events.map((r) => {
@@ -1040,7 +1041,7 @@ export default function DiagnosisWizard({
             onClick={() => noticeInputRef.current?.click()}
             className="mt-5 w-full rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/50 px-4 py-9 text-center text-[15px] text-zinc-600 transition-colors hover:bg-blue-50"
           >
-            📎 <b className="text-blue-700">파일 올리기</b> — 사진·PDF·워드·한글(hwpx) 모두 괜찮아요
+            📎 <b className="text-blue-700">파일 올리기</b> — 사진·PDF·워드·한글(.hwp/.hwpx) 모두 괜찮아요
           </button>
           {chips.length > 0 && (
             <div className="mt-2.5 flex flex-wrap gap-2">
@@ -1191,15 +1192,26 @@ export default function DiagnosisWizard({
           <EvidenceSheetCard
             sheet={evResult.sheet}
             analysis={analysis}
-            onPreview={() => {
-              track("draft_preview_click", { program: program?.title ?? "" });
-              setStep("handoff");
-            }}
+            draftStatus={
+              program?.requiresBusinessPlan === true
+                ? "ready"
+                : program?.requiresBusinessPlan === false
+                  ? "not-required"
+                  : "unconfirmed"
+            }
+            onPreview={
+              program?.requiresBusinessPlan === true
+                ? () => {
+                    track("draft_preview_click", { program: program?.title ?? "" });
+                    setStep("handoff");
+                  }
+                : undefined
+            }
           />
         ))}
 
       {/* ── 화면 7: 유료 전환 안내 — 무료가 끝났음을 선언 ───────── */}
-      {step === "handoff" && (
+      {step === "handoff" && program?.requiresBusinessPlan === true && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 text-center sm:p-10">
           <span className="inline-block rounded-full bg-emerald-100 px-4 py-1.5 text-sm font-bold text-emerald-800">
             ✓ 무료 진단 완료
@@ -1232,7 +1244,7 @@ export default function DiagnosisWizard({
       )}
 
       {/* ── 화면 8: 초안 목차 미리보기 → 결제(모달) ─────────────── */}
-      {step === "preview" && evResult?.kind === "sheet" && (
+      {step === "preview" && program?.requiresBusinessPlan === true && evResult?.kind === "sheet" && (
         <DraftPreviewCard
           sheet={evResult.sheet}
           onPay={onPay}

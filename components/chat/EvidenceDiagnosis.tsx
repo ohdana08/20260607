@@ -164,10 +164,12 @@ export function EvidenceSheetCard({
   sheet,
   onPreview,
   analysis,
+  draftStatus = "ready",
 }: {
   sheet: EvidenceSheet;
-  onPreview: () => void;
+  onPreview?: () => void;
   analysis?: { text: string; busy: boolean };
+  draftStatus?: "ready" | "not-required" | "unconfirmed";
 }) {
   return (
     <div className="mr-auto w-full max-w-[95%] rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
@@ -228,15 +230,25 @@ export function EvidenceSheetCard({
         <span className="shrink-0 text-xs font-bold text-emerald-700">여기까지는 무료 진단 결과입니다</span>
         <div className="h-px flex-1 border-t border-dashed border-emerald-300" />
       </div>
-      <button
-        onClick={onPreview}
-        className="mt-3 w-full rounded-xl bg-blue-600 py-3.5 text-base font-bold text-white transition-colors hover:bg-blue-700"
-      >
-        이 공고 기준 초안 목차 보기
-      </button>
-      <p className="mt-1.5 text-center text-xs text-zinc-500">
-        어떤 목차와 문장이 만들어지는지 결제 전에 먼저 확인할 수 있어요.
-      </p>
+      {draftStatus === "ready" && onPreview ? (
+        <>
+          <button
+            onClick={onPreview}
+            className="mt-3 w-full rounded-xl bg-blue-600 py-3.5 text-base font-bold text-white transition-colors hover:bg-blue-700"
+          >
+            이 공고 기준 초안 목차 보기
+          </button>
+          <p className="mt-1.5 text-center text-xs text-zinc-500">
+            어떤 목차와 문장이 만들어지는지 결제 전에 먼저 확인할 수 있어요.
+          </p>
+        </>
+      ) : (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+          {draftStatus === "not-required"
+            ? "이 공고는 사업계획서 유료 초안 대상이 아닙니다. 공고 원문에서 간단 신청을 진행해 주세요."
+            : "제출서류에서 사업계획서 필요 여부를 확인 중입니다. 확인되기 전에는 결제 안내를 띄우지 않습니다."}
+        </div>
+      )}
     </div>
   );
 }
