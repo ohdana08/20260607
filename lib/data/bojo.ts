@@ -10,6 +10,7 @@ const MAX_PAGES = 10;
 const FALLBACK_URL = "https://bojo.go.kr/da/getDA001200View.do";
 
 export interface BojoApiItem {
+  [key: string]: unknown;
   BSNSYEAR?: string;
   DTLBZ_ID?: string;
   DTLBZ_NM?: string;
@@ -63,8 +64,8 @@ interface BojoBody {
   items?: { item?: BojoApiItem | BojoApiItem[] } | BojoApiItem[];
 }
 
-function clean(value: string | undefined): string {
-  const decoded = (value ?? "")
+function clean(value: unknown): string {
+  const decoded = String(value ?? "")
     .replace(/<[^>]+>/g, " ")
     .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_, decimal: string) => String.fromCodePoint(Number(decimal)))
@@ -79,13 +80,30 @@ function clean(value: string | undefined): string {
     .trim();
 }
 
+function canonicalFieldName(value: string): string {
+  return value.replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+function read(item: BojoApiItem, ...keys: string[]): string | undefined {
+  const values = new Map<string, unknown>();
+  for (const [key, value] of Object.entries(item)) {
+    values.set(canonicalFieldName(key), value);
+  }
+  for (const key of keys) {
+    const value = values.get(canonicalFieldName(key));
+    if (value != null) return String(value);
+  }
+  return undefined;
+}
+
 function clip(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max)}…` : value;
 }
 
-function toIsoDate(value: string | undefined): string | null {
-  if (!value) return null;
-  const match = value.match(/(\d{4})[.\-/]?(\d{2})[.\-/]?(\d{2})/);
+function toIsoDate(value: unknown): string | null {
+  const text = clean(value);
+  if (!text) return null;
+  const match = text.match(/(\d{4})[.\-/]?(\d{2})[.\-/]?(\d{2})/);
   return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
 }
 
@@ -98,7 +116,7 @@ function stableHash(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
-function safeOfficialUrl(...values: Array<string | undefined>): string {
+function safeOfficialUrl(...values: unknown[]): string {
   for (const raw of values) {
     const value = clean(raw);
     if (!value) continue;
@@ -125,7 +143,9 @@ function safeOfficialUrl(...values: Array<string | undefined>): string {
 // 기업·사업자 타깃에 명백히 맞지 않는 기관전용 공모만 제외한다.
 // 표현이 애매한 경우는 원문 확인을 위해 남긴다.
 export function isPotentialBusinessAudience(item: BojoApiItem): boolean {
-  const target = clean(`${item.SPORT_TRGET_CN ?? ""} ${item.SPORT_CND_CN ?? ""}`);
+  const target = clean(
+    `${read(item, "SPORT_TRGET_CN") ?? ""} ${read(item, "SPORT_CND_CN") ?? ""}`,
+  );
   const business =
     /(중소기업|소상공인|창업기업|기업|법인|개인사업자|자영업|벤처|스타트업|사회적기업|협동조합|마을기업|농업경영체|영농조합)/.test(target);
   if (business) return true;
@@ -143,21 +163,21 @@ function itemArray(body: BojoBody | undefined): BojoApiItem[] {
 }
 
 export function normalizeBojoItem(item: BojoApiItem): Program | null {
-  const title = clean(item.PBLANC_NM);
+  const title = clean(read(item, "PBLANC_NM"));
   if (!title || !isPotentialBusinessAudience(item)) return null;
 
-  const applyEnd = toIsoDate(item.RCEPT_END_DE || item.PBLANC_END_DE);
-  const period = clean(item.RCEPT_PD_DC);
+  const applyEnd = toIsoDate(read(item, "RCEPT_END_DE", "PBLANC_END_DE"));
+  const period = clean(read(item, "RCEPT_PD_DC"));
   // 종료일도 없고 '상시'라는 표시도 없는 항목은 열린 공고로 간주하지 않는다.
   if (!applyEnd && !/상시|예산\s*소진\s*시/.test(period)) return null;
 
   const summary = clip(
     clean(
-      item.DDTLBZ_BSNS_PURPS_DC ||
-        item.DTLBZ_BSNS_PURPS_DC ||
-        item.SPORT_CN_DC ||
-        item.DDTLBZ_BSNS_SCALE_DC ||
-        item.DTLBZ_BSNS_SCALE_DC ||
+      read(item, "DDTLBZ_BSNS_PURPS_DC") ||
+        read(item, "DTLBZ_BSNS_PURPS_DC") ||
+        read(item, "SPORT_CN_DC") ||
+        read(item, "DDTLBZ_BSNS_SCALE_DC") ||
+        read(item, "DTLBZ_BSNS_SCALE_DC") ||
         title,
     ),
     300,
@@ -165,9 +185,9 @@ export function normalizeBojoItem(item: BojoApiItem): Program | null {
   const target = clip(
     clean(
       [
-        item.SPORT_TRGET_CN || "지원대상 정보 없음",
-        item.SPORT_CND_CN,
-        item.EXCL_TRGET_CN ? `제외대상: ${item.EXCL_TRGET_CN}` : "",
+        read(item, "SPORT_TRGET_CN") || "지원대상 정보 없음",
+        read(item, "SPORT_CND_CN"),
+        read(item, "EXCL_TRGET_CN") ? `제외대상: ${read(item, "EXCL_TRGET_CN")}` : "",
       ]
         .filter(Boolean)
         .join(" / "),
@@ -175,36 +195,46 @@ export function normalizeBojoItem(item: BojoApiItem): Program | null {
     360,
   );
   const region = clip(
-    clean([item.CTPRVN_NM, item.SIGNGU_NM].filter(Boolean).join(" ")) || "전국",
+    clean([read(item, "CTPRVN_NM"), read(item, "SIGNGU_NM")].filter(Boolean).join(" ")) ||
+      "전국",
     80,
   );
   const supportField = clip(
     clean(
-      [item.CMMN_ATRB_NM, item.CL_STDR_DC, item.JRSD_NM, item.DLVPL_NM]
+      [
+        read(item, "CMMN_ATRB_NM"),
+        read(item, "CL_STDR_DC"),
+        read(item, "JRSD_NM"),
+        read(item, "DLVPL_NM"),
+      ]
         .filter(Boolean)
         .join(" / "),
     ) || "국고보조금 공모",
     140,
   );
   const externalKey = [
-    item.DTLBZ_DDTLBZ_ID,
-    item.DDTLBZ_ID,
-    item.DTLBZ_ID,
-    item.PBLANC_BEGIN_DE,
+    read(item, "DTLBZ_DDTLBZ_ID"),
+    read(item, "DDTLBZ_ID"),
+    read(item, "DTLBZ_ID"),
+    read(item, "PBLANC_BEGIN_DE"),
     title,
   ]
     .filter(Boolean)
     .join(":");
 
   return {
-    id: `bojo:${item.DDTLBZ_ID || item.DTLBZ_ID || "notice"}:${stableHash(externalKey)}`,
+    id: `bojo:${read(item, "DDTLBZ_ID", "DTLBZ_ID") || "notice"}:${stableHash(externalKey)}`,
     title,
     summary,
     target,
     supportField,
     region,
     applyEnd,
-    url: safeOfficialUrl(item.PBLANC_POPUP_URL, item.BSNS_GUIDANCE_URL, item.BSNS_POPUP_URL),
+    url: safeOfficialUrl(
+      read(item, "PBLANC_POPUP_URL"),
+      read(item, "BSNS_GUIDANCE_URL"),
+      read(item, "BSNS_POPUP_URL"),
+    ),
     formUrl: null,
     source: "bojo",
   };

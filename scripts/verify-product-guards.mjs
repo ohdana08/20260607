@@ -102,6 +102,15 @@ assert.equal(
   "abc+def/ghi=",
   "공공데이터포털 Encoding 키는 URL에 한 번만 인코딩되도록 정규화해야 함",
 );
+const bojoCamelCase = normalizeBojoItem({
+  pblancNm: "2026년 AI 소상공인 지원",
+  sportTrgetCn: "소상공인 및 개인사업자",
+  rceptEndDe: "20261231",
+  dtlbzBsnsPurpsDc: "AI 전환과 판로 개척 지원",
+  pblancPopupUrl: "https://www.bojo.go.kr/example-camel",
+});
+assert.equal(bojoCamelCase?.title, "2026년 AI 소상공인 지원");
+assert.equal(bojoCamelCase?.applyEnd, "2026-12-31");
 assert.equal(
   normalizeBojoItem({
     PBLANC_NM: "공공기관 전용 연구사업",
