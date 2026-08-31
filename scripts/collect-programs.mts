@@ -1,5 +1,5 @@
-// 6소스 배치 수집기 — GitHub Actions와 Vercel Cron이 주기 실행한다.
-// 라이브 API 호출(요청마다) 대신 이 스크립트가 K-Startup·기업마당·e나라도움·NIPA·KOCCA·SMTECH를
+// 7소스 배치 수집기 — GitHub Actions와 Vercel Cron이 주기 실행한다.
+// 라이브 API 호출(요청마다) 대신 이 스크립트가 K-Startup·기업마당·e나라도움·NIPA·KOCCA·SMTECH·경기기업비서를
 // 모아 Supabase programs 테이블에 upsert하고, 신규/마감변경/종료(diff)를 로그로 남긴다.
 //
 // 실행: npx tsx scripts/collect-programs.mts

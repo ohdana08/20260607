@@ -5,6 +5,7 @@ import { fetchBojoOpen } from "./bojo";
 import { fetchNipaOpen } from "./nipa";
 import { fetchKoccaOpen } from "./kocca";
 import { fetchSmtechOpen } from "./smtech";
+import { fetchEgbizOpen } from "./egbiz";
 import { isStillOpen } from "./openFilter";
 
 // 배치 수집기(scripts/collect-programs.mts)가 쓰는 소스 목록·페처 레지스트리.
@@ -17,6 +18,7 @@ export const COLLECTABLE_SOURCES = [
   "nipa",
   "kocca",
   "smtech",
+  "egbiz",
 ] as const;
 export type CollectableSource = (typeof COLLECTABLE_SOURCES)[number];
 
@@ -27,6 +29,7 @@ const FETCHERS: Record<CollectableSource, () => Promise<Program[]>> = {
   nipa: fetchNipaOpen,
   kocca: fetchKoccaOpen,
   smtech: fetchSmtechOpen,
+  egbiz: fetchEgbizOpen,
 };
 
 // 소스 하나를 수집 + 마감 지난 건 제거(KST 기준, K-Startup/기업마당과 동일 원칙).

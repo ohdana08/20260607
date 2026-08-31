@@ -13,7 +13,7 @@
 //   2) 특정 지역 조합에서 그 지역 소재 공고 ≥ 1건 (풀 기준 — 노출 0건이면 실패)
 //   3) EXPECTED 목록(원천 사이트에서 눈으로 확인한 공고)이 모집 기간 중이면 반드시 노출
 //      → "원천 사이트 대비 명백 누락 0건" 기준. 목록은 수동 검수로 늘려간다.
-//   4) (2026-07-14 5소스 확장) poolStats.bySource에 nipa·kocca·smtech도 존재.
+//   4) 확장 소스 poolStats.bySource에 nipa·kocca·smtech·egbiz도 존재.
 //      ⚠️ 이 체크는 (a) supabase/04-programs.sql 실행 (b) scripts/collect-programs.mts를
 //      최소 1회 성공 실행(KOCCA_KEY 발급 포함) (c) 배포 반영까지 끝나야 통과한다 —
 //      그 전까지는 실패가 정상이다(아직 배치가 안 돌았을 뿐, 코드 결함이 아님).
@@ -76,8 +76,8 @@ for (const region of REGIONS) {
     check("추천 > 0건", recs.length > 0, `${recs.length}건 (지역·업력 통과 ${d.total}건)`);
     check("풀에 kstartup·bizinfo 둘 다 존재", (stats.bySource?.kstartup ?? 0) > 0 && (stats.bySource?.bizinfo ?? 0) > 0, JSON.stringify(stats.bySource));
     check(
-      "풀에 nipa·kocca·smtech 전부 존재 (배치 실행 후에만 통과 — 위 4번 참고)",
-      ["nipa", "kocca", "smtech"].every((s) => (stats.bySource?.[s] ?? 0) > 0),
+      "풀에 nipa·kocca·smtech·egbiz 전부 존재 (배치 실행 후에만 통과 — 위 4번 참고)",
+      ["nipa", "kocca", "smtech", "egbiz"].every((s) => (stats.bySource?.[s] ?? 0) > 0),
       JSON.stringify(stats.bySource),
     );
     if (!region.includes("전국")) {

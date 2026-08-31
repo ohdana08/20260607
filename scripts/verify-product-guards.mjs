@@ -9,6 +9,9 @@ const { isStillOpen, kstToday } = await import("../lib/data/openFilter.ts");
 const { firstTrustedProgramUrl } = await import("../lib/data/trustedProgramUrl.ts");
 const { buildPlanDocxBuffer } = await import("../lib/plan/docx.ts");
 const { normalizeBojoItem, normalizeDataGoKrServiceKey } = await import("../lib/data/bojo.ts");
+const { parseEgbizPage, egbizFinalPage } = await import("../lib/data/egbiz.ts");
+const { dedupePrograms } = await import("../lib/data/dedupePrograms.ts");
+const { REGIONAL_SOURCE_POLICIES, regionalPeriodEnd } = await import("../lib/data/regional.ts");
 const { buildPublicEvidencePrompt, rankPublicEvidenceItems } = await import(
   "../lib/data/publicEvidence.ts"
 );
@@ -128,6 +131,62 @@ assert.equal(
   null,
   "명백한 기관전용 공고는 기업 추천 풀에 넣지 않아야 함",
 );
+
+const egbizHtml = `
+  <div>경기도 지원사업 <span class="num">21</span> 건</div>
+  <table><tbody>
+    <tr>
+      <td>1</td>
+      <td><a onclick="javascript:fn_supportPrjDtl('PD-1');">[경기] AI 스타트업 사업화 지원 참여기업 모집</a></td>
+      <td>경기도경제과학진흥원</td>
+      <td>2026-08-01 - 2026-09-30</td>
+      <td><span class="state">접수중</span></td>
+      <td>10</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><a onclick="javascript:fn_supportPrjDtl('PD-2');">글로벌 전시 운영 대행사 모집</a></td>
+      <td>경기도경제과학진흥원</td>
+      <td>2026-08-01 - 2026-09-30</td>
+      <td><span class="state">접수중</span></td>
+      <td>3</td>
+    </tr>
+  </tbody></table>
+  <a onclick="fn_opMovePage1(3)">3</a>
+  <div>타기관 지원사업 <span class="num">100</span> 건</div>
+  <table><tr><td>1</td><td><a onclick="javascript:fn_supportPrjDtl('EXT-1');">기업마당 복제 공고</a></td><td>기업마당</td><td>2026-08-01 - 2026-09-30</td><td>접수중</td></tr></table>
+`;
+const egbizPrograms = parseEgbizPage(egbizHtml);
+assert.equal(egbizPrograms.length, 1, "경기도 자체 공고만 남기고 대행사·타기관 복제 공고는 제외해야 함");
+assert.equal(egbizPrograms[0].source, "egbiz");
+assert.equal(egbizPrograms[0].region, "경기");
+assert.equal(egbizPrograms[0].applyEnd, "2026-09-30");
+assert.equal(egbizFinalPage(egbizHtml), 3);
+assert.equal(regionalPeriodEnd("26-08-20~26-09-01"), "2026-09-01");
+assert.equal(regionalPeriodEnd("예산 소진시까지"), null);
+
+const duplicateRegional = program("[경기] AI 스타트업 사업화 지원 참여기업 모집", {
+  id: "egbiz:PD-1",
+  source: "egbiz",
+  region: "경기",
+  applyEnd: "2026-09-30",
+  url: "https://www.egbiz.or.kr/sp/supportPrjOutsideDtl.do?bizCyclId=PD-1",
+});
+const duplicateCentral = program("AI 스타트업 사업화 지원 참여기업 모집", {
+  id: "bizinfo:1",
+  source: "bizinfo",
+  region: "경기",
+  applyEnd: "2026-09-30",
+});
+assert.deepEqual(dedupePrograms([duplicateCentral, duplicateRegional]).map((item) => item.id), [
+  "egbiz:PD-1",
+]);
+assert.equal(REGIONAL_SOURCE_POLICIES.find((item) => item.id === "egbiz")?.status, "active");
+assert.equal(
+  REGIONAL_SOURCE_POLICIES.find((item) => item.id === "busanstartup")?.status,
+  "permission-required",
+);
+assert.equal(REGIONAL_SOURCE_POLICIES.find((item) => item.id === "bizok")?.status, "permission-required");
 const aiEvidence = rankPublicEvidenceItems("AI 공공데이터 기반 관광 서비스", "step6", 3);
 assert.ok(aiEvidence.some((item) => item.id === "public-data-portal"));
 assert.ok(aiEvidence.some((item) => item.id === "kogl-ai"));
@@ -181,6 +240,8 @@ assert.match(evidencePanelSource, /\[확인 필요\]/);
 assert.match(collectorWorkflow, /node-version: "22"/);
 assert.match(collectorWorkflow, /BOJO_SERVICE_KEY/);
 assert.match(collectorRegistry, /"bojo"/);
+assert.match(collectorRegistry, /"egbiz"/);
+assert.doesNotMatch(collectorRegistry, /"busanstartup"|"bizok"/);
 assert.doesNotMatch(
   collectorRegistry,
   /"ntis"/,
@@ -190,5 +251,5 @@ assert.match(programStore, /programs\.length === 0/);
 assert.match(programStore, /기존 공고를 보존합니다/);
 
 console.log(
-  "✅ 진입·제출유형·마감·e나라도움·NTIS 안전경계·6단계 공식근거·DOCX 회귀 테스트 통과",
+  "✅ 진입·제출유형·마감·e나라도움·경기 지역공고·지역포털 약관경계·중복제거·NTIS 안전경계·6단계 공식근거·DOCX 회귀 테스트 통과",
 );
