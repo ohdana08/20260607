@@ -249,6 +249,8 @@ assert.doesNotMatch(
 );
 assert.match(programStore, /programs\.length === 0/);
 assert.match(programStore, /기존 공고를 보존합니다/);
+assert.match(programStore, /NON_EXHAUSTIVE_SOURCES/);
+assert.match(programStore, /부분 수집 소스라/);
 
 console.log(
   "✅ 진입·제출유형·마감·e나라도움·경기 지역공고·지역포털 약관경계·중복제거·NTIS 안전경계·6단계 공식근거·DOCX 회귀 테스트 통과",

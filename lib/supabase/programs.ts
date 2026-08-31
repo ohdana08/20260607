@@ -63,6 +63,11 @@ export interface DiffSummary {
 
 const CHUNK = 500;
 
+// e나라도움 API는 연도 조건을 줘도 한 해 전체 상세사업을 10만 건 이상 반환할 수 있다.
+// 현재 수집기는 호출 시간·일일 한도를 지키기 위해 일부 페이지만 읽으므로, 이번 실행에
+// 보이지 않았다는 이유만으로 기존 공고를 종료하면 안 된다. 수집 범위가 완전해진 뒤 제거한다.
+const NON_EXHAUSTIVE_SOURCES = new Set<Program["source"]>(["bojo"]);
+
 // 소스 하나를 upsert하고 diff(신규/마감변경/종료)를 계산한다.
 // mark-and-sweep: 이번 배치의 last_seen_at(runAt)보다 과거인, 아직 안 닫힌 같은 소스 행은
 // "이번엔 안 보였다"는 뜻이므로 closed_at을 채운다 — 대상 건수와 무관하게 IN절 없이 처리된다.
@@ -97,14 +102,21 @@ export async function upsertAndDiff(
     if (error) throw error;
   }
 
-  // 이번 배치에서 안 보인 건(같은 소스, 아직 안 닫힘, last_seen_at이 이번 배치보다 과거) → 종료 처리
-  const { error: closeErr } = await db
-    .from("programs")
-    .update({ closed_at: runIso })
-    .eq("source", source)
-    .is("closed_at", null)
-    .lt("last_seen_at", runIso);
-  if (closeErr) throw closeErr;
+  // 이번 배치에서 안 보인 건(같은 소스, 아직 안 닫힘, last_seen_at이 이번 배치보다 과거) → 종료 처리.
+  // 단, 전체 목록을 읽지 못하는 소스는 누락과 종료를 구분할 수 없으므로 기존 행을 보존한다.
+  if (NON_EXHAUSTIVE_SOURCES.has(source)) {
+    console.warn(
+      `[programs] ${source}: 부분 수집 소스라 이번 실행에서 보이지 않은 기존 공고를 종료 처리하지 않습니다.`,
+    );
+  } else {
+    const { error: closeErr } = await db
+      .from("programs")
+      .update({ closed_at: runIso })
+      .eq("source", source)
+      .is("closed_at", null)
+      .lt("last_seen_at", runIso);
+    if (closeErr) throw closeErr;
+  }
 
   let newCount = 0;
   let deadlineChanged = 0;
@@ -113,7 +125,9 @@ export async function upsertAndDiff(
     if (!beforeMap.has(r.id)) newCount++;
     else if ((beforeMap.get(r.id) ?? null) !== (r.apply_end ?? null)) deadlineChanged++;
   }
-  const closed = [...beforeMap.keys()].filter((id) => !seenIds.has(id)).length;
+  const closed = NON_EXHAUSTIVE_SOURCES.has(source)
+    ? 0
+    : [...beforeMap.keys()].filter((id) => !seenIds.has(id)).length;
 
   return { source, seen: rows.length, new: newCount, closed, deadlineChanged };
 }
