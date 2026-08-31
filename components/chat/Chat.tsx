@@ -40,6 +40,13 @@ import {
   type EvidenceRow,
   type EvidenceSheet,
 } from "@/lib/diagnosis/evidence";
+import { LOCAL_REVIEW_EVIDENCE_ROWS } from "@/lib/diagnosis/localReviewEvidence";
+import {
+  plainCheckReason,
+  plainEligibilityLabel,
+  plainProgramExplanation,
+  plainSupportOption,
+} from "@/lib/plain-language";
 
 type Role = "user" | "assistant";
 interface ChatImage {
@@ -252,11 +259,11 @@ const READY_MARK = "[추천준비완료]"; // 인테이크 완료 신호(사용�
 const PRICE = PRICE_LABEL; // 판매가 표기 — 원본은 lib/config.ts (2026-07-11 그로블 신상품 가격)
 // 합격 가능성 진단 안내 (2026-07-10 확정 설계 — 버튼 2화면, 타이핑 불필요)
 const DIAGNOSE_INTRO =
-  "좋아요! 사업계획서를 쓰기 전에, **지금 가진 실적이 어떤 합격 근거가 되는지** 1분 만에 확인해볼게요. 📋\n\n사람을 분석하는 게 아니라 **사업을 분석**하는 진단이에요. 아래에서 골라주시기만 하면 돼요 — 타이핑은 필요 없어요!";
+  "좋아요! 긴 문서를 쓰기 전에, **지금까지 해낸 일과 더 준비할 내용**을 1분 만에 확인해볼게요. 📋\n\n사람을 평가하는 게 아니라 **신청 준비 상태를 확인**하는 과정이에요. 아래에서 골라주시기만 하면 돼요 — 타이핑은 필요 없어요!";
 // 후기 수집 팝업의 태그 선택지 (업무지시서 4-2)
 const REVIEW_TAGS = [
   "막막했는데 구조가 잡혔다",
-  "심사위원 관점으로 위험한 표현을 잡아줬다",
+    "담당자가 헷갈릴 표현을 잡아줬다",
   "혼자선 못 쓸 부분을 채워줬다",
   "빠르게 초안이 나왔다",
   "어떤 사업에 맞는지 알려줬다",
@@ -329,7 +336,7 @@ export default function Chat() {
   // 유료 전환 파이프(2026-07-09): 로그인 세션 + 결제 확인(is_paid) 상태.
   // ⚠️ 토큰은 컨텍스트 값을 저장해 쓰지 말 것 — 만료 버그(§11) 재발.
   //    모든 인증 요청은 authedHeaders()로 요청 직전에 신선한 토큰을 받는다.
-  const { session, paid, setPaid, email, signOut } = useAuth();
+  const { session, paid, localReview, setPaid, email, signOut } = useAuth();
   const [payOpen, setPayOpen] = useState(false); // 상단 [결제 확인] 메뉴로 여는 모달
   const [paymentAfterAuth, setPaymentAfterAuth] = useState(false); // 로그인 후 주문번호 입력창 재오픈
   const [returningFromPayment, setReturningFromPayment] = useState(false);
@@ -496,7 +503,7 @@ export default function Chat() {
           popover: {
             title: "환영해요! 👋",
             description:
-              "대화만 하면, 나에게 맞는 정부지원사업을 찾아주고 사업계획서까지 써드려요. 어려운 용어는 몰라도 괜찮아요!",
+              "사업 얘기부터 시작하면 지금 신청할 수 있는 지원을 찾고, 필요한 경우 공식 양식 워드 초안까지 이어져요. 어려운 용어는 몰라도 괜찮아요!",
           },
         },
         {
@@ -525,7 +532,7 @@ export default function Chat() {
           popover: {
             title: "3단계면 끝나요 📋",
             description:
-              "①내 아이템·나이·지역에 맞는 정부지원사업 찾기 → ②합격하려면 뭐가 부족한지 진단 → ③빈칸 채우면 사업계획서 완성!",
+              "①지금 하는 일과 지역에 맞는 지원 찾기 → ②내가 신청해도 되는지 확인 → ③필요할 때만 사업계획서 완성!",
           },
         },
         {
@@ -1503,7 +1510,7 @@ export default function Chat() {
   function makeCustomProgram() {
     const custom: Program = {
       id: `custom:${genId()}`,
-      title: "직접 올린 공고문·양식",
+      title: "직접 올린 안내문·작성 파일",
       summary: "",
       target: "",
       supportField: "",
@@ -1539,7 +1546,7 @@ export default function Chat() {
 
   // 추천을 거치지 않고, 사용자가 가진 공고문/양식으로 바로 시작 → 위저드 '공고 입력'부터
   function startDirect() {
-    track("plan_writing_started", { program: "직접 올린 공고문·양식" });
+    track("plan_writing_started", { program: "직접 올린 안내문·작성 파일" });
     makeCustomProgram();
     setWizardStart("notice");
   }
@@ -1580,7 +1587,12 @@ export default function Chat() {
       if (!res.ok || !Array.isArray(d?.rows)) throw new Error("map load failed");
       setEvMap(d.rows as EvidenceRow[]);
     } catch {
-      setEvMapError(true);
+      if (localReview) {
+        setEvMap(LOCAL_REVIEW_EVIDENCE_ROWS);
+        setEvMapError(false);
+      } else {
+        setEvMapError(true);
+      }
     }
   }
 
@@ -1600,8 +1612,8 @@ export default function Chat() {
     if (toc.length >= 3) setFormToc(toc);
 
     const base =
-      "첨부한 공고문과 양식을 읽고 알려주세요: ① 이 공고가 무엇을 중요하게 평가하는지 ② 제 사업과 맞는지·자격(업력·지역·나이)이 되는지 ③ 어떤 항목을 써야 하는지. 간결하게 핵심만 부탁해요.";
-    const content = note.trim() ? `[공고 링크/설명] ${note.trim()}\n\n${base}` : base;
+      "올린 안내문과 작성할 파일을 읽고 알려주세요: ① 무엇을 도와주는지 ② 지금 정보로 내가 신청해도 되는지 ③ 어떤 내용을 준비해야 하는지. 어려운 말은 일상적인 말로 바꿔서 짧게 알려주세요.";
+    const content = note.trim() ? `[안내문 링크/설명] ${note.trim()}\n\n${base}` : base;
     const userMsg: Msg = {
       role: "user",
       content,
@@ -1610,6 +1622,14 @@ export default function Chat() {
       ...(payload.docs.length > 0 ? { docs: payload.docs } : {}),
     };
     const history = [...messages, userMsg];
+    if (localReview) {
+      const reviewText = selectedProgram
+        ? `${plainProgramExplanation(selectedProgram)}\n\n로컬 검사에서는 외부 AI를 호출하지 않습니다. 실제 서비스에서는 안내문을 읽고 내가 신청해도 되는지와 준비할 내용을 쉬운 말로 정리합니다.`
+        : "로컬 검사에서는 외부 AI를 호출하지 않습니다. 실제 서비스에서는 안내문을 쉬운 말로 정리합니다.";
+      setMessages([...history, { role: "assistant", content: reviewText }]);
+      setWizAnalysis({ text: reviewText, busy: false });
+      return;
+    }
     setMessages([...history, { role: "assistant", content: "" }]);
     setWizAnalysis({ text: "", busy: true });
     try {
@@ -1619,7 +1639,7 @@ export default function Chat() {
         body: JSON.stringify({ messages: foldDocs(history), program: selectedProgram, provider }),
       });
       if (!res.ok || !res.body) {
-        const fail = "공고 분석에 실패했어요. 진단 결과는 그대로 확인할 수 있고, 결제 전 대화에서 다시 올려주시면 돼요.";
+        const fail = "안내문을 읽지 못했어요. 준비 상태는 그대로 확인할 수 있고, 결제 전 대화에서 다시 올려주시면 돼요.";
         replaceLast(fail);
         setWizAnalysis({ text: "", busy: false });
         return;
@@ -1639,7 +1659,7 @@ export default function Chat() {
       if (clean !== acc) replaceLast(clean);
       setWizAnalysis({ text: clean, busy: false });
     } catch {
-      replaceLast("공고 분석 중 연결이 끊겼어요.");
+      replaceLast("안내문을 읽는 중 연결이 끊겼어요.");
       setWizAnalysis((prev) => ({ ...prev, busy: false }));
     }
   }
@@ -1656,7 +1676,7 @@ export default function Chat() {
   // 화면 2 제출 → 로그인 게이트 B안: 결과 보기 직전이 게이트 지점.
   // 미로그인이면 답변을 보관하고 로그인 모달 → 성공 시 doSubmitEvidence 로 이어간다.
   function submitEvidence(revenue: string, items: string[]) {
-    if (!session) {
+    if (!session && !localReview) {
       setPendingEvidence({ revenue, items });
       setAuthOpen(true);
       return;
@@ -1671,7 +1691,7 @@ export default function Chat() {
     // 진단 답변을 대화 기록에 남긴다 — 결제 후 사업계획서 작성이 이 정보를 이어받는다
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: `[합격 가능성 진단] 월 평균 매출: ${revenue} / 확보 실적: ${items.join(", ")}` },
+      { role: "user", content: `[신청 준비 확인] 한 달 평균 판매 금액: ${revenue} / 지금까지 해낸 일: ${items.join(", ")}` },
     ]);
     track("evidence_check", {
       items: items.join(","),
@@ -1726,8 +1746,8 @@ export default function Chat() {
     if (!selectedProgram || selectedProgram.requiresBusinessPlan !== true) {
       alert(
         selectedProgram?.requiresBusinessPlan === false
-          ? "이 공고는 사업계획서 초안 결제 대상이 아닙니다. 공고 원문에서 간단 신청을 진행해 주세요."
-          : "사업계획서가 실제 제출서류인지 무료 공고 분석에서 먼저 확인해 주세요.",
+          ? "이 지원은 긴 사업계획서가 필요하지 않아요. 공식 안내문에서 바로 신청해 주세요."
+          : "긴 사업계획서가 필요한 지원인지 무료 확인부터 해주세요.",
       );
       return;
     }
@@ -1791,7 +1811,7 @@ export default function Chat() {
     const instruction: Msg = {
       role: "user",
       content:
-        "(시작 신호) 결제가 확인되었습니다. 지금까지 올린 공고문·양식과 제 답변을 바탕으로 시작해 주세요. 신청 자격 요건이 있다면 이미 아는 정보로 먼저 판정하거나 자격 확인 질문부터 하고, 그다음 첫 질문을 하나만 해주세요. 더 물어볼 것이 없다면 '사업계획서 초안 만들기' 버튼을 누르라고 안내해 주세요.",
+        "(시작 신호) 결제가 확인되었습니다. 지금까지 올린 안내문·작성 파일과 제 답변을 바탕으로 시작해 주세요. 신청 조건이 있다면 이미 아는 정보로 먼저 확인하거나 필요한 질문부터 하고, 그다음 첫 질문을 하나만 해주세요. 더 물어볼 것이 없다면 '사업계획서 초안 만들기' 버튼을 누르라고 안내해 주세요.",
     };
     const history = [...baseHistory, instruction];
     setBusy(true);
@@ -2130,9 +2150,9 @@ export default function Chat() {
               )}
             </button>
             <div className="min-w-0">
-              <h1 className="text-base font-semibold leading-tight">정부지원사업 사업계획서 도우미</h1>
+              <h1 className="text-base font-semibold leading-tight">딱, 지원핏</h1>
               <p className="mt-0.5 text-xs text-zinc-500">
-                편하게 대화하듯 답해 주세요. 나에게 맞는 지원사업을 찾아 드릴게요.
+                사업 얘기만 해주세요. 어려운 말은 딱지원핏이 바꿔드릴게요.
               </p>
             </div>
           </div>
@@ -2149,7 +2169,11 @@ export default function Chat() {
             >
               💳 결제 확인{paid ? " ✓" : ""}
             </button>
-            {session ? (
+            {localReview ? (
+              <span className="rounded-lg bg-amber-50 px-2 py-1.5 text-xs font-semibold text-amber-700">
+                로컬 검사
+              </span>
+            ) : session ? (
               <button
                 onClick={() => void signOut()}
                 title={email ? `${email} 로그아웃` : "로그아웃"}
@@ -2160,7 +2184,7 @@ export default function Chat() {
             ) : (
               <button
                 onClick={() => setAuthOpen(true)}
-                title="로그인하면 진단 기록과 결제 확인이 계정에 연결돼요"
+                title="로그인하면 확인 결과와 결제 내역이 계정에 연결돼요"
                 className="flex h-8 items-center rounded-lg px-2 text-xs font-semibold text-blue-600 hover:bg-blue-50"
               >
                 로그인
@@ -2179,30 +2203,36 @@ export default function Chat() {
         </div>
       </header>
 
+      {localReview && (
+        <div className="border-b border-amber-200 bg-amber-50 px-5 py-2 text-center text-xs font-semibold text-amber-800">
+          배포 전 로컬 검사 화면 · 로그인·결제·외부 AI 호출 없이 사용자 흐름만 확인합니다
+        </div>
+      )}
+
       {/* 선택한 공고 고정 배너(2026-07-12) — 화면 이동·뒤로가기에도 유지, 언제든 진단 복귀 */}
       {selectedProgram && wizardStart !== "notice" && mode !== "plan" && mode !== "paywall" && (
         <div className="flex items-center gap-2 border-b border-blue-100 bg-blue-50 px-5 py-2 text-xs text-blue-900">
           <span className="min-w-0 flex-1 truncate">
-            📌 선택한 공고: <b>{selectedProgram.title}</b>
+            📌 선택한 지원: <b>{selectedProgram.title}</b>
           </span>
           <button
             onClick={() => setWizardStart("notice")}
             className="shrink-0 rounded-lg bg-blue-600 px-2.5 py-1.5 font-semibold text-white hover:bg-blue-700"
           >
-            이 공고 진단 이어가기 →
+            내가 신청해도 되는지 확인하기 →
           </button>
         </div>
       )}
       {mode === "diagnose" && !wizardActive && (
         <div className="border-b border-emerald-100 bg-emerald-50 px-5 py-2.5 text-xs font-semibold text-emerald-800">
-          📋 합격 가능성 진단 · <span className="text-emerald-900">{selectedProgram?.title}</span> — 이미
-          가진 실적을 합격 근거로 정리해드려요 (결제 전, 무료)
+          📋 신청 준비 확인 · <span className="text-emerald-900">{selectedProgram?.title}</span> — 지금까지
+          해낸 일과 더 준비할 내용을 쉬운 말로 정리해드려요 (결제 전, 무료)
         </div>
       )}
       {mode === "plan" && (
         <div className="border-b border-blue-100 bg-blue-50 px-5 py-2.5 text-xs font-semibold text-blue-800">
-          ✅ 이용권 확인 완료 · <span className="text-blue-900">{selectedProgram?.title}</span> 사업계획서
-          작성 중 — 아래 질문에 답해 주세요 ↓
+          ✅ 이용권 확인 완료 · <span className="text-blue-900">{selectedProgram?.title}</span> 문서 작성 중 —
+          대표님 사업 얘기만 편하게 들려주세요 ↓
         </div>
       )}
 
@@ -2408,7 +2438,7 @@ export default function Chat() {
               )}
               {calItems.length === 0 && (
                 <p className="px-1 py-4 text-xs leading-5 text-zinc-400">
-                  아직 본 공고가 없어요. 추천에서 <b>「공고 원문 보기」</b>를 누르면 여기 자동으로 모여요!
+                  아직 살펴본 지원이 없어요. 추천에서 <b>「공식 안내문 보기」</b>를 누르면 여기 자동으로 모여요!
                 </p>
               )}
               {calItems.map((s) => {
@@ -2440,7 +2470,7 @@ export default function Chat() {
                         rel="noopener noreferrer"
                         className="mt-1 inline-block text-[11px] text-blue-600 hover:underline"
                       >
-                        공고 원문 ↗
+                        공식 안내문 ↗
                       </a>
                     )}
                   </div>
@@ -2533,9 +2563,9 @@ export default function Chat() {
               <div className="h-px flex-1 bg-blue-200" />
               <span className="shrink-0 rounded-full bg-blue-600 px-3 py-1 text-[11px] font-bold text-white">
                 {mode === "fitcheck"
-                  ? "🔎 여기서부터 적합도 확인 (무료)"
+                  ? "🔎 여기서부터 내가 신청해도 되는지 확인 (무료)"
                   : mode === "diagnose"
-                    ? "🩺 여기서부터 7단계 자가진단 (무료)"
+                    ? "🩺 여기서부터 지금 준비된 것 확인 (무료)"
                     : "✍️ 여기서부터 사업계획서 작성"}
               </span>
               <div className="h-px flex-1 bg-blue-200" />
@@ -2624,7 +2654,7 @@ export default function Chat() {
           {mode === "intake" && !lead && !nudgeDismissed && calItems.length > 0 && (
             <div className="mx-4 mt-2 flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
               <span className="flex-1">
-                📅 방금 본 공고 <b>{calItems.length}개</b>를 캘린더에 모았어요! 마감 놓치지 않게 저장할까요?
+                📅 방금 본 지원 <b>{calItems.length}개</b>를 한곳에 모았어요! 마감을 놓치지 않게 저장할까요?
               </span>
               <button
                 onClick={() => setSignupOpen(true)}
@@ -2650,11 +2680,11 @@ export default function Chat() {
               >
                 {readyToRecommend
                   ? "✨ 이 내용으로 지원사업 추천받기"
-                  : "✨ 추천받기 — 몇 가지만 더 답해 주세요"}
+                  : "✨ 지원 찾기 — 몇 가지만 더 답해 주세요"}
               </button>
               {!readyToRecommend && (
                 <p className="mt-1.5 text-center text-[11px] text-zinc-400">
-                  나에게 안 맞는 사업이 추천되지 않도록, 위 질문(지역·업력·나이 등)에 답해 주세요.
+                  나에게 안 맞는 지원이 나오지 않도록, 사업을 시작한 시기와 지역 같은 질문에 답해 주세요.
                 </p>
               )}
             </div>
@@ -2668,15 +2698,15 @@ export default function Chat() {
                 <ol className="mt-1.5 space-y-1 text-[11px] leading-4 text-zinc-600">
                   <li className="flex gap-1.5">
                     <span className="font-bold text-blue-600">1.</span>
-                    <span>내 <b>아이템·나이·지역</b>에 맞는 정부지원사업 찾기</span>
+                    <span>지금 하는 일·사업 시작 시기·지역에 맞는 지원 찾기</span>
                   </li>
                   <li className="flex gap-1.5">
                     <span className="font-bold text-blue-600">2.</span>
-                    <span>그 사업에 <b>합격하려면 뭐가 부족한지</b> 진단</span>
+                    <span>내가 신청할 수 있는지와 더 준비할 내용 확인</span>
                   </li>
                   <li className="flex gap-1.5">
                     <span className="font-bold text-blue-600">3.</span>
-                    <span>부족한 걸 채워 <b>사업계획서 작성</b></span>
+                    <span>필요할 때만 내 말을 공식 사업계획서로 바꾸기</span>
                   </li>
                 </ol>
               </div>
@@ -2686,7 +2716,7 @@ export default function Chat() {
                 onClick={startDirect}
                 className="w-full rounded-xl border border-yellow-300 bg-yellow-50 py-2.5 text-xs font-semibold text-yellow-800 transition-colors hover:bg-yellow-100"
               >
-                📄 이미 정한 공고문·양식이 있어요 → 무료 진단 받기
+                📄 이미 보고 있는 지원사업이 있어요 → 무료로 확인하기
               </button>
 
               {/* 공식 사업공고·양식 어디서 찾나요 — K-Startup 공식 링크(무료, 가입 불필요) */}
@@ -2709,8 +2739,8 @@ export default function Chat() {
                   ))}
                 </div>
                 <p className="mt-1.5 text-[10px] leading-4 text-zinc-400">
-                  예비/초기창업패키지 표준 양식(공고문·별첨 포함)을 바로 받아 한 번 써보세요. 막히면 위에서 같이
-                  진단해 드려요.
+                  처음 사업을 시작하는 사람이 많이 쓰는 작성 파일을 바로 받아볼 수 있어요. 막히면 위에서 함께
+                  준비 상태를 확인해 드려요.
                 </p>
               </div>
             </div>
@@ -2719,17 +2749,17 @@ export default function Chat() {
             <div className="border-t border-zinc-100 px-4 pt-3">
               {/* 왜 바로 안 쓰고 진단부터인지 — 설명은 2줄 이내, 무료·유료 경계는 버튼 아래 명시 (§9·§11) */}
               <div className="mb-2 rounded-xl bg-blue-50 px-3 py-2.5 text-xs leading-5 text-blue-800">
-                합격은 <b>이미 가진 매출·고객·거래처가 얼마나 잘 보이느냐</b>로 갈려요. 버튼만 누르면
-                1분 만에 끝나요.
+                이미 만든 매출·고객·거래 기록 중 무엇을 보여주면 좋은지 먼저 정리해드려요. 버튼만 누르면
+                1분이면 됩니다.
               </div>
               <button
                 onClick={enterDiagnose}
                 className="w-full rounded-xl bg-blue-600 py-3 text-base font-bold text-white transition-colors hover:bg-blue-700"
               >
-                무료 합격 가능성 진단 받기
+                지금 준비된 내용 무료로 확인하기
               </button>
               <p className="mt-1.5 text-center text-[11px] text-zinc-400">
-                진단은 무료 · 사업계획서 초안 생성은 1회 {PRICE}입니다.
+                여기까지는 무료 · 공식 사업계획서 워드 초안은 1회 {PRICE}입니다.
               </p>
               <button
                 onClick={switchToFind}
@@ -3169,14 +3199,14 @@ function Recommendations({
       <div className="mr-auto max-w-[90%] space-y-3">
         <div className="space-y-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm leading-6 text-zinc-700">
           <p>
-            지금 <b>모집 중인 공고</b> 중에선 사장님께 딱 맞는 게 안 보였어요 😢 예비창업패키지처럼 큰
-            사업은 보통 연 1~2회만 열려서, 지금은 모집이 닫혀 있을 수 있어요. (말씀해주신 내용은 잘
+            지금 <b>신청할 수 있는 지원</b> 중에선 사장님께 딱 맞는 게 안 보였어요 😢 큰 지원은 보통
+            1년에 한두 번만 열려서, 지금은 모집이 닫혀 있을 수 있어요. (말씀해주신 내용은 잘
             기억하고 있어요!)
           </p>
         </div>
         {nearMisses.length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-zinc-500">그래도 조건에 가까웠던 공고들이에요 👇</p>
+            <p className="text-xs font-semibold text-zinc-500">그래도 답해주신 내용과 가까웠던 지원이에요 👇</p>
             {nearMisses.map((p) => (
               <div key={p.id} className="rounded-2xl border border-zinc-200 bg-white p-3.5">
                 <div className="flex items-start justify-between gap-2">
@@ -3186,7 +3216,7 @@ function Recommendations({
                   </span>
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px] text-zinc-500">
-                  <span className="rounded bg-zinc-100 px-1.5 py-0.5">{p.supportField}</span>
+                  <span className="rounded bg-zinc-100 px-1.5 py-0.5">{plainSupportOption(p.supportField).label}</span>
                   <span className="rounded bg-zinc-100 px-1.5 py-0.5">{p.region}</span>
                   <span className="rounded bg-zinc-100 px-1.5 py-0.5">{deadlineLabel(p.applyEnd).text}</span>
                 </div>
@@ -3199,7 +3229,7 @@ function Recommendations({
             onClick={onSignup}
             className="w-full rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700"
           >
-            🔔 맞는 공고가 열리면 알려드릴게요 — 알림 신청
+            🔔 맞는 지원이 열리면 알려드릴게요 — 알림 신청
           </button>
         )}
         <p className="text-xs leading-5 text-zinc-500">
@@ -3211,10 +3241,10 @@ function Recommendations({
   }
   return (
     <div className="space-y-3">
-      <div className="text-sm font-semibold text-zinc-700">이런 지원사업이 잘 맞을 것 같아요 👇</div>
+      <div className="text-sm font-semibold text-zinc-700">지금은 이런 지원을 살펴보면 좋아요 👇</div>
       <div className="rounded-xl bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-800">
-        마음에 드는 사업의 <b>「무료 진단 받기」</b> 버튼을 누르면, 내 사업과 맞는지·무엇이
-        부족한지 무료로 확인할 수 있어요. (공고 원문은 참고용이에요)
+        마음에 드는 지원의 <b>「내가 신청해도 되는지 무료 확인」</b> 버튼을 누르면, 조건과 더 준비할
+        내용을 쉽게 볼 수 있어요. 공식 안내문도 함께 확인할 수 있습니다.
       </div>
       {recs.map((r) => (
         <div key={r.program.id} className="rounded-2xl border border-zinc-200 p-4">
@@ -3229,24 +3259,22 @@ function Recommendations({
                     : "shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700"
               }
             >
-              {r.eligibility}
+              {plainEligibilityLabel(r.eligibility)}
             </span>
           </div>
           {r.eligibility === "확인 필요" && r.checkReason && (
-            <p className="mt-1 text-xs leading-5 text-amber-700">확인할 것: {r.checkReason}</p>
+            <p className="mt-1 text-xs leading-5 text-amber-700">확인할 것: {plainCheckReason(r.checkReason)}</p>
           )}
-          {r.whatItIs && (
-            <div className="mt-2 rounded-lg bg-zinc-50 px-3 py-2 text-xs leading-5 text-zinc-600">
-              <span className="font-semibold text-zinc-700">💡 어떤 사업이냐면</span> {r.whatItIs}
-            </div>
-          )}
+          <div className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs leading-5 text-zinc-700">
+            <span className="font-semibold text-blue-700">쉽게 말하면</span>{" "}
+            {r.whatItIs || plainProgramExplanation(r.program)}
+          </div>
           {/* 개별 근거가 없으면 문구를 생략 — 복붙 문구 금지 (2026-07-12 QA #3) */}
           {r.fitReason && (
             <p className="mt-2 text-sm leading-6 text-zinc-700">
               <span className="font-semibold text-blue-700">나에게 맞는 이유</span> {r.fitReason}
             </p>
           )}
-          {/* 공고 상세 (K-Startup 사이트처럼 자세히) */}
           <div className="mt-3 space-y-1.5 rounded-lg border border-zinc-100 bg-zinc-50/70 px-3 py-2.5 text-xs leading-5 text-zinc-600">
             {(() => {
               const dl = deadlineLabel(r.program.applyEnd);
@@ -3257,27 +3285,24 @@ function Recommendations({
                 </div>
               );
             })()}
-            {r.program.target && r.program.target !== "지원대상 정보 없음" && (
-              <div className="flex gap-1.5">
-                <span className="shrink-0 font-semibold text-zinc-700">🎯 지원대상</span>
-                <span>{r.program.target}</span>
-              </div>
-            )}
-            {r.program.summary && (
-              <div className="flex gap-1.5">
-                <span className="shrink-0 font-semibold text-zinc-700">📋 지원내용</span>
-                <span>{r.program.summary}</span>
-              </div>
-            )}
+            {(r.program.target && r.program.target !== "지원대상 정보 없음") || r.program.summary ? (
+              <details>
+                <summary className="cursor-pointer font-semibold text-zinc-600">공식 안내문에 적힌 조건 펼쳐보기</summary>
+                {r.program.target && r.program.target !== "지원대상 정보 없음" && (
+                  <p className="mt-1"><b>신청할 수 있는 사람:</b> {r.program.target}</p>
+                )}
+                {r.program.summary && <p className="mt-1"><b>도와주는 내용:</b> {r.program.summary}</p>}
+              </details>
+            ) : null}
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-zinc-500">
-            <span className="rounded bg-zinc-100 px-1.5 py-0.5">{r.program.supportField}</span>
+            <span className="rounded bg-zinc-100 px-1.5 py-0.5">{plainSupportOption(r.program.supportField).label}</span>
             <span className="rounded bg-zinc-100 px-1.5 py-0.5">{r.program.region}</span>
           </div>
           {r.kind === "event" ? (
             // 교육·행사형(QA #2): 사업계획서 불필요 — 유료 초안 CTA를 붙이지 않는다
             <div className="mt-3 rounded-xl bg-zinc-50 px-3 py-2.5 text-xs leading-5 text-zinc-600">
-              🎓 교육·행사 공고예요 — <b>사업계획서 없이 신청서만</b> 내면 됩니다. 아래 공고 원문에서
+              🎓 교육이나 행사 참여 지원이에요. <b>긴 사업계획서 없이 간단한 신청서만</b> 내면 됩니다. 아래 공식 안내문에서
               바로 신청하세요.
             </div>
           ) : (
@@ -3285,7 +3310,7 @@ function Recommendations({
               onClick={() => onChoose(r.program)}
               className="mt-3 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
             >
-              이 공고로 무료 진단 받기
+              내가 신청해도 되는지 무료로 확인하기
             </button>
           )}
           <div className="mt-2 flex items-center justify-center gap-2">
@@ -3296,7 +3321,7 @@ function Recommendations({
               onClick={() => onView(r.program)}
               className="text-xs font-medium text-zinc-600 hover:underline"
             >
-              공고 원문 보기 ↗
+              공식 안내문 보기 ↗
             </a>
             {collectedIds.has(r.program.id) && (
               <span className="text-[11px] font-medium text-blue-600">· 📅 캘린더에 담김</span>
@@ -3309,7 +3334,7 @@ function Recommendations({
         disabled={loadingMore}
         className="w-full rounded-xl border border-blue-200 bg-white py-2.5 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50 disabled:opacity-50"
       >
-        {loadingMore ? "다른 사업을 더 찾는 중이에요…" : "🔄 마음에 안 들면, 다른 지원사업 더 추천받기"}
+        {loadingMore ? "다른 지원을 더 찾는 중이에요…" : "🔄 마음에 안 들면, 다른 지원 더 보기"}
       </button>
 
       {/* 마감 알림(가입) 진입점 — 추천 결과 하단 상시 노출 (v4.1 패치 3) */}
@@ -3318,7 +3343,7 @@ function Recommendations({
           onClick={onSignup}
           className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100"
         >
-          🔔 이 공고들 마감 알림 받기 (간단 가입 · 비밀번호 없음)
+          🔔 이 지원들의 마감 알림 받기 (간단 가입 · 비밀번호 없음)
         </button>
       )}
 
@@ -3456,11 +3481,11 @@ function Paywall({
   return (
     <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-5">
       <h3 className="text-lg font-extrabold leading-7 text-zinc-900">
-        {returningFromPayment ? "결제 내역을 연결해 주세요" : "내 사업 정보로"}
+        {returningFromPayment ? "결제 내역을 연결해 주세요" : "대표님이 들려주신 사업 이야기로"}
         {!returningFromPayment && (
           <>
             <br />
-            사업계획서 초안을 생성합니다
+            공식 사업계획서 워드 초안을 만듭니다
           </>
         )}
       </h3>
@@ -3474,17 +3499,17 @@ function Paywall({
       {!returningFromPayment && <div className="mt-3 overflow-hidden rounded-xl border border-zinc-200 bg-white">
         {program && (
           <div className="flex gap-3 border-b border-zinc-100 px-4 py-3 text-sm">
-            <span className="shrink-0 font-semibold text-zinc-500">선택한 공고</span>
+            <span className="shrink-0 font-semibold text-zinc-500">선택한 지원</span>
             <span className="font-semibold text-zinc-800">{program.title}</span>
           </div>
         )}
         <div className="px-4 py-3">
           <p className="text-xs font-semibold text-zinc-500">{PRICE}에 포함되는 내용</p>
           <ul className="mt-1.5 space-y-1 text-sm leading-6 text-zinc-700">
-            <li>✓ 공고 양식에 맞춘 사업계획서 초안 (Word 파일, 도식 포함)</li>
-            <li>✓ 사업 실적의 평가항목별 배치</li>
+            <li>✓ 받은 작성 파일 순서에 맞춘 사업계획서 초안 (Word 파일, 그림 포함)</li>
+            <li>✓ 고객·매출·계약 기록을 담당자가 찾기 쉬운 자리에 배치</li>
             <li>✓ 복사·수정 가능한 문장</li>
-            <li>✓ 보완 포인트 안내</li>
+            <li>✓ 제출 전에 더 확인할 숫자와 자료 안내</li>
           </ul>
         </div>
         <div className="flex items-center justify-between border-t border-zinc-100 bg-zinc-50 px-4 py-3">
@@ -3634,7 +3659,7 @@ function DraftView({
         >
           <b>⚠️ 신청 자격 확인 필요</b> — 이 초안은 신청 자격이{" "}
           {eligWarn === "미충족" ? "충족되지 않은" : "확인되지 않은"} 상태에서 작성됐어요. 제출 전에
-          공고문의 자격 요건을 반드시 직접 확인하세요.
+          공식 안내문의 신청 조건을 반드시 직접 확인하세요.
         </div>
       )}
       <h3 className="text-sm font-bold text-zinc-900">{draft.title}</h3>
@@ -3690,12 +3715,12 @@ function DraftView({
       {!drafting && (
         <div className="mt-5 space-y-3 border-t border-zinc-100 pt-4">
           <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4">
-            <p className="text-sm font-bold text-zinc-800">🔍 심사위원 관점 사후 점검 도구</p>
+            <p className="text-sm font-bold text-zinc-800">🔍 담당자 관점 제출 전 확인 도구</p>
             {/* 선언문 — 통계·증빙 안내보다 먼저: 초안은 이미 완성됐음을 못박는다 (2026-07-13) */}
             <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
               ✅ 사업계획서 초안 작성은 <b>완료</b>되었습니다. 아래는 초안을 다시 작성하는 도구가
-              아니라, 이후 새 자료·증빙이 준비됐을 때 심사위원 관점으로 다시 점검하는{" "}
-              <b>사후 검증 도구</b>입니다.
+              아니라, 이후 새 자료·확인 자료가 준비됐을 때 담당자 관점으로 다시 확인하는{" "}
+              <b>제출 전 확인 도구</b>입니다.
             </p>
             <p className="mt-2 text-xs leading-5 text-zinc-600">
               작성 과정에서 아직 확보 못 한 통계·성과 수치·계약서·매출 자료가 발견될 수 있습니다.
@@ -3703,8 +3728,8 @@ function DraftView({
               직접 다시 점검하도록 이 도구를 함께 드립니다.
             </p>
             <ul className="mt-1.5 grid grid-cols-1 gap-x-3 gap-y-0.5 text-xs leading-5 text-zinc-600 sm:grid-cols-2">
-              <li>· 심사위원이 문제 삼을 부분</li>
-              <li>· 근거·증빙 부족 항목</li>
+              <li>· 담당자가 이해하기 어려운 부분</li>
+              <li>· 확인 자료가 부족한 내용</li>
               <li>· 추가로 준비할 자료</li>
               <li>· 자료를 넣을 목차</li>
               <li>· 제출 전 재확인할 자격·숫자</li>
@@ -3736,10 +3761,10 @@ function DraftView({
 
           {/* 추가 이용권 (2026-07-13 소진 정책) — 완료 후엔 추천이 아니라 재구매 CTA가 가격 정책과 정합 */}
           <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 text-center">
-            <p className="text-sm font-bold text-zinc-800">다른 공고의 사업계획서도 필요하세요?</p>
+            <p className="text-sm font-bold text-zinc-800">다른 지원사업의 사업계획서도 필요하세요?</p>
             <p className="mt-1 text-xs leading-5 text-zinc-500">
-              이용권 1건은 사업계획서 초안 1건에 사용돼요. 새 공고의 초안은 추가 이용권으로 만들 수
-              있어요. (공고 찾기·무료 진단은 계속 무료입니다)
+              이용권 1건은 사업계획서 초안 1건에 사용돼요. 다른 지원사업의 초안은 추가 이용권으로 만들 수
+              있어요. (지원 찾기와 신청 가능 여부 확인은 계속 무료입니다)
             </p>
             <button
               onClick={onRepurchase}

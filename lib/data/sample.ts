@@ -13,6 +13,9 @@ export const SAMPLE_PROGRAMS: Program[] = [
     url: "https://www.k-startup.go.kr",
     formUrl: "https://www.k-startup.go.kr",
     source: "sample",
+    applicationKind: "business-plan",
+    requiresBusinessPlan: true,
+    applicationKindReason: "사업계획서를 포함한 신청서 제출이 필요한 대표 창업 지원사업",
   },
   {
     id: "sample-content-creator",
@@ -37,5 +40,8 @@ export const SAMPLE_PROGRAMS: Program[] = [
     url: "https://www.k-startup.go.kr",
     formUrl: null,
     source: "sample",
+    applicationKind: "business-plan",
+    requiresBusinessPlan: true,
+    applicationKindReason: "사업계획서를 포함한 신청서 제출이 필요한 대표 창업 지원사업",
   },
 ];

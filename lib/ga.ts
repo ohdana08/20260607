@@ -35,6 +35,8 @@ export type GaEvent =
   // 무료→유료 전환 구조 개선(2026-07-11 디자인수정) — 단계별 이탈 측정
   | "scope_intro_view" // 진입 시 무료·유료 범위 안내 화면 노출
   | "diagnosis_start" // 무료·유료 안내에서 '무료 진단 시작하기' 클릭
+  | "plain_flow_step_view" // 쉬운 말 찾기 흐름의 단계 도달(자유입력 내용은 전송하지 않음)
+  | "plain_flow_answer" // 쉬운 말 선택지 응답(정해진 선택값·건너뛰기 여부만 전송)
   | "draft_preview_click" // 무료 결과에서 '초안 목차 보기' 클릭
   | "draft_preview_view" // 초안 목차 미리보기 화면 도달
   | "checkout_start" // 미리보기에서 결제 화면 진입 (click_pay와 함께 발화)

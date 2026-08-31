@@ -67,6 +67,7 @@ interface AuthCtx {
   token: string | null;
   email: string | null;
   paid: boolean;
+  localReview: boolean;
   setPaid: (v: boolean) => void;
   signOut: () => Promise<void>;
 }
@@ -79,7 +80,13 @@ export function useAuth(): AuthCtx {
   return v;
 }
 
-export default function AuthGate({ children }: { children: ReactNode }) {
+export default function AuthGate({
+  children,
+  allowLocalReview = false,
+}: {
+  children: ReactNode;
+  allowLocalReview?: boolean;
+}) {
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [paid, setPaid] = useState(false);
@@ -123,10 +130,11 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       token: session?.access_token ?? null,
       email: session?.user?.email ?? null,
       paid,
+      localReview: allowLocalReview,
       setPaid,
       signOut,
     }),
-    [session, paid, signOut],
+    [session, paid, allowLocalReview, signOut],
   );
 
   if (!ready) {
@@ -136,7 +144,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       </div>
     );
   }
-  if (!session) {
+  if (!session && !allowLocalReview) {
     return <AuthCard />;
   }
   return <Ctx.Provider value={ctx}>{children}</Ctx.Provider>;

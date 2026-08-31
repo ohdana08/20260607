@@ -6,6 +6,7 @@ const { classifyApplicationKind, matchByButtons } = await import(
   "../lib/match/buttonFilter.ts"
 );
 const { isStillOpen, kstToday } = await import("../lib/data/openFilter.ts");
+const { SAMPLE_PROGRAMS } = await import("../lib/data/sample.ts");
 const { firstTrustedProgramUrl } = await import("../lib/data/trustedProgramUrl.ts");
 const { buildPlanDocxBuffer } = await import("../lib/plan/docx.ts");
 const { normalizeBojoItem, normalizeDataGoKrServiceKey } = await import("../lib/data/bojo.ts");
@@ -15,6 +16,18 @@ const { REGIONAL_SOURCE_POLICIES, regionalPeriodEnd } = await import("../lib/dat
 const { buildPublicEvidencePrompt, rankPublicEvidenceItems } = await import(
   "../lib/data/publicEvidence.ts"
 );
+const { isLocalReviewMatchRequest } = await import("../lib/auth/localReview.ts");
+const { LOCAL_REVIEW_EVIDENCE_ROWS } = await import(
+  "../lib/diagnosis/localReviewEvidence.ts"
+);
+const {
+  PLAIN_LANGUAGE_PROMPT,
+  plainCondition,
+  plainEligibilityLabel,
+  plainEvidenceItem,
+  plainSupportOption,
+  plainYearOption,
+} = await import("../lib/plain-language.ts");
 
 function program(title, overrides = {}) {
   return {
@@ -37,6 +50,14 @@ const businessPlan = classifyApplicationKind(
 );
 assert.equal(businessPlan.requiresBusinessPlan, true);
 assert.equal(businessPlan.applicationKind, "business-plan");
+
+const sampleEarly = SAMPLE_PROGRAMS.find((item) => item.id === "sample-early");
+assert.ok(sampleEarly, "로컬 검사에서 초기창업패키지 샘플을 찾을 수 있어야 함");
+assert.equal(
+  classifyApplicationKind(sampleEarly).requiresBusinessPlan,
+  true,
+  "초기창업패키지 샘플은 무료 추천 뒤 사업계획서 단계로 이어져야 함",
+);
 
 const reservation = classifyApplicationKind(program("공동장비 이용 예약 모집"));
 assert.equal(reservation.requiresBusinessPlan, false);
@@ -195,6 +216,40 @@ assert.match(evidencePrompt, /공식 근거 후보/);
 assert.match(evidencePrompt, /확인할 공식 출처 후보/);
 assert.match(evidencePrompt, /개방 예정/);
 
+assert.equal(plainYearOption("예비창업").label, "아직 사업자등록 전이에요");
+assert.match(plainSupportOption("R&D").label, /새 기술이나 제품/);
+assert.equal(plainEligibilityLabel("신청 가능"), "지금 정보로는 신청해볼 만해요");
+assert.equal(plainEligibilityLabel("확인 필요"), "한 가지만 더 확인해요");
+assert.equal(plainCondition("✓ 업력 3년 이내 충족"), "✓ 사업을 시작한 시기가 맞아요");
+assert.equal(plainEvidenceItem("유료 고객 확보"), "실제로 돈을 낸 고객이 있어요");
+assert.match(PLAIN_LANGUAGE_PROMPT, /대표님이 직접 내야 하는 돈/);
+
+const localReviewEnv = { NODE_ENV: "development", LOCAL_REVIEW_MODE: "on" };
+assert.equal(
+  isLocalReviewMatchRequest(new Request("http://localhost:3000/api/match"), localReviewEnv),
+  true,
+);
+assert.equal(
+  isLocalReviewMatchRequest(new Request("https://example.com/api/match"), localReviewEnv),
+  false,
+  "로컬 검사 인증 예외는 localhost 밖에서 절대 열리면 안 됨",
+);
+assert.equal(
+  isLocalReviewMatchRequest(new Request("http://localhost:3000/api/chat"), localReviewEnv),
+  false,
+  "로컬 검사 인증 예외는 읽기 전용 추천 API 외에는 열리면 안 됨",
+);
+assert.equal(
+  isLocalReviewMatchRequest(new Request("http://localhost:3000/api/match"), {
+    NODE_ENV: "production",
+    LOCAL_REVIEW_MODE: "on",
+  }),
+  false,
+  "운영 빌드에서는 환경변수를 잘못 넣어도 인증 예외가 열리면 안 됨",
+);
+assert.ok(LOCAL_REVIEW_EVIDENCE_ROWS.length >= 5);
+assert.ok(LOCAL_REVIEW_EVIDENCE_ROWS.every((row) => typeof row.item === "string"));
+
 const docx = await buildPlanDocxBuffer("검증용 사업계획서", [
   {
     heading: "1. 고객과 수익모델",
@@ -226,12 +281,18 @@ const programStore = readFileSync(
   "utf8",
 );
 
-assert.match(landingSource, /내 사업에 맞는/);
-assert.match(landingSource, /무료로 맞는 지원사업 찾기/);
-assert.match(landingSource, /이미 지원할 공고가 있어요/);
+assert.match(landingSource, /사업 얘기부터 하세요/);
+assert.match(landingSource, /3분 만에 받을 수 있는 지원 보기/);
+assert.match(landingSource, /빠진 사실과 자료/);
+assert.match(landingSource, /결제 전 자격/);
+assert.doesNotMatch(landingSource, /다음 2년|앞으로 2년/);
 assert.match(landingSource, /사업계획서가 필요한 지원사업을 선택했을 때만 안내됩니다/);
-assert.match(wizardSource, /나에게 맞는 지원사업을 찾아주세요/);
-assert.match(wizardSource, /지원사업 찾기와 신청 가능 여부 확인은 무료/);
+assert.match(wizardSource, /어떤 지원을 받을 수 있는지 모르겠어요/);
+assert.match(wizardSource, /맞는 지원 찾기와 내가 신청할 수 있는지 확인하는 건 무료/);
+assert.match(wizardSource, /사업을 시작한 지 얼마나 되셨나요/);
+assert.match(wizardSource, /plain_flow_step_view/);
+assert.match(wizardSource, /plain_flow_answer/);
+assert.match(wizardSource, /programWithApplicationDecision/);
 assert.match(chatSource, /requestedStart === "find"/);
 assert.match(chatSource, /requestedStart === "direct"/);
 assert.match(chatSource, /PublicEvidencePanel/);

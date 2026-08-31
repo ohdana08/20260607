@@ -13,8 +13,10 @@ export const metadata: Metadata = {
 // NEXT_PUBLIC_AUTH_GATE=entry 설정 + 재배포 시 첫 화면 필수(C안) — AuthGate 참고.
 export default function EmbedPage() {
   if (MAINTENANCE) return <Maintenance />;
+  const allowLocalReview =
+    process.env.NODE_ENV === "development" && process.env.LOCAL_REVIEW_MODE === "on";
   return (
-    <AuthGate>
+    <AuthGate allowLocalReview={allowLocalReview}>
       <Chat />
     </AuthGate>
   );

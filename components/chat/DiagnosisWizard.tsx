@@ -23,6 +23,15 @@ import {
   StagePill,
 } from "@/components/chat/EvidenceDiagnosis";
 import type { EvidenceRow, EvidenceSheet } from "@/lib/diagnosis/evidence";
+import {
+  plainCheckReason,
+  plainCondition,
+  plainEligibilityLabel,
+  plainProgramExplanation,
+  plainSectorOption,
+  plainSupportOption,
+  plainYearOption,
+} from "@/lib/plain-language";
 
 // ── 진단 위저드 (2026-07-12, 0711 디자인수정 전면 적용) ─────────────────
 // 시안 그대로 "한 화면 = 한 단계"의 전체 화면 흐름:
@@ -113,22 +122,6 @@ function PickCard({ label, sub, onClick }: { label: string; sub?: string; onClic
   );
 }
 
-// 지원유형·관심분야 버튼 서브텍스트 (2026-07-12 확정 카피)
-const TYPE_SUBS: Record<string, string> = {
-  사업화: "시제품 제작, 마케팅, 판로개척 등 사업 실행에 쓰는 지원금",
-  "R&D": "기술·제품 개발에 쓰는 연구개발 자금",
-  "시설·공간": "사무실, 공장, 입주공간 등 장소 지원",
-  "멘토링·교육": "전문가 상담, 창업교육, 컨설팅 지원",
-  "융자·보증": "낮은 금리로 빌려주는 돈 (지원금과 달리 갚아야 해요)",
-};
-const SECTOR_SUBS: Record<string, string> = {
-  창업: "예비창업, 초기창업, 재창업 (예: 예비창업패키지)",
-  경영: "마케팅, 판로, 인력, 경영개선 (예: 소상공인 경영지원)",
-  기술: "기술개발, 특허, 스마트공장 (예: 중소기업 R&D)",
-  수출: "해외진출, 수출바우처, 박람회 (예: 수출초보기업 지원)",
-  금융: "정책자금, 융자, 보증 (예: 소진공 정책자금)",
-};
-
 function Title({ children }: { children: React.ReactNode }) {
   return (
     <h2 className="mt-3 text-2xl font-extrabold leading-snug tracking-tight text-zinc-900 sm:text-[27px]">
@@ -166,6 +159,17 @@ function BigChoice({
       <span className="mt-2.5 block text-sm font-bold text-blue-600">선택하기 →</span>
     </button>
   );
+}
+
+// 추천 카드에서 계산한 제출서류 판정을 선택한 Program에도 보존한다.
+// 이 값이 빠지면 무료 결과 뒤에서 6단계 전환이 "확인 중"으로 멈춘다.
+function programWithApplicationDecision(recommendation: Recommendation): Program {
+  return {
+    ...recommendation.program,
+    applicationKind: recommendation.applicationKind ?? recommendation.program.applicationKind,
+    requiresBusinessPlan:
+      recommendation.requiresBusinessPlan ?? recommendation.program.requiresBusinessPlan,
+  };
 }
 
 export default function DiagnosisWizard({
@@ -261,6 +265,11 @@ export default function DiagnosisWizard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 단계별 조회만으로도 어디에서 이탈하는지 볼 수 있다. 자유입력 내용은 GA4로 보내지 않는다.
+  useEffect(() => {
+    track("plain_flow_step_view", { step });
+  }, [step]);
+
   // 진단 답변 제출(로그인 게이트 포함)이 끝나 결과가 생기면 결과 화면으로
   useEffect(() => {
     if (evResult && step === "diagnosis") setStep("result");
@@ -294,7 +303,7 @@ export default function DiagnosisWizard({
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setFindError(typeof d?.error === "string" ? d.error : "공고를 찾지 못했어요. 다시 시도해 주세요.");
+        setFindError(typeof d?.error === "string" ? d.error : "지원사업을 찾지 못했어요. 다시 시도해 주세요.");
         return;
       }
       const recommendations: Recommendation[] = Array.isArray(d.recommendations) ? d.recommendations : [];
@@ -368,16 +377,16 @@ export default function DiagnosisWizard({
           <Sub>지원사업 이름을 몰라도 괜찮아요. 지금 상황에 맞는 쪽을 골라주세요.</Sub>
           <div className="mt-5 space-y-3">
             <BigChoice
-              title="나에게 맞는 지원사업을 찾아주세요"
-              desc="사업을 시작한 시기·지역·하는 일·필요한 도움을 고르면 지금 신청할 수 있는 지원사업을 찾아드려요."
+              title="어떤 지원을 받을 수 있는지 모르겠어요"
+              desc="어려운 검색어 없이 지금 하는 일과 필요한 도움만 알려주시면 됩니다."
               onClick={() => {
                 track("diagnosis_start", { path: "find" });
                 setStep("find-years");
               }}
             />
             <BigChoice
-              title="이미 지원할 공고가 있어요"
-              desc="정해둔 지원사업의 안내문이나 링크를 올리고, 내가 신청해도 되는지부터 확인해요."
+              title="이미 보고 있는 지원사업이 있어요"
+              desc="안내문이나 링크를 올리면 내가 신청해도 되는지부터 쉽게 풀어드려요."
               onClick={() => {
                 track("diagnosis_start", { path: "direct" });
                 onDirectProgram();
@@ -386,8 +395,8 @@ export default function DiagnosisWizard({
             />
           </div>
           <div className="mt-5 rounded-xl bg-zinc-50 px-4 py-3 text-[13px] leading-6 text-zinc-600">
-            <p><b className="text-emerald-700">지원사업 찾기와 신청 가능 여부 확인은 무료</b>예요.</p>
-            <p>사업계획서가 필요한 지원사업을 골랐을 때만 수정 가능한 워드 초안 1건 {PRICE_LABEL}을 안내합니다.</p>
+            <p><b className="text-emerald-700">맞는 지원 찾기와 내가 신청할 수 있는지 확인하는 건 무료</b>예요.</p>
+            <p>긴 문서 작성이 필요한 사업을 골랐을 때만 워드 초안 1건 {PRICE_LABEL}을 안내합니다.</p>
           </div>
           {findRes && findRes.recommendations.length > 0 && (
             <button
@@ -407,16 +416,16 @@ export default function DiagnosisWizard({
           <Sub>지원사업 이름을 몰라도 괜찮아요. 지금 상황에 맞는 쪽을 골라주세요.</Sub>
           <div className="mt-5 space-y-3">
             <BigChoice
-              title="나에게 맞는 지원사업을 찾아주세요"
-              desc="사업을 시작한 시기·지역·하는 일·필요한 도움을 고르면 지금 신청할 수 있는 지원사업을 찾아드려요."
+              title="어떤 지원을 받을 수 있는지 모르겠어요"
+              desc="어려운 검색어 없이 지금 하는 일과 필요한 도움만 알려주시면 됩니다."
               onClick={() => {
                 track("diagnosis_start", { path: "find" });
                 setStep("find-years");
               }}
             />
             <BigChoice
-              title="이미 지원할 공고가 있어요"
-              desc="정해둔 지원사업의 안내문이나 링크를 올리고, 내가 신청해도 되는지부터 확인해요."
+              title="이미 보고 있는 지원사업이 있어요"
+              desc="안내문이나 링크를 올리면 내가 신청해도 되는지부터 쉽게 풀어드려요."
               onClick={() => {
                 track("diagnosis_start", { path: "direct" });
                 onDirectProgram();
@@ -439,22 +448,19 @@ export default function DiagnosisWizard({
       {/* ── 선택한 공고 카드 — 공고 입력에서 뒤로 왔을 때의 복귀 지점 (2026-07-12) ── */}
       {step === "chosen" && program && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
-          <StagePill>선택한 공고</StagePill>
+          <StagePill>선택한 지원사업</StagePill>
           <Title>{program.title}</Title>
-          {(program.supportField || program.region) && (
+          {program.region && (
             <div className="mt-3 flex flex-wrap gap-1.5 text-xs text-zinc-500">
-              {program.supportField && (
-                <span className="rounded bg-zinc-100 px-2 py-1">{program.supportField}</span>
-              )}
               {program.region && <span className="rounded bg-zinc-100 px-2 py-1">{program.region}</span>}
               {program.applyEnd && (
                 <span className="rounded bg-zinc-100 px-2 py-1">마감 {program.applyEnd}</span>
               )}
             </div>
           )}
-          {program.target && program.target !== "지원대상 정보 없음" && (
-            <p className="mt-3 text-sm leading-6 text-zinc-600">🎯 {program.target}</p>
-          )}
+          <p className="mt-3 rounded-xl bg-blue-50 px-4 py-3 text-sm leading-6 text-zinc-700">
+            <b className="text-blue-700">쉽게 말하면</b> · {plainProgramExplanation(program)}
+          </p>
           {program.url && (
             <a
               href={program.url}
@@ -463,21 +469,21 @@ export default function DiagnosisWizard({
               onClick={() => onViewProgram(program)}
               className="mt-2 inline-block text-sm font-medium text-blue-600 underline underline-offset-2"
             >
-              공고 원문 보기 ↗
+              공식 안내문 보기 ↗
             </a>
           )}
           <button
             onClick={() => setStep("notice")}
             className="mt-5 h-14 w-full rounded-xl bg-blue-600 text-lg font-extrabold text-white transition-colors hover:bg-blue-700"
           >
-            이 공고로 진단 이어가기
+            내가 신청해도 되는지 확인하기
           </button>
           {findRes && findRes.recommendations.length > 0 && (
             <button
               onClick={() => setStep("find-results")}
               className="mt-2.5 w-full rounded-xl border border-zinc-200 bg-white py-3 text-sm font-semibold text-zinc-600 transition-colors hover:bg-zinc-50"
             >
-              📋 추천 목록에서 다른 공고 보기
+              📋 추천 목록에서 다른 지원 보기
             </button>
           )}
           <BackLink onClick={() => setStep("find-years")}>← 조건 바꿔 다시 찾기</BackLink>
@@ -487,9 +493,9 @@ export default function DiagnosisWizard({
       {/* ── 찾기 1/4: 업력 ─────────────────────────────────────── */}
       {step === "find-years" && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
-          <StagePill>지원사업 찾기 1/4</StagePill>
+          <StagePill>맞는 지원 찾기 1/4</StagePill>
           <Title>사업을 시작한 지 얼마나 되셨나요?</Title>
-          <Sub>업력에 따라 지원할 수 있는 공고가 달라져요.</Sub>
+          <Sub>사업자등록을 한 시기에 따라 볼 수 있는 지원이 달라져요.</Sub>
           {/* 프로필 동기화(2026-07-12): 대화·이전 검색에서 확인된 업력은 프리필 — 아래에서 수정만 */}
           {(() => {
             const pre = initialFind?.years || derivedYears;
@@ -504,7 +510,7 @@ export default function DiagnosisWizard({
                   className="flex w-full items-center justify-between rounded-xl border-2 border-blue-400 bg-blue-50/60 px-5 py-4 text-left"
                 >
                   <span>
-                    <span className="block text-base font-bold text-blue-800">✓ {pre}</span>
+                    <span className="block text-base font-bold text-blue-800">✓ {plainYearOption(pre).label}</span>
                     <span className="mt-0.5 block text-[13px] text-blue-600">
                       프로필에서 자동 인식했어요 — 이대로 계속
                     </span>
@@ -519,8 +525,10 @@ export default function DiagnosisWizard({
             {YEARS_OPTIONS.map((v) => (
               <PickCard
                 key={v}
-                label={v}
+                label={plainYearOption(v).label}
+                sub={plainYearOption(v).sub}
                 onClick={() => {
+                  track("plain_flow_answer", { step: "business_start", value: v });
                   setFYears(v);
                   setStep("find-region");
                 }}
@@ -534,9 +542,9 @@ export default function DiagnosisWizard({
       {/* ── 찾기 2/4: 지역 — 부산·울산·경남 버튼 + 나머지 시도 드롭다운 + 전국 ── */}
       {step === "find-region" && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
-          <StagePill>지원사업 찾기 2/4</StagePill>
+          <StagePill>맞는 지원 찾기 2/4</StagePill>
           <Title>어느 지역에서 사업하세요?</Title>
-          <Sub>해당 지역 공고와 전국(중앙부처) 공고를 함께 찾아드려요.</Sub>
+          <Sub>그 지역에서만 받을 수 있는 지원과 전국에서 받을 수 있는 지원을 함께 찾아드려요.</Sub>
           {(() => {
             const pre = initialFind?.region || prefillRegion;
             if (!pre) return null;
@@ -550,7 +558,7 @@ export default function DiagnosisWizard({
                   className="flex w-full items-center justify-between rounded-xl border-2 border-blue-400 bg-blue-50/60 px-5 py-4 text-left"
                 >
                   <span>
-                    <span className="block text-base font-bold text-blue-800">✓ {pre}</span>
+                      <span className="block text-base font-bold text-blue-800">✓ {pre}</span>
                     <span className="mt-0.5 block text-[13px] text-blue-600">
                       프로필에서 자동 인식했어요 — 이대로 계속
                     </span>
@@ -567,15 +575,17 @@ export default function DiagnosisWizard({
                 key={v}
                 label={v}
                 onClick={() => {
+                  track("plain_flow_answer", { step: "region", value: v });
                   setFRegion(v);
                   setStep("find-type");
                 }}
               />
             ))}
             <PickCard
-              label={NATIONWIDE}
-              sub="지역 제한 없이 전국 어디서나 지원 가능한 공고"
+              label="지역 제한 없는 지원도 함께 볼래요"
+              sub="전국 어디에서나 신청할 수 있는 지원을 봅니다."
               onClick={() => {
+                track("plain_flow_answer", { step: "region", value: NATIONWIDE });
                 setFRegion(NATIONWIDE);
                 setStep("find-type");
               }}
@@ -584,12 +594,13 @@ export default function DiagnosisWizard({
               value=""
               onChange={(e) => {
                 if (!e.target.value) return;
+                track("plain_flow_answer", { step: "region", value: e.target.value });
                 setFRegion(e.target.value);
                 setStep("find-type");
               }}
               className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-4 text-base font-semibold text-zinc-500 outline-none focus:border-blue-500"
             >
-              <option value="">다른 지역 선택…</option>
+              <option value="">다른 지역 고르기…</option>
               {REGION_ETC.map((v) => (
                 <option key={v} value={v}>
                   {v}
@@ -604,16 +615,17 @@ export default function DiagnosisWizard({
       {/* ── 찾기 3/4: 지원유형 ─────────────────────────────────── */}
       {step === "find-type" && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
-          <StagePill>지원사업 찾기 3/4</StagePill>
-          <Title>어떤 지원이 가장 필요하세요?</Title>
-          <Sub>고르신 지원을 우선으로 보여드려요.</Sub>
+          <StagePill>맞는 지원 찾기 3/4</StagePill>
+          <Title>지금 가장 필요한 도움은 무엇인가요?</Title>
+          <Sub>아래에서 가장 가까운 말을 골라주세요. 어려운 지원사업 이름은 몰라도 됩니다.</Sub>
           <div className="mt-5 space-y-2.5">
             {TYPE_OPTIONS.map((v) => (
               <PickCard
                 key={v}
-                label={v}
-                sub={TYPE_SUBS[v]}
+                label={plainSupportOption(v).label}
+                sub={plainSupportOption(v).sub}
                 onClick={() => {
+                  track("plain_flow_answer", { step: "needed_help", value: v });
                   setFType(v);
                   setStep("find-sector");
                 }}
@@ -627,16 +639,17 @@ export default function DiagnosisWizard({
       {/* ── 찾기 4/4: 분야 (보너스 매칭 — 골라도 결과가 줄지 않음) ── */}
       {step === "find-sector" && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
-          <StagePill>지원사업 찾기 4/4</StagePill>
-          <Title>관심 분야가 있으세요?</Title>
-          <Sub>골라도 결과가 줄지 않아요 — 해당 분야 특화 공고를 위로 올려드릴 뿐이에요.</Sub>
+          <StagePill>맞는 지원 찾기 4/4</StagePill>
+          <Title>앞으로 가장 해보고 싶은 일은 무엇인가요?</Title>
+          <Sub>잘 모르겠으면 건너뛰어도 됩니다. 결과가 줄어들지는 않아요.</Sub>
           <div className="mt-5 space-y-2.5">
             {SECTOR_OPTIONS.map((v) => (
               <PickCard
                 key={v}
-                label={v}
-                sub={SECTOR_SUBS[v]}
+                label={plainSectorOption(v).label}
+                sub={plainSectorOption(v).sub}
                 onClick={() => {
+                  track("plain_flow_answer", { step: "next_goal", value: v });
                   setFSector(v);
                   setStep("find-desc");
                 }}
@@ -645,6 +658,7 @@ export default function DiagnosisWizard({
           </div>
           <button
             onClick={() => {
+              track("plain_flow_answer", { step: "next_goal", value: "skipped" });
               setFSector(undefined);
               setStep("find-desc");
             }}
@@ -659,16 +673,17 @@ export default function DiagnosisWizard({
       {/* ── 찾기 +1: 아이템 한 줄 (선택) — 정렬 전용, 결과가 줄지 않는다 (2026-07-12) ── */}
       {step === "find-desc" && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
-          <StagePill>지원사업 찾기 · 마지막</StagePill>
-          <Title>무슨 사업 하세요? 한 줄로 알려주세요</Title>
-          <Sub>적어도 결과가 줄지 않아요 — 내 사업과 가까운 공고를 위로 올려드릴 뿐이에요.</Sub>
+          <StagePill>맞는 지원 찾기 · 마지막</StagePill>
+          <Title>지금 돈을 받고 파는 것, 또는 앞으로 팔고 싶은 게 무엇인가요?</Title>
+          <Sub>친구에게 말하듯 한 줄이면 충분해요. 이 답은 검색 결과를 줄이지 않고 순서만 더 정확하게 만듭니다.</Sub>
           <input
             value={fBizDesc}
             onChange={(e) => setFBizDesc(e.target.value)}
-            placeholder="예: 소상공인 대상 AI 교육·컨설팅"
+            placeholder="예: 작은 가게 사장님에게 AI로 홍보하는 법을 알려줘요"
             maxLength={200}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && fBizDesc.trim())
+              if (e.key === "Enter" && fBizDesc.trim()) {
+                track("plain_flow_answer", { step: "business_description", value: "provided" });
                 void runFind({
                   years: fYears,
                   region: fRegion,
@@ -676,31 +691,34 @@ export default function DiagnosisWizard({
                   sector: fSector,
                   bizDesc: fBizDesc.trim(),
                 });
+              }
             }}
             className="mt-5 w-full rounded-xl border border-zinc-200 px-4 py-4 text-base outline-none focus:border-blue-500"
           />
           <button
-            onClick={() =>
+            onClick={() => {
+              track("plain_flow_answer", { step: "business_description", value: "provided" });
               void runFind({
                 years: fYears,
                 region: fRegion,
                 supportType: fType,
                 sector: fSector,
                 bizDesc: fBizDesc.trim() || undefined,
-              })
-            }
+              });
+            }}
             disabled={!fBizDesc.trim()}
             className="mt-4 h-14 w-full rounded-xl bg-blue-600 text-lg font-extrabold text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
           >
-            이 내용으로 공고 찾기
+            이 내용으로 받을 수 있는 지원 보기
           </button>
           <button
-            onClick={() =>
-              void runFind({ years: fYears, region: fRegion, supportType: fType, sector: fSector })
-            }
+            onClick={() => {
+              track("plain_flow_answer", { step: "business_description", value: "skipped" });
+              void runFind({ years: fYears, region: fRegion, supportType: fType, sector: fSector });
+            }}
             className="mt-2.5 w-full rounded-xl border border-zinc-200 bg-white py-3 text-sm font-semibold text-zinc-500 transition-colors hover:bg-zinc-50"
           >
-            건너뛰고 결과 보기
+            설명 없이 결과부터 보기
           </button>
           <BackLink onClick={() => setStep("find-sector")}>← 이전으로</BackLink>
         </section>
@@ -710,10 +728,10 @@ export default function DiagnosisWizard({
       {step === "find-results" && (
         <section>
           <div className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-8">
-            <StagePill>지원사업 찾기 · 결과</StagePill>
+            <StagePill>받을 수 있는 지원 · 결과</StagePill>
             {finding ? (
               <p className="mt-4 text-base text-zinc-600">
-                {fYears} · {fRegion} · {fType} 조건으로 모집 중인 공고를 찾고 있어요… 🔎
+                {plainYearOption(fYears).label} · {fRegion} · {plainSupportOption(fType).label}에 맞춰 찾고 있어요… 🔎
               </p>
             ) : findError ? (
               <div className="mt-4">
@@ -729,41 +747,41 @@ export default function DiagnosisWizard({
               </div>
             ) : findRes && findRes.recommendations.length === 0 ? (
               <div className="mt-3">
-                <Title>지금 모집 중인 공고 중엔 딱 맞는 게 없어요</Title>
+                <Title>지금 신청할 수 있는 것 중엔 딱 맞는 게 없어요</Title>
                 <Sub>
-                  큰 지원사업은 연 1~2회만 열려요. 조건을 조금 넓히거나, 새 공고가 열리면 알림을
+                  큰 지원은 보통 1년에 한두 번만 열려요. 범위를 조금 넓히거나, 새 모집이 열리면 알림을
                   받아보세요.
                 </Sub>
                 <div className="mt-5 space-y-2.5">
                   {!fRegion.includes("전국") && (
                     <PickCard
-                      label="지역을 전국(중앙부처)으로 넓혀 다시 찾기"
+                      label="지역 제한 없는 지원까지 넓혀서 다시 보기"
                       onClick={() => {
                         setFRegion("전국(중앙부처)");
                         void runFind({ years: fYears, region: "전국(중앙부처)", supportType: fType });
                       }}
                     />
                   )}
-                  <PickCard label="필요한 지원유형 바꾸기" onClick={() => setStep("find-type")} />
-                  <PickCard label="업력 다시 고르기" onClick={() => setStep("find-years")} />
+                  <PickCard label="필요한 도움을 바꿔보기" onClick={() => setStep("find-type")} />
+                  <PickCard label="사업을 시작한 시기 다시 고르기" onClick={() => setStep("find-years")} />
                 </div>
                 {!hasLead && (
                   <button
                     onClick={onSignup}
                     className="mt-4 w-full rounded-xl bg-blue-600 py-3.5 text-base font-bold text-white hover:bg-blue-700"
                   >
-                    🔔 맞는 공고가 열리면 알려드릴게요 — 알림 신청
+                    🔔 나와 맞는 지원이 열리면 알려드릴게요 — 알림 신청
                   </button>
                 )}
               </div>
             ) : findRes ? (
               <div className="mt-3">
-                <Title>이런 지원사업이 잘 맞을 것 같아요</Title>
+                <Title>지금은 이런 지원을 살펴보면 좋아요</Title>
                 <Sub>
-                  {fYears} · {fRegion} · {fType}
+                  {plainYearOption(fYears).label} · {fRegion} · {plainSupportOption(fType).label}
                   {findRes.relaxed
-                    ? ` — 지금 모집 중인 ‘${fType}’ 공고가 없어서, 같은 조건의 다른 지원 공고를 보여드려요.`
-                    : " 조건으로 찾았어요."}
+                    ? " — 지금 필요한 도움과 정확히 같은 모집이 없어, 가까운 다른 지원도 함께 보여드려요."
+                    : " — 이 답을 바탕으로 찾았어요."}
                 </Sub>
               </div>
             ) : null}
@@ -779,20 +797,25 @@ export default function DiagnosisWizard({
                       <h3 className="text-base font-bold leading-6 text-zinc-900">{r.program.title}</h3>
                       <span
                         className={
-                          r.eligibility === "조건 충족"
+                          r.eligibility !== "확인 필요"
                             ? "shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700"
                             : "shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700"
                         }
                       >
-                        {r.eligibility}
+                        {plainEligibilityLabel(r.eligibility)}
                       </span>
                     </div>
                     {r.eligibility === "확인 필요" && r.checkReason && (
-                      <p className="mt-1 text-xs leading-5 text-amber-700">확인할 것: {r.checkReason}</p>
+                      <p className="mt-1 text-xs leading-5 text-amber-700">
+                        확인할 것: {plainCheckReason(r.checkReason)}
+                      </p>
                     )}
+                    <p className="mt-2 rounded-xl bg-blue-50 px-3.5 py-2.5 text-sm leading-6 text-zinc-700">
+                      <b className="text-blue-700">쉽게 말하면</b> · {r.whatItIs || plainProgramExplanation(r.program)}
+                    </p>
                     {/* 내 사업과의 연관(2026-07-12) — 실제 근거가 있을 때만, 복붙 금지 */}
                     {r.bizWhy && (
-                      <p className="mt-1 text-xs leading-5 text-blue-700">🔗 내 사업과의 연관: {r.bizWhy}</p>
+                      <p className="mt-1 text-xs leading-5 text-blue-700">🔗 내 사업과 가까운 이유: {r.bizWhy}</p>
                     )}
                     {/* 조건 원문 덤프 대신 내 조건 대조형 칩 (✓ 일치 / ⚠️ 주의) */}
                     <div className="mt-2.5 flex flex-wrap gap-1.5 text-xs">
@@ -812,15 +835,15 @@ export default function DiagnosisWizard({
                                 : "rounded bg-zinc-100 px-2 py-1 text-zinc-500"
                           }
                         >
-                          {c}
+                          {plainCondition(c)}
                         </span>
                       ))}
                     </div>
                     <button
-                      onClick={() => onChooseProgram(r.program)}
+                      onClick={() => onChooseProgram(programWithApplicationDecision(r))}
                       className="mt-3.5 h-12 w-full rounded-xl bg-blue-600 text-base font-bold text-white transition-colors hover:bg-blue-700"
                     >
-                      이 공고로 무료 진단 받기
+                      내가 신청해도 되는지 무료로 확인하기
                     </button>
                     <div className="mt-2 text-center">
                       <a
@@ -830,7 +853,7 @@ export default function DiagnosisWizard({
                         onClick={() => onViewProgram(r.program)}
                         className="text-sm font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-700"
                       >
-                        공고 원문 보기 ↗
+                        공식 안내문 보기 ↗
                       </a>
                     </div>
                   </div>
@@ -843,7 +866,7 @@ export default function DiagnosisWizard({
                     onClick={() => setShownCount((n) => n + 5)}
                     className="w-full rounded-xl border border-blue-200 bg-white py-3 text-base font-semibold text-blue-700 transition-colors hover:bg-blue-50"
                   >
-                    공고 더 보기 ({mainCount - shownCount}건 남음)
+                    다른 지원 더 보기 ({mainCount - shownCount}건 남음)
                   </button>
                 ) : null;
               })()}
@@ -855,11 +878,11 @@ export default function DiagnosisWizard({
                 return (
                   <details className="rounded-2xl border border-zinc-200 bg-white p-5">
                     <summary className="cursor-pointer text-sm font-semibold text-zinc-600">
-                      🧭 내 사업과 거리가 있어 보이는 공고 {lows.length}건 보기
+                      🧭 내 사업과 조금 거리가 있어 보이는 지원 {lows.length}건 보기
                     </summary>
                     <p className="mt-2 text-xs leading-5 text-zinc-500">
-                      특정 산업·기관 자산 활용 공고 등이에요. 조건(지역·업력)은 맞아서 목록에서 빼지
-                      않았어요 — 해당된다면 그대로 진단받으실 수 있어요.
+                      특정 업종이나 기관의 장비·자료를 꼭 써야 하는 경우 등이에요. 지역과 사업 시작 시기는
+                      맞아서 빼지 않았습니다. 나와 관련 있다면 그대로 확인할 수 있어요.
                     </p>
                     <div className="mt-3 space-y-2">
                       {lows.map((r) => (
@@ -876,14 +899,14 @@ export default function DiagnosisWizard({
                               onClick={() => onViewProgram(r.program)}
                               className="text-xs text-blue-600 underline underline-offset-2"
                             >
-                              공고 원문 ↗
+                              공식 안내문 ↗
                             </a>
                           </div>
                           <button
-                            onClick={() => onChooseProgram(r.program)}
+                            onClick={() => onChooseProgram(programWithApplicationDecision(r))}
                             className="shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
                           >
-                            진단 받기
+                            신청 가능 여부 보기
                           </button>
                         </div>
                       ))}
@@ -899,11 +922,11 @@ export default function DiagnosisWizard({
                   return (
                     <details className="rounded-2xl border border-zinc-200 bg-white p-5">
                       <summary className="cursor-pointer text-sm font-semibold text-zinc-600">
-                        🧾 간단 신청 공고 {events.length}건 보기
+                        🧾 긴 문서 없이 바로 신청하는 지원 {events.length}건 보기
                       </summary>
                       <p className="mt-2 text-xs leading-5 text-zinc-500">
-                        아래 공고들은 사업계획서가 필요 없어요. 장비·공간 예약 또는 교육·행사 참가처럼
-                        원문에서 바로 신청하면 됩니다. 초안 서비스 결제 안내는 붙이지 않아요.
+                        아래 지원은 사업계획서가 필요 없어요. 장비·공간 예약 또는 교육·행사 참가처럼
+                        공식 안내문에서 바로 신청하면 됩니다. 결제 안내도 나오지 않아요.
                       </p>
                       <div className="mt-3 space-y-2">
                         {events.map((r) => {
@@ -931,7 +954,7 @@ export default function DiagnosisWizard({
                                 onClick={() => onViewProgram(r.program)}
                                 className="mt-1 inline-block text-xs font-semibold text-blue-600 underline underline-offset-2"
                               >
-                                공고 원문 보고 바로 신청 ↗
+                                공식 안내문 보고 바로 신청 ↗
                               </a>
                             </div>
                           );
@@ -945,7 +968,7 @@ export default function DiagnosisWizard({
                   onClick={onSignup}
                   className="w-full rounded-xl border border-zinc-200 bg-zinc-50 py-3 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100"
                 >
-                  🔔 이 공고들 마감 알림 받기 (간단 가입 · 비밀번호 없음)
+                  🔔 이 지원들의 마감 알림 받기 (간단 가입 · 비밀번호 없음)
                 </button>
               )}
               {findRes.usingSample && (
@@ -958,7 +981,7 @@ export default function DiagnosisWizard({
                   onClick={() => setStep("find-years")}
                   className="py-1 text-sm text-zinc-400 underline underline-offset-2 hover:text-zinc-600"
                 >
-                  조건 바꿔서 다시 찾기
+                  답을 바꿔서 다시 찾기
                 </button>
               </div>
             </div>
@@ -972,7 +995,7 @@ export default function DiagnosisWizard({
             return (
               <details className="mt-3 rounded-2xl border border-zinc-200 bg-white p-5">
                 <summary className="cursor-pointer text-sm font-semibold text-zinc-600">
-                  📂 이전에 본 공고 ({prev.length}건)
+                  📂 이전에 본 지원 ({prev.length}건)
                 </summary>
                 <div className="mt-3 space-y-2">
                   {prev.map((r) => (
@@ -989,14 +1012,14 @@ export default function DiagnosisWizard({
                           onClick={() => onViewProgram(r.program)}
                           className="text-xs text-blue-600 underline underline-offset-2"
                         >
-                          공고 원문 ↗
+                          공식 안내문 ↗
                         </a>
                       </div>
                       <button
-                        onClick={() => onChooseProgram(r.program)}
+                        onClick={() => onChooseProgram(programWithApplicationDecision(r))}
                         className="shrink-0 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
                       >
-                        진단 받기
+                        신청 가능 여부 보기
                       </button>
                     </div>
                   ))}
@@ -1010,12 +1033,12 @@ export default function DiagnosisWizard({
       {/* ── 화면 2: 공고 입력 ─────────────────────────────────── */}
       {step === "notice" && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
-          <StagePill>무료 진단 1/4</StagePill>
-          <Title>지원할 공고를 올려주세요</Title>
+          <StagePill>무료 확인 1/4</StagePill>
+          <Title>지원사업 안내문을 올려주세요</Title>
           <Sub>
             {program && program.source !== "sample"
-              ? `‘${program.title}’ 공고문, 화면 캡처 또는 공고 링크를 등록해주세요.`
-              : "공고문, 화면 캡처 또는 공고 링크를 등록해주세요."}
+              ? `‘${program.title}’ 안내문, 화면 캡처 또는 링크를 등록해주세요.`
+              : "모집 안내문, 화면 캡처 또는 링크를 등록해주세요."}
           </Sub>
           <input
             ref={noticeInputRef}
@@ -1056,7 +1079,7 @@ export default function DiagnosisWizard({
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="🔗 또는 공고 링크 붙여넣기 / 어떤 사업에 낼지 한 줄 설명"
+            placeholder="🔗 또는 안내문 링크 붙여넣기 / 어떤 지원인지 한 줄 설명"
             className="mt-2.5 w-full rounded-xl border border-zinc-200 px-4 py-3.5 text-[15px] outline-none focus:border-blue-500"
           />
           <button
@@ -1064,15 +1087,15 @@ export default function DiagnosisWizard({
             disabled={fileCount === 0 && !note.trim()}
             className="mt-4 h-14 w-full rounded-xl bg-blue-600 text-lg font-extrabold text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
           >
-            공고 분석하기
+            내가 신청해도 되는지 확인하기
           </button>
           <details className="mt-4 text-sm">
             <summary className="w-fit cursor-pointer text-blue-600 underline underline-offset-2">
-              양식이나 공고문이 없나요?
+              받은 파일이나 안내문이 없나요?
             </summary>
             <p className="mt-2 rounded-xl bg-zinc-50 px-4 py-3 leading-6 text-zinc-600">
-              자유양식·IR 사업이라면 공고 페이지의 지원내용과 평가방법을 캡처해 올려주세요. 아무것도
-              없다면 위 입력칸에 어떤 사업에 낼 건지 한 줄만 적어주셔도 돼요.
+              정해진 서류가 없다면 안내 페이지에서 무엇을 도와주는지와 어떻게 뽑는지가 적힌 부분을
+              캡처해 올려주세요. 아무것도 없다면 위 칸에 어떤 지원인지 한 줄만 적어도 됩니다.
             </p>
           </details>
           {start === "scope" ? (
@@ -1080,7 +1103,7 @@ export default function DiagnosisWizard({
           ) : (
             // 추천에서 선택해 들어온 경우 — 뒤로가기는 추천 초기화면이 아니라 '선택한 공고 카드'로 (2026-07-12)
             program && (
-              <BackLink onClick={() => setStep("chosen")}>← 선택한 공고 다시 보기</BackLink>
+              <BackLink onClick={() => setStep("chosen")}>← 선택한 지원사업 다시 보기</BackLink>
             )
           )}
         </section>
@@ -1089,9 +1112,9 @@ export default function DiagnosisWizard({
       {/* ── 화면 3: 사업계획서 양식 확인 ───────────────────────── */}
       {step === "form" && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
-          <StagePill>무료 진단 1/4</StagePill>
-          <Title>사업계획서 양식이 있나요?</Title>
-          <Sub>없어도 진단은 그대로 진행됩니다.</Sub>
+          <StagePill>무료 확인 1/4</StagePill>
+          <Title>작성하라고 받은 빈 서류가 있나요?</Title>
+          <Sub>‘사업계획서 양식’이라고 적힌 한글·PDF·워드 파일을 말해요. 없어도 확인할 수 있습니다.</Sub>
           <input
             ref={formInputRef}
             type="file"
@@ -1109,26 +1132,26 @@ export default function DiagnosisWizard({
           />
           <div className="mt-5 space-y-3">
             <BigChoice
-              title="양식 파일 올리기"
-              desc="공고에서 받은 사업계획서 양식(한글·PDF·워드·캡처)을 올립니다."
+              title="작성할 빈 서류 올리기"
+              desc="안내 페이지에서 받은 한글·PDF·워드 파일이나 화면 캡처를 올립니다."
               onClick={() => formInputRef.current?.click()}
             />
             <BigChoice
-              title="양식 없이 진행하기"
-              desc="표준 목차 기준으로 진단하고, 양식은 나중에 올려도 돼요."
+              title="받은 서류 없이 계속하기"
+              desc="일반적인 작성 순서로 확인하고, 파일은 나중에 올려도 돼요."
               onClick={() => proceedToDiagnosis("[파일 역할] 별도 사업계획서 양식은 없습니다.")}
             />
           </div>
-          <BackLink onClick={() => setStep("notice")}>← 공고 입력으로</BackLink>
+          <BackLink onClick={() => setStep("notice")}>← 안내문 입력으로</BackLink>
         </section>
       )}
 
       {/* ── 화면 3b: 파일 역할 확인 — 2개 이상 올렸는데 어느 것이 양식인지 애매할 때만 ── */}
       {step === "form-pick" && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
-          <StagePill>무료 진단 1/4</StagePill>
-          <Title>올려주신 파일 중 어느 것이 ‘사업계획서 양식’인가요?</Title>
-          <Sub>공고문과 양식을 구분해두면 초안이 양식 항목 그대로 작성돼요.</Sub>
+          <StagePill>무료 확인 1/4</StagePill>
+          <Title>올려주신 파일 중 실제로 작성해야 하는 빈 서류는 무엇인가요?</Title>
+          <Sub>안내문과 작성할 파일을 구분하면 나중에 그 순서 그대로 초안을 만들 수 있어요.</Sub>
           <div className="mt-5 space-y-2.5">
             {chips.map((c) => (
               <PickCard
@@ -1142,14 +1165,14 @@ export default function DiagnosisWizard({
               />
             ))}
             <PickCard
-              label="양식은 없어요 — 전부 공고문이에요"
-              sub="표준 목차 기준으로 진단하고, 양식은 나중에 올려도 돼요."
+              label="작성할 빈 서류는 없어요 — 전부 안내문이에요"
+              sub="일반적인 작성 순서로 확인하고, 파일은 나중에 올려도 돼요."
               onClick={() =>
                 proceedToDiagnosis("[파일 역할] 올린 파일은 모두 공고문이고, 별도 양식은 없습니다.")
               }
             />
           </div>
-          <BackLink onClick={() => setStep("notice")}>← 공고 입력으로</BackLink>
+          <BackLink onClick={() => setStep("notice")}>← 안내문 입력으로</BackLink>
         </section>
       )}
 
@@ -1162,7 +1185,7 @@ export default function DiagnosisWizard({
             onRetryMap={onRetryMap}
             onSubmit={onSubmitEvidence}
           />
-          <BackLink onClick={() => setStep("form")}>← 양식 확인으로</BackLink>
+          <BackLink onClick={() => setStep("form")}>← 작성할 서류 확인으로</BackLink>
         </section>
       )}
 
@@ -1176,7 +1199,7 @@ export default function DiagnosisWizard({
               onClick={() => setStep("find-years")}
               className="mt-3 w-full rounded-xl border border-zinc-200 bg-white py-3 text-sm font-semibold text-zinc-600 transition-colors hover:bg-zinc-50"
             >
-              내게 맞는 다른 지원사업 찾아보기
+              지금 단계에 맞는 다른 지원 찾아보기
             </button>
           </section>
         ) : (
@@ -1205,31 +1228,31 @@ export default function DiagnosisWizard({
       {step === "handoff" && program?.requiresBusinessPlan === true && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 text-center sm:p-10">
           <span className="inline-block rounded-full bg-emerald-100 px-4 py-1.5 text-sm font-bold text-emerald-800">
-            ✓ 무료 진단 완료
+            ✓ 무료 확인 완료
           </span>
           <h2 className="mt-4 text-2xl font-extrabold leading-snug tracking-tight text-zinc-900 sm:text-[27px]">
-            추천과 진단은 무료였습니다
+            여기까지는 모두 무료였습니다
           </h2>
           <div className="mt-3">
             <span className="inline-block rounded-full bg-amber-100 px-4 py-1.5 text-sm font-bold text-amber-800">
-              다음 단계 · 유료 서비스 · 1회 {PRICE_LABEL}
+              다음 단계 · 사업계획서 워드 초안 · 1회 {PRICE_LABEL}
             </span>
           </div>
           <p className="mx-auto mt-4 max-w-md text-[15px] leading-7 text-zinc-600">
-            이제 이 공고에 맞는 사업계획서 초안을 생성할 수 있어요. 결제 전에 어떤 목차와 문장이
-            만들어지는지 먼저 확인해보세요.
+            이제 대표님이 말해주신 내용을 이 지원사업에서 요구하는 문서 말투와 순서로 바꿀 수 있어요.
+            결제 전에 어떤 내용이 만들어지는지 먼저 확인해보세요.
           </p>
           <button
             onClick={() => setStep("preview")}
             className="mt-6 h-14 w-full rounded-xl bg-blue-600 text-lg font-extrabold text-white transition-colors hover:bg-blue-700"
           >
-            초안 미리보기 확인하기
+            내가 받을 문서 미리보기
           </button>
           <button
             onClick={() => setStep("result")}
             className="mt-2.5 h-12 w-full rounded-xl border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-500 transition-colors hover:bg-zinc-50"
           >
-            무료 진단 결과로 돌아가기
+            무료 확인 결과로 돌아가기
           </button>
         </section>
       )}

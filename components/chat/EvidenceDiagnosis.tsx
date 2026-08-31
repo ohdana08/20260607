@@ -12,6 +12,11 @@ import {
   type EvidenceRow,
   type EvidenceSheet,
 } from "@/lib/diagnosis/evidence";
+import {
+  plainEvidenceCategory,
+  plainEvidenceItem,
+  plainGap,
+} from "@/lib/plain-language";
 
 // ── 합격 가능성 진단 (2026-07-11 디자인수정 반영) ───────────────────────
 // 원칙: 한 화면 = 한 질문 = 한 행동. 상단에 "무료 진단 n/4" 진행표시.
@@ -89,9 +94,9 @@ export function EvidenceDiagnosisForm({
     <div className="mr-auto w-full max-w-[95%] rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4 sm:p-5">
       {step === 1 ? (
         <div>
-          <StagePill>무료 진단 2/4</StagePill>
+          <StagePill>무료 확인 2/4</StagePill>
           <p className="mt-2.5 text-lg font-extrabold leading-7 text-zinc-900">
-            최근 월평균 매출은 어느 정도인가요?
+            최근 한 달에 평균 얼마나 파셨나요?
           </p>
           <p className="mt-1 text-[13px] text-zinc-500">대략적인 범위면 충분해요.</p>
           <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -111,28 +116,28 @@ export function EvidenceDiagnosisForm({
         </div>
       ) : (
         <div>
-          <StagePill>무료 진단 3/4</StagePill>
+          <StagePill>무료 확인 3/4</StagePill>
           <p className="mt-2.5 text-lg font-extrabold leading-7 text-zinc-900">
-            현재 사업에서 확보한 실적을 선택해주세요
+            지금까지 실제로 해낸 일을 골라주세요
           </p>
           <p className="mt-1 text-[13px] text-zinc-500">여러 개 선택할 수 있습니다.</p>
           {rows === null ? (
             mapError ? (
               <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                진단 항목을 불러오지 못했어요.
+                확인할 내용을 불러오지 못했어요.
                 <button onClick={onRetryMap} className="ml-2 font-semibold underline">
                   다시 시도
                 </button>
               </div>
             ) : (
-              <p className="mt-3 text-xs text-zinc-500">진단 항목을 불러오는 중이에요…</p>
+              <p className="mt-3 text-xs text-zinc-500">확인할 내용을 불러오는 중이에요…</p>
             )
           ) : (
             <>
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {rows.map((r) => (
                   <OptionCard key={r.item} on={items.includes(r.item)} onClick={() => toggleItem(r.item)}>
-                    {r.item}
+                    {plainEvidenceItem(r.item)}
                   </OptionCard>
                 ))}
                 <OptionCard on={items.includes(NONE_ITEM)} onClick={() => toggleItem(NONE_ITEM)}>
@@ -144,12 +149,12 @@ export function EvidenceDiagnosisForm({
                 disabled={items.length === 0}
                 className="mt-4 w-full rounded-xl bg-emerald-600 py-3.5 text-base font-bold text-white transition-colors hover:bg-emerald-700 disabled:opacity-40"
               >
-                무료 진단 결과 보기
+                지금 준비된 것 확인하기
               </button>
             </>
           )}
           <button onClick={() => setStep(1)} className="mt-2 w-full py-1 text-xs text-zinc-400 hover:text-zinc-600">
-            ← 매출 다시 고르기
+            ← 한 달 판매 금액 다시 고르기
           </button>
         </div>
       )}
@@ -173,16 +178,16 @@ export function EvidenceSheetCard({
 }) {
   return (
     <div className="mr-auto w-full max-w-[95%] rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5">
-      <StagePill>무료 진단 4/4 · 결과</StagePill>
+      <StagePill>무료 확인 4/4 · 결과</StagePill>
       <h3 className="mt-2.5 text-lg font-extrabold leading-7 text-zinc-900">
-        사장님 사업 합격 가능성 진단지
+        지금 신청 준비 상태를 정리했어요
       </h3>
 
       {analysis && (analysis.text || analysis.busy) && (
         <div className="mt-3 rounded-xl border border-blue-200 bg-white p-3.5">
-          <p className="text-xs font-bold text-blue-700">이 공고의 핵심</p>
+          <p className="text-xs font-bold text-blue-700">이 지원사업을 쉽게 풀면</p>
           <p className="mt-1.5 whitespace-pre-wrap text-sm leading-6 text-zinc-700">
-            {analysis.text || "올려주신 공고문을 읽고 있어요…"}
+            {analysis.text || "올려주신 안내문을 읽고 있어요…"}
             {analysis.busy ? " ▌" : ""}
           </p>
         </div>
@@ -190,13 +195,15 @@ export function EvidenceSheetCard({
 
       {sheet.strengths.length > 0 && (
         <div className="mt-3 rounded-xl border border-emerald-200 bg-white p-3.5">
-          <p className="text-xs font-bold text-emerald-700">현재 강점</p>
+          <p className="text-xs font-bold text-emerald-700">이미 준비된 내용</p>
           <ul className="mt-1.5 space-y-1.5">
             {sheet.strengths.map((s) => (
               <li key={s.item} className="text-sm leading-6 text-zinc-800">
-                <span className="font-semibold text-emerald-700">✓</span> {s.sentence}
+                <span className="font-semibold text-emerald-700">✓</span> {plainEvidenceItem(s.item)}
                 {s.tags.length > 0 && (
-                  <span className="text-zinc-500"> → ‘{s.tags.join("·")}’ 항목의 근거</span>
+                  <span className="text-zinc-500">
+                    {" "}→ {s.tags.map(plainEvidenceCategory).join(" · ")}
+                  </span>
                 )}
               </li>
             ))}
@@ -205,16 +212,16 @@ export function EvidenceSheetCard({
       )}
 
       <div className="mt-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3.5">
-        <p className="text-xs font-bold text-amber-800">보완할 부분</p>
+        <p className="text-xs font-bold text-amber-800">더 준비하면 좋은 내용</p>
         <ul className="mt-1.5 space-y-1">
           {sheet.gaps.map((g) => (
             <li key={g} className="text-sm leading-6 text-amber-900">
-              → <b>{g}</b>을 보여줄 항목이 비어 있습니다
+              → <b>{plainGap(g)}</b>
             </li>
           ))}
           {FIXED_GAPS.map((g) => (
             <li key={g} className="text-sm leading-6 text-amber-900">
-              → {g}
+              → {plainGap(g)}
             </li>
           ))}
         </ul>
@@ -227,7 +234,7 @@ export function EvidenceSheetCard({
       {/* 무료 구간 종료 경계 — 여기서는 아직 결제를 요구하지 않는다 */}
       <div className="mt-4 flex items-center gap-3">
         <div className="h-px flex-1 border-t border-dashed border-emerald-300" />
-        <span className="shrink-0 text-xs font-bold text-emerald-700">여기까지는 무료 진단 결과입니다</span>
+        <span className="shrink-0 text-xs font-bold text-emerald-700">여기까지는 무료입니다</span>
         <div className="h-px flex-1 border-t border-dashed border-emerald-300" />
       </div>
       {draftStatus === "ready" && onPreview ? (
@@ -236,17 +243,17 @@ export function EvidenceSheetCard({
             onClick={onPreview}
             className="mt-3 w-full rounded-xl bg-blue-600 py-3.5 text-base font-bold text-white transition-colors hover:bg-blue-700"
           >
-            이 공고 기준 초안 목차 보기
+            이 지원에 낼 문서 미리보기
           </button>
           <p className="mt-1.5 text-center text-xs text-zinc-500">
-            어떤 목차와 문장이 만들어지는지 결제 전에 먼저 확인할 수 있어요.
+            대표님 말이 문서에서 어떻게 바뀌는지 결제 전에 먼저 볼 수 있어요.
           </p>
         </>
       ) : (
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
           {draftStatus === "not-required"
-            ? "이 공고는 사업계획서 유료 초안 대상이 아닙니다. 공고 원문에서 간단 신청을 진행해 주세요."
-            : "제출서류에서 사업계획서 필요 여부를 확인 중입니다. 확인되기 전에는 결제 안내를 띄우지 않습니다."}
+            ? "이 지원은 긴 사업계획서가 필요하지 않아요. 공식 안내문에서 바로 신청해 주세요."
+            : "어떤 서류를 내야 하는지 확인 중이에요. 긴 사업계획서가 필요한지 확인되기 전에는 결제 안내를 띄우지 않습니다."}
         </div>
       )}
     </div>
@@ -272,30 +279,30 @@ export function DraftPreviewCard({
   }, []);
 
   // 진단에서 확인된 강점·평가항목을 미리보기 문장에 그대로 반영 — "내 정보가 반영된다"는 증거
-  const topItems = sheet.strengths.slice(0, 2).map((s) => s.item);
+  const topItems = sheet.strengths.slice(0, 2).map((s) => plainEvidenceItem(s.item));
   const allTags = [...new Set(sheet.strengths.flatMap((s) => s.tags))];
   const exampleSentence =
     topItems.length > 0
-      ? `대표님 사업은 ‘${topItems.join("’, ‘")}’ 실적을 확보하고 있어, 단순 아이디어 단계가 아닌 사업화 검증 단계에 있습니다. 본 초안은 이 실적을 심사 평가항목에 맞춰 배치해 사업화 가능성을 구체적으로 보여주는 방향으로 작성됩니다.`
-      : `입력하신 사업 내용과 공고의 평가항목을 바탕으로, 심사위원이 이해하는 문서 구조로 초안을 작성합니다.`;
+      ? `대표님 사업은 ‘${topItems.join("’, ‘")}’처럼 이미 해낸 일이 있습니다. 이 내용을 날짜·숫자·확인할 자료와 연결해, 담당자가 한 번에 이해할 수 있는 문장으로 바꿉니다.`
+      : `말씀해주신 사업 내용을 바탕으로, 담당자가 무엇을 하는 사업인지 한 번에 이해할 수 있는 문장으로 바꿉니다.`;
 
   return (
     <div className="mr-auto w-full max-w-[95%] rounded-2xl border border-blue-200 bg-blue-50/30 p-4 sm:p-5">
       {/* 전환 안내 — 무료가 끝났음을 명시적으로 선언 */}
       <div className="text-center">
         <span className="inline-block rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">
-          ✓ 무료 진단 완료
+          ✓ 무료 확인 완료
         </span>
-        <p className="mt-2 text-lg font-extrabold leading-7 text-zinc-900">추천과 진단은 무료였습니다</p>
+        <p className="mt-2 text-lg font-extrabold leading-7 text-zinc-900">여기까지는 모두 무료였습니다</p>
         <p className="mt-1 text-sm leading-6 text-zinc-600">
-          이제 이 공고에 맞는 사업계획서 초안을 생성하려면 {PRICE_LABEL}이 필요해요.
+          이제 대표님 말을 이 지원에서 요구하는 사업계획서로 바꾸는 데 {PRICE_LABEL}이 필요해요.
         </p>
       </div>
 
       <div className="mt-4">
-        <StagePill paidLabel>유료 초안 서비스 미리보기 · 1회 {PRICE_LABEL}</StagePill>
+        <StagePill paidLabel>사업계획서 워드 초안 미리보기 · 1회 {PRICE_LABEL}</StagePill>
         <p className="mt-2.5 text-base font-extrabold leading-6 text-zinc-900">
-          이 공고 기준으로 다음 내용이 작성됩니다
+          최종 문서에는 이런 공식 항목명이 들어갑니다
         </p>
       </div>
 
@@ -308,18 +315,18 @@ export function DraftPreviewCard({
         ))}
       </ol>
       <p className="mt-1.5 text-xs leading-5 text-zinc-500">
-        공고문·양식을 올리셨다면, 대화 단계에서 그 양식의 항목 순서를 그대로 따라가요.
+        안내문과 작성 파일을 올리셨다면, 받은 파일의 항목명과 순서를 그대로 따라갑니다.
       </p>
 
       {allTags.length > 0 && (
         <div className="mt-2.5 rounded-xl bg-blue-100/60 px-3.5 py-2.5 text-sm leading-6 text-zinc-800">
-          이 초안에서는 특히 <b className="text-blue-700">‘{allTags.join("’·‘")}’</b> 평가항목을 중심으로
-          사장님의 실적을 배치합니다.
+          대표님이 말한 내용 중 <b className="text-blue-700">‘{allTags.map(plainEvidenceCategory).join("’·‘")}’</b>을
+          먼저 보여줄 수 있어요. 최종 문서에서만 공식 심사용 표현으로 바꿉니다.
         </div>
       )}
 
       <div className="mt-2.5 rounded-r-xl border-l-4 border-blue-400 bg-white px-4 py-3">
-        <p className="text-[11px] font-bold tracking-wide text-blue-700">실제 문장 미리보기</p>
+        <p className="text-[11px] font-bold tracking-wide text-blue-700">대표님 말이 이렇게 바뀝니다</p>
         <p className="mt-1 text-sm leading-6 text-zinc-700">{exampleSentence}</p>
       </div>
 
@@ -327,13 +334,13 @@ export function DraftPreviewCard({
         onClick={onPay}
         className="mt-4 w-full rounded-xl bg-blue-600 py-3.5 text-base font-bold text-white transition-colors hover:bg-blue-700"
       >
-        {PRICE_LABEL}으로 초안 만들기
+        {PRICE_LABEL}으로 워드 초안 만들기
       </button>
       <button
         onClick={onBack}
         className="mt-2 w-full rounded-xl border border-zinc-200 bg-white py-2.5 text-sm font-medium text-zinc-500 transition-colors hover:bg-zinc-50"
       >
-        ← 무료 진단 결과 다시 보기
+        ← 무료 확인 결과 다시 보기
       </button>
     </div>
   );
@@ -350,31 +357,30 @@ export function PreStageCard({
   const [open, setOpen] = useState(false);
   return (
     <div className="rounded-2xl border border-sky-200 bg-sky-50/40 p-4">
-      <h3 className="text-sm font-bold text-zinc-900">🌱 아직 실적이 쌓이기 전 단계예요</h3>
+      <h3 className="text-sm font-bold text-zinc-900">🌱 아직 보여줄 결과가 많지 않아도 괜찮아요</h3>
       <p className="mt-2 text-sm leading-6 text-zinc-700">
-        지금 필요한 건 사업계획서보다 <b>점수가 될 실적을 만드는 것</b>이에요. 실적이 없어도 신청할
-        수 있는 공고(교육·멘토링·바우처)부터 시작하면, 그 수행 경험이 다음 지원사업의 합격 근거가
-        돼요.
+        지금 필요한 건 긴 문서보다 <b>고객 반응이나 작은 판매 결과를 만드는 것</b>이에요. 결과가 없어도
+        시작할 수 있는 교육·전문가 도움·비용 지원부터 해보면, 그 경험을 다음 신청에서 보여줄 수 있어요.
       </p>
       {!open ? (
         <button
           onClick={() => setOpen(true)}
           className="mt-3 w-full rounded-xl bg-sky-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-700"
         >
-          🌱 실적 없이 신청 가능한 공고 보기
+          🌱 지금 단계에서도 신청할 수 있는 지원 보기
         </button>
       ) : loading || programs === null ? (
-        <p className="mt-3 text-xs text-zinc-500">공고를 찾는 중이에요…</p>
+        <p className="mt-3 text-xs text-zinc-500">지금 신청할 수 있는 지원을 찾는 중이에요…</p>
       ) : programs.length === 0 ? (
         <div className="mt-3 rounded-xl bg-white p-3 text-xs leading-5 text-zinc-600">
-          지금 모집 중인 교육·멘토링·바우처 공고를 찾지 못했어요. K-Startup에서 직접 확인해 보세요:{" "}
+          지금 바로 신청할 수 있는 교육·전문가 도움·비용 지원을 찾지 못했어요. K-Startup에서 직접 확인해 보세요:{" "}
           <a
             href="https://www.k-startup.go.kr/web/contents/bizpbanc-ongoing.do"
             target="_blank"
             rel="noopener noreferrer"
             className="font-semibold text-blue-600 underline"
           >
-            K-Startup 모집중 공고 ↗
+            K-Startup에서 지금 모집 중인 지원 보기 ↗
           </a>
         </div>
       ) : (
@@ -391,7 +397,7 @@ export function PreStageCard({
                 rel="noopener noreferrer"
                 className="mt-1 inline-block text-xs font-semibold text-blue-600 hover:underline"
               >
-                공고 원문 보기 ↗
+                공식 안내문 보기 ↗
               </a>
             </li>
           ))}

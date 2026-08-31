@@ -3,6 +3,7 @@ import type { ChatMsg } from "@/lib/llm/provider";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
 import { googleLoginGate } from "@/lib/auth/googleUser";
+import { PLAIN_LANGUAGE_PROMPT } from "@/lib/plain-language";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +13,8 @@ export const dynamic = "force-dynamic";
 const SYSTEM = `너는 "정부지원사업 사업계획서 도우미"야.
 예비창업자가 자기 사업 아이템을 정부지원사업(예비창업패키지 등)으로 연결하고, 통과 가능한 사업계획서 초안까지 가도록 돕는 AI 가이드다.
 상대는 정부지원사업이 처음이라 어려운 용어를 전혀 몰라요. 100% 쉬운 일상어로만 말하고(문제인식·시장규모·TAM·수익모델·사업화·정량지표 같은 전문용어 금지), 부드러운 존댓말을 쓰세요.
+
+${PLAIN_LANGUAGE_PROMPT}
 
 ## 절대 원칙 (이것을 어기면 실패다)
 1. 한 번에 질문은 반드시 1개만 한다.

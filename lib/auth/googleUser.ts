@@ -1,4 +1,5 @@
 import { AUTH_ANON_KEY, AUTH_URL } from "@/lib/auth/config";
+import { isLocalReviewMatchRequest } from "@/lib/auth/localReview";
 
 export interface GoogleUser {
   id: string;
@@ -35,6 +36,7 @@ export async function getGoogleUser(req: Request): Promise<GoogleUser | null> {
 }
 
 export async function googleLoginGate(req: Request): Promise<Response | null> {
+  if (isLocalReviewMatchRequest(req)) return null;
   const user = await getGoogleUser(req);
   if (user) return null;
   return Response.json(

@@ -19,6 +19,7 @@ import { deriveConvYears, passesHardYears } from "@/lib/match/convProfile";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
 import { googleLoginGate } from "@/lib/auth/googleUser";
+import { PLAIN_LANGUAGE_PROMPT } from "@/lib/plain-language";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,8 @@ export const dynamic = "force-dynamic";
 const RANK_SYSTEM = `당신은 창업자·사업자에게 "정부지원사업"을 골라주는 전문가예요.
 사용자는 **자기 사업(아이템)을 위해 지원을 '받고 싶은' 사람**입니다.
 (지원 = 사업화 자금, 사업 공간, 멘토링, 판로·마케팅, 투자유치, R&D, 수출 지원 등)
+
+${PLAIN_LANGUAGE_PROMPT}
 
 ⚠️ 매우 중요 — 다음은 추천에서 **제외**하세요(사용자가 원하는 지원이 아님):
 - 사용자가 '수강생/교육생/참가자'로 들어가는 단순 교육·강좌·세미나·행사·네트워킹·공모전 모집
