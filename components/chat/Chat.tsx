@@ -585,7 +585,19 @@ export default function Chat() {
     const list = loadConvos();
     setConvos(list);
     const recent = list.find((c) => c.messages.some((m) => m.role === "user"));
-    if (recent) {
+    const requestedStart = new URLSearchParams(window.location.search).get("start");
+    const startsNewFlow = requestedStart === "find" || requestedStart === "direct";
+    if (requestedStart === "direct") {
+      setMessages([{ role: "assistant", content: GREETING }]);
+      setConvoId(genId());
+      startDirect();
+    } else if (requestedStart === "find") {
+      setMessages([{ role: "assistant", content: GREETING }]);
+      setConvoId(genId());
+      setWizardStart("find");
+      setSelectedProgram(null);
+      persistProgram(null);
+    } else if (recent) {
       setMessages(recent.messages.map((m) => ({ role: m.role, content: m.content })));
       setConvoId(recent.id);
       // 진행 단계 복원(2026-07-13 T3) — 작성 세션이 intake로 리셋돼 추천이 다시 열리던 구멍 봉쇄
@@ -597,21 +609,25 @@ export default function Chat() {
       );
     } else {
       setConvoId(genId());
-      setWizardStart("scope"); // 첫 방문 — 화면 0(무료·유료 범위 안내)부터 위저드로
+      setWizardStart("scope"); // 첫 방문 — 지원사업 찾기/이미 정한 공고 두 선택지부터 시작
     }
     // 세션 보존 복원(2026-07-12): 선택 공고·추천 결과는 새로고침에도 유지
     try {
-      const sp = sessionStorage.getItem(SELPROG_KEY);
-      if (sp) setSelectedProgram(JSON.parse(sp) as Program);
-      const fd = sessionStorage.getItem(FIND_KEY);
-      if (fd) {
-        const parsed = JSON.parse(fd) as { cache?: FindState; seen?: Recommendation[] };
-        if (parsed.cache) setFindCache(parsed.cache);
-        if (Array.isArray(parsed.seen)) setSeenRecs(parsed.seen);
+      if (!startsNewFlow) {
+        const sp = sessionStorage.getItem(SELPROG_KEY);
+        if (sp) setSelectedProgram(JSON.parse(sp) as Program);
+        const fd = sessionStorage.getItem(FIND_KEY);
+        if (fd) {
+          const parsed = JSON.parse(fd) as { cache?: FindState; seen?: Recommendation[] };
+          if (parsed.cache) setFindCache(parsed.cache);
+          if (Array.isArray(parsed.seen)) setSeenRecs(parsed.seen);
+        }
       }
     } catch {
       /* 손상된 세션 데이터는 무시 */
     }
+    // 첫 진입 URL과 저장 대화는 마운트 시 한 번만 해석한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 대화가 바뀔 때마다 이 브라우저에 자동 저장(이미지 제외, 사용자 발화 있을 때만)
@@ -643,7 +659,7 @@ export default function Chat() {
 
   function newChat() {
     setMessages([{ role: "assistant", content: GREETING }]);
-    setWizardStart("scope"); // 새 대화는 화면 0(무료·유료 범위 안내)부터
+    setWizardStart("scope"); // 새 대화는 두 가지 출발점 선택부터
     setWizAnalysis({ text: "", busy: false });
     resetEligibility();
     setRetryable(false);

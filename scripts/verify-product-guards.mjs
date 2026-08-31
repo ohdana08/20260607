@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import JSZip from "jszip";
 
 const { classifyApplicationKind, matchByButtons } = await import(
@@ -88,4 +89,17 @@ assert.match(documentXml, /제출 전 검토표/);
 assert.match(documentXml, /검증용 사업계획서/);
 assert.ok((documentXml.match(/<w:tbl>/g) ?? []).length >= 2, "검토표와 내용표가 있어야 함");
 
-console.log("✅ 제출유형·마감·공식 URL·DOCX 검토표 회귀 테스트 통과");
+const landingSource = readFileSync(new URL("../app/landing/LandingClient.tsx", import.meta.url), "utf8");
+const wizardSource = readFileSync(new URL("../components/chat/DiagnosisWizard.tsx", import.meta.url), "utf8");
+const chatSource = readFileSync(new URL("../components/chat/Chat.tsx", import.meta.url), "utf8");
+
+assert.match(landingSource, /내 사업에 맞는/);
+assert.match(landingSource, /무료로 맞는 지원사업 찾기/);
+assert.match(landingSource, /이미 지원할 공고가 있어요/);
+assert.match(landingSource, /사업계획서가 필요한 지원사업을 선택했을 때만 안내됩니다/);
+assert.match(wizardSource, /나에게 맞는 지원사업을 찾아주세요/);
+assert.match(wizardSource, /지원사업 찾기와 신청 가능 여부 확인은 무료/);
+assert.match(chatSource, /requestedStart === "find"/);
+assert.match(chatSource, /requestedStart === "direct"/);
+
+console.log("✅ 진입 문구·두 경로·제출유형·마감·공식 URL·DOCX 검토표 회귀 테스트 통과");

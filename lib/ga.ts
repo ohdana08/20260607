@@ -45,6 +45,7 @@ export type GaEvent =
   | "repurchase_verified" // 소진 후 새 주문번호로 이용권 갱신 성공 (2026-07-14, QA 제외)
   // 랜딩 리뉴얼(2026-07-14) — /landing 전용 클릭 이벤트
   | "cta_free_diagnosis" // "무료 진단 시작" 계열 CTA 클릭 (location 파라미터로 위치 구분)
+  | "cta_direct_program" // 이미 지원할 공고가 있는 사람의 바로 시작 CTA 클릭
   | "cta_view_finder" // "무료로 어떻게 찾아주는지 보기" 계열 CTA 클릭
   | "cta_view_demo" // "가상 결과 예시 보기" CTA 클릭
   | "cta_paid_checkout" // 가격 카드 "DOCX 받기" 결제 CTA 클릭

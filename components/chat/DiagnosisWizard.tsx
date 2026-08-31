@@ -26,7 +26,7 @@ import type { EvidenceRow, EvidenceSheet } from "@/lib/diagnosis/evidence";
 
 // ── 진단 위저드 (2026-07-12, 0711 디자인수정 전면 적용) ─────────────────
 // 시안 그대로 "한 화면 = 한 단계"의 전체 화면 흐름:
-//   0 무료·유료 범위 안내 → 1 도움 방식 선택 → 2 공고 입력 → 3 양식 확인
+//   0 도움 방식 선택·무료 범위 안내 → 1 공고 입력 → 2 양식 확인
 //   → 4~5 매출·실적(버튼 진단) → 6 무료 결과 → 7 유료 전환 안내 → 8 초안 미리보기 → 결제
 // 추천 대화·결제 후 작성은 기존 챗이 담당하고, 이 컴포넌트는 진단 구간만 맡는다.
 
@@ -359,49 +359,36 @@ export default function DiagnosisWizard({
 
   return (
     <div className="mx-auto w-full max-w-[760px] pb-10">
-      {/* ── 화면 0: 무료·유료 범위 안내 ─────────────────────────── */}
+      {/* ── 화면 0: 처음 온 사람의 두 가지 출발점 ───────────────── */}
       {step === "scope" && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
           <h2 className="text-2xl font-extrabold leading-snug tracking-tight text-zinc-900 sm:text-[28px]">
-            내 사업에 맞는 정부지원사업을
-            <br />
-            무료로 진단해보세요
+            어떤 도움이 필요하세요?
           </h2>
-          <Sub>추천과 진단은 무료입니다. 사업계획서 초안 생성만 유료예요.</Sub>
-          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-5">
-              <p className="text-xs font-extrabold tracking-wide text-emerald-700">무료로 받는 결과</p>
-              <ul className="mt-2 space-y-1.5 text-[15px] leading-6 text-zinc-700">
-                <li>✓ 지원사업 추천</li>
-                <li>✓ 공고 적합도 진단</li>
-                <li>✓ 공고 핵심 요약</li>
-                <li>✓ 현재 사업의 강점과 보완점</li>
-              </ul>
-            </div>
-            <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5">
-              <p className="text-xs font-extrabold tracking-wide text-amber-700">유료로 받는 결과</p>
-              <p className="mt-2 text-[15px] font-bold leading-6 text-zinc-800">
-                사업계획서 초안 자동 작성 · 1회 {PRICE_LABEL}
-              </p>
-              <ul className="mt-1 space-y-1.5 text-[15px] leading-6 text-zinc-700">
-                <li>· 내 사업 정보 반영</li>
-                <li>· 선택한 공고 기준 반영</li>
-                <li>· 복사·수정 가능한 초안 제공</li>
-              </ul>
-            </div>
+          <Sub>지원사업 이름을 몰라도 괜찮아요. 지금 상황에 맞는 쪽을 골라주세요.</Sub>
+          <div className="mt-5 space-y-3">
+            <BigChoice
+              title="나에게 맞는 지원사업을 찾아주세요"
+              desc="사업을 시작한 시기·지역·하는 일·필요한 도움을 고르면 지금 신청할 수 있는 지원사업을 찾아드려요."
+              onClick={() => {
+                track("diagnosis_start", { path: "find" });
+                setStep("find-years");
+              }}
+            />
+            <BigChoice
+              title="이미 지원할 공고가 있어요"
+              desc="정해둔 지원사업의 안내문이나 링크를 올리고, 내가 신청해도 되는지부터 확인해요."
+              onClick={() => {
+                track("diagnosis_start", { path: "direct" });
+                onDirectProgram();
+                setStep("notice");
+              }}
+            />
           </div>
-          <button
-            onClick={() => {
-              track("diagnosis_start");
-              setStep("path");
-            }}
-            className="mt-6 h-14 w-full rounded-xl bg-blue-600 text-lg font-extrabold text-white transition-colors hover:bg-blue-700"
-          >
-            무료 진단 시작하기
-          </button>
-          <p className="mt-2 text-center text-[13px] text-zinc-400">
-            사업계획서 초안 생성은 1회 {PRICE_LABEL}입니다.
-          </p>
+          <div className="mt-5 rounded-xl bg-zinc-50 px-4 py-3 text-[13px] leading-6 text-zinc-600">
+            <p><b className="text-emerald-700">지원사업 찾기와 신청 가능 여부 확인은 무료</b>예요.</p>
+            <p>사업계획서가 필요한 지원사업을 골랐을 때만 수정 가능한 워드 초안 1건 {PRICE_LABEL}을 안내합니다.</p>
+          </div>
           {findRes && findRes.recommendations.length > 0 && (
             <button
               onClick={() => setStep("find-results")}
@@ -416,18 +403,22 @@ export default function DiagnosisWizard({
       {/* ── 화면 1: 도움 방식 선택 ─────────────────────────────── */}
       {step === "path" && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
-          <Title>어떤 도움이 필요하신가요?</Title>
-          <Sub>하나를 골라주세요. 언제든 되돌아올 수 있어요.</Sub>
+          <Title>어떤 도움이 필요하세요?</Title>
+          <Sub>지원사업 이름을 몰라도 괜찮아요. 지금 상황에 맞는 쪽을 골라주세요.</Sub>
           <div className="mt-5 space-y-3">
             <BigChoice
-              title="내 사업에 맞는 지원사업 찾기"
-              desc="업력·지역·필요한 지원을 고르면 바로 공고를 추천받습니다."
-              onClick={() => setStep("find-years")}
+              title="나에게 맞는 지원사업을 찾아주세요"
+              desc="사업을 시작한 시기·지역·하는 일·필요한 도움을 고르면 지금 신청할 수 있는 지원사업을 찾아드려요."
+              onClick={() => {
+                track("diagnosis_start", { path: "find" });
+                setStep("find-years");
+              }}
             />
             <BigChoice
-              title="이미 정한 공고 진단하기"
-              desc="선택한 공고에 지원 가능한지 확인합니다."
+              title="이미 지원할 공고가 있어요"
+              desc="정해둔 지원사업의 안내문이나 링크를 올리고, 내가 신청해도 되는지부터 확인해요."
               onClick={() => {
+                track("diagnosis_start", { path: "direct" });
                 onDirectProgram();
                 setStep("notice");
               }}

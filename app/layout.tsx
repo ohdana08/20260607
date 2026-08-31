@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://ddakfit.bccconsulting.kr"),
   title: "딱, 지원핏 | 정부지원사업 무료 추천",
   description:
-    "지역·업력·사업단계에 맞는 정부지원사업을 무료로 찾고 신청 자격과 원문을 확인하세요. 사업계획서 초안은 필요할 때만 선택할 수 있습니다.",
+    "사업을 시작한 시기와 지역, 하는 일을 바탕으로 지금 신청할 수 있는 정부지원사업을 무료로 찾으세요. 사업계획서 작성은 필요한 경우에만 선택할 수 있습니다.",
 };
 
 // GA4 측정 ID는 공개돼도 되는 값(비밀 아님) → NEXT_PUBLIC_ 로 둔다.

@@ -7,7 +7,8 @@ import { captureUtm } from "@/lib/utm";
 import { GROBLE_CHECKOUT_URL, PRICE_KRW, PRICE_LABEL } from "@/lib/config";
 
 // 배포 전 설정 — 실제 URL만 여기서 관리한다.
-const FREE_DIAGNOSIS_URL = "/embed"; // 도우미 진단 진입 (app/page.tsx와 동일한 실제 제품 입구)
+const FREE_DIAGNOSIS_URL = "/embed?start=find"; // 지원사업을 모르는 사람: 무료 찾기부터 시작
+const DIRECT_DIAGNOSIS_URL = "/embed?start=direct"; // 이미 지원할 공고가 있는 사람: 공고 확인부터 시작
 const PAID_CHECKOUT_URL = GROBLE_CHECKOUT_URL; // 그로블 신상품(RJczGx) 결제 링크 — lib/config.ts 단일 출처
 
 // 확정된 운영정책 6칸 (2026-07-14 반영본 그대로 — 임의 수정 금지)
@@ -87,7 +88,7 @@ const DEMO_ORDER: DemoKey[] = ["early", "pre", "b2g"];
 const FAQS: { q: string; a: string }[] = [
   {
     q: "정부지원사업 찾기는 정말 무료인가요?",
-    a: `네. 내 조건에 맞는 공고 추천, 공고 핵심 확인과 신청 자격 진단까지 무료입니다. 지원할 공고를 정한 뒤 공고 양식에 맞춘 전체 사업계획서 DOCX 초안이 필요할 때만 1건 ${PRICE_LABEL}을 결제합니다.`,
+    a: `네. 나에게 맞는 지원사업 찾기, 내가 신청해도 되는지 확인하기, 마감일과 준비할 서류 확인까지 무료입니다. 지원할 사업을 고른 뒤 사업계획서가 필요할 때만 수정 가능한 워드 초안 1건 ${PRICE_LABEL}을 결제합니다.`,
   },
   {
     q: "정부지원사업 공고는 어디에서 찾나요?",
@@ -173,7 +174,7 @@ export default function LandingClient() {
     <div className="landing-root" id="top">
       <div className="notice-bar">
         <div className="container notice-inner">
-          <span><b>정부지원사업 찾기·자격 확인 0원</b></span>
+          <span><b>지원사업 찾기·신청 가능 여부 확인 0원</b></span>
           <span>·</span>
           <span>사업계획서 초안은 필요할 때만</span>
         </div>
@@ -199,7 +200,7 @@ export default function LandingClient() {
 
           <div className="nav-actions">
             <FreeDiagnosisLink className="btn btn-gold btn-sm" location="header">
-              내 지원사업 무료로 찾기
+              무료로 맞는 지원사업 찾기
             </FreeDiagnosisLink>
             <button
               className="menu-button"
@@ -222,7 +223,7 @@ export default function LandingClient() {
           <a href="#price" onClick={() => setMenuOpen(false)}>가격</a>
           <a href="#faq" onClick={() => setMenuOpen(false)}>FAQ</a>
           <FreeDiagnosisLink className="btn btn-gold" location="mobile_menu">
-            내 지원사업 무료로 찾기
+            무료로 맞는 지원사업 찾기
           </FreeDiagnosisLink>
         </nav>
       )}
@@ -231,28 +232,32 @@ export default function LandingClient() {
         <section className="hero">
           <div className="container hero-grid">
             <div>
-              <div className="hero-badge">정부지원사업, 어디서 찾아야 할지 모르겠다면</div>
+              <div className="hero-badge">정부지원사업, 나도 신청할 수 있는지 궁금하다면</div>
               <h1>
-                내가 받을 수 있는
+                내 사업에 맞는
                 <br />
                 <mark>정부지원사업을</mark>
                 <br />
-                무료로 찾아보세요.
+                먼저 찾아드려요.
               </h1>
               <p className="hero-lead">
-                지역·업력·사업단계·관심분야 몇 가지만 알려주면 지금 확인할 공고를 먼저 추천하고, 신청 자격과 마감일,
-                공고 원문까지 한 번에 보여드립니다.
+                사업을 시작한 시기와 지역, 어떤 일을 하는지, 어떤 도움이 필요한지만 알려주세요. 지금 신청할 수 있는
+                지원사업을 찾아드리고, 내가 신청해도 되는지와 마감일·준비할 서류까지 함께 확인합니다.
               </p>
               <div className="hero-actions">
                 <FreeDiagnosisLink className="btn btn-gold" location="hero">
-                  내 지원사업 무료로 찾기 <span className="arrow">→</span>
+                  무료로 맞는 지원사업 찾기 <span className="arrow">→</span>
                 </FreeDiagnosisLink>
-                <a className="btn btn-light" href="#how-to-find" onClick={() => track("cta_view_finder", { location: "hero" })}>
-                  어떻게 찾아주는지 보기
-                </a>
+                <Link
+                  className="btn btn-light"
+                  href={DIRECT_DIAGNOSIS_URL}
+                  onClick={() => track("cta_direct_program", { location: "hero" })}
+                >
+                  이미 지원할 공고가 있어요
+                </Link>
               </div>
               <p className="hero-note">
-                <b>결제 없이 공고 추천·자격 확인까지 무료</b> · 사업계획서 초안은 지원할 공고를 정한 뒤 선택하세요.
+                <b>지원사업 찾기와 신청 가능 여부 확인은 무료</b> · 사업계획서가 필요한 경우에만 {PRICE_LABEL}입니다.
               </p>
             </div>
 
@@ -264,15 +269,15 @@ export default function LandingClient() {
                   <span className="proof-status">무료 추천</span>
                 </div>
                 <h2>
-                  지금 확인할 공고를
+                  지금 신청할 지원사업을
                   <br />
                   내 조건에 맞는 순서로
                 </h2>
-                <div className="proof-sub">부산 · 예비창업 · AI·콘텐츠 · 사업화 희망 예시</div>
+                <div className="proof-sub">부산 · 사업 시작 전 · AI·콘텐츠 · 사업화 자금 희망 예시</div>
                 <div className="proof-flow">
-                  <div className="proof-row"><b>조건 확인</b><span>지역 · 업력 · 사업단계 · 필요한 지원</span></div>
-                  <div className="proof-row"><b>추천 이유</b><span>내 조건과 맞는 항목, 마감일, 지원 내용을 요약</span></div>
-                  <div className="proof-row"><b>바로 확인</b><span>신청 자격 진단 · 주관기관 공고 원문 링크</span></div>
+                  <div className="proof-row"><b>내 상황</b><span>사업 시작 시기 · 지역 · 하는 일 · 필요한 도움</span></div>
+                  <div className="proof-row"><b>추천 이유</b><span>왜 나에게 맞는지, 무엇을 지원하는지 쉽게 안내</span></div>
+                  <div className="proof-row"><b>바로 확인</b><span>신청 가능 여부 · 마감일 · 공식 안내문</span></div>
                 </div>
                 <div className="proof-result">
                   <b>추천 결과 화면 예시</b>
@@ -287,10 +292,10 @@ export default function LandingClient() {
 
           <div className="hero-trust">
             <div className="container trust-strip">
-              <div className="trust-item"><strong>여러 공고를 한곳에서</strong><span>흩어진 모집 공고를 모아 확인</span></div>
-              <div className="trust-item"><strong>내 조건부터 맞춤</strong><span>지역·업력·사업단계 기준 추천</span></div>
+              <div className="trust-item"><strong>여러 지원사업을 한곳에서</strong><span>흩어진 모집 정보를 모아 확인</span></div>
+              <div className="trust-item"><strong>내 상황부터 맞춤</strong><span>사업 시작 시기·지역·하는 일 기준 추천</span></div>
               <div className="trust-item"><strong>마감일·원문까지</strong><span>요약만 보지 않고 공식 공고 확인</span></div>
-              <div className="trust-item"><strong>추천·자격 확인 0원</strong><span>결제 없이 지원할 공고부터 선택</span></div>
+              <div className="trust-item"><strong>찾기·신청 확인 0원</strong><span>결제 없이 지원할 사업부터 선택</span></div>
             </div>
           </div>
         </section>
@@ -337,7 +342,7 @@ export default function LandingClient() {
               <h2 className="section-title">
                 어려운 검색어 대신,
                 <br />
-                <span className="gold-text">내 사업 조건만 알려주세요.</span>
+                <span className="gold-text">내 상황만 알려주세요.</span>
               </h2>
               <p className="section-copy">
                 공고 제목을 몰라도 괜찮습니다. 네 단계로 지금 확인할 지원사업과 신청 가능성을 무료로 좁혀드립니다.
@@ -345,15 +350,15 @@ export default function LandingClient() {
             </div>
 
             <div className="process">
-              <article className="process-step"><span className="step">STEP 01</span><h3>사업단계 선택</h3><p>예비창업, 창업연차 등 현재 사업 상태를 알려주세요.</p></article>
-              <article className="process-step"><span className="step">STEP 02</span><h3>지역·분야 선택</h3><p>소재 지역과 사업 분야, 필요한 지원을 간단히 고릅니다.</p></article>
-              <article className="process-step"><span className="step">STEP 03</span><h3>맞는 공고 추천</h3><p>조건이 가까운 모집 공고를 이유와 마감일과 함께 보여드립니다.</p></article>
-              <article className="process-step"><span className="step">STEP 04</span><h3>자격·원문 확인</h3><p>무료 진단을 거쳐 주관기관의 최신 공고 원문으로 이동합니다.</p></article>
+              <article className="process-step"><span className="step">STEP 01</span><h3>사업 시작 시기</h3><p>아직 시작 전인지, 사업을 시작했다면 얼마나 됐는지 고릅니다.</p></article>
+              <article className="process-step"><span className="step">STEP 02</span><h3>지역·하는 일</h3><p>어디에서 어떤 일을 하는지, 어떤 도움이 필요한지 알려주세요.</p></article>
+              <article className="process-step"><span className="step">STEP 03</span><h3>지원사업 추천</h3><p>지금 신청할 수 있는 지원사업을 이유와 마감일과 함께 보여드립니다.</p></article>
+              <article className="process-step"><span className="step">STEP 04</span><h3>신청 가능 여부 확인</h3><p>내가 신청해도 되는지와 준비할 서류를 보고 공식 안내문을 확인합니다.</p></article>
             </div>
 
             <div className="center" style={{ marginTop: 38 }}>
               <FreeDiagnosisLink className="btn btn-gold" location="finder_process">
-                지금 내 지원사업 찾아보기 <span className="arrow">→</span>
+                무료로 지원사업 찾아보기 <span className="arrow">→</span>
               </FreeDiagnosisLink>
             </div>
           </div>
@@ -364,13 +369,13 @@ export default function LandingClient() {
             <div className="max-copy">
               <span className="eyebrow">OPTIONAL NEXT STEP</span>
               <h2 className="section-title">
-                지원할 공고를 찾았다면,
+                지원할 사업은 정했지만,
                 <br />
-                <span className="gold-text">작성까지 필요할 때만 이용하세요.</span>
+                <span className="gold-text">사업계획서 작성이 막혔나요?</span>
               </h2>
               <p className="section-copy">
-                공고 찾기와 자격 확인은 계속 무료입니다. 사업계획서 작성이 막힐 때만 내 사업의 증거를 공고 평가항목과 공식
-                양식에 배치한 수정 가능한 DOCX 초안을 선택할 수 있습니다.
+                매출·고객·거래처 같은 자료는 있지만 어디에 써야 할지 모르거나 마감이 다가오는데 작성이 끝나지 않았다면,
+                선택한 지원사업과 공식 양식에 맞춘 수정 가능한 워드 초안을 이용할 수 있습니다.
               </p>
             </div>
 
@@ -602,32 +607,32 @@ export default function LandingClient() {
             <div className="max-copy center">
               <span className="eyebrow">PRICE</span>
               <h2 className="section-title">
-                공고 찾기와 자격 확인은 무료,
+                지원사업 찾기와 신청 가능 여부 확인은 무료,
                 <br />
                 <span className="gold-text">사업계획서 초안만 선택 결제.</span>
               </h2>
-              <p className="section-copy">내게 맞는 공고를 찾는 단계에서 결제를 요구하지 않습니다.</p>
+              <p className="section-copy">내게 맞는 지원사업을 찾는 단계에서는 결제를 요구하지 않습니다.</p>
             </div>
 
             <div className="pricing-wrap">
               <article className="price-card featured">
-                <div className="plan">정부지원사업 찾기 + 자격 진단</div>
+                <div className="plan">지원사업 찾기 + 신청 가능 여부 확인</div>
                 <div className="price">0<small>원</small></div>
                 <div className="price-desc">내 조건에 맞는 지원사업부터 무료로 확인</div>
                 <ul className="price-list">
-                  <li>지역·업력·사업단계 맞춤 공고 추천</li>
+                  <li>사업 시작 시기·지역·하는 일 기준 추천</li>
                   <li>추천 이유와 마감일 확인</li>
                   <li>공고 원문 바로가기</li>
                   <li>공고 필수 자격 확인</li>
                   <li>준비 상태와 부족한 자료 확인</li>
                 </ul>
                 <FreeDiagnosisLink className="btn btn-gold btn-full" location="pricing_free">
-                  내 지원사업 무료로 찾기
+                  무료로 맞는 지원사업 찾기
                 </FreeDiagnosisLink>
               </article>
 
               <article className="price-card">
-                <div className="plan">선택 기능 · 공고 맞춤 DOCX 초안 1건</div>
+                <div className="plan">선택 기능 · 사업계획서 워드 초안 1건</div>
                 <div className="price">{PRICE_KRW.toLocaleString("ko-KR")}<small>원</small></div>
                 <div className="price-desc">지원할 공고를 정한 뒤 필요할 때만</div>
                 <ul className="price-list">
@@ -644,9 +649,9 @@ export default function LandingClient() {
                   rel="noopener noreferrer"
                   onClick={() => track("cta_paid_checkout", { location: "pricing_paid" })}
                 >
-                  공고 맞춤 DOCX 초안 · {PRICE_LABEL}
+                  사업계획서 초안 만들기 · {PRICE_LABEL}
                 </a>
-                <div className="price-foot">무료 진단 후 내 문장 미리보기를 확인하고 결제할 수 있습니다.</div>
+                <div className="price-foot">사업계획서가 필요한 지원사업을 선택했을 때만 안내됩니다.</div>
               </article>
             </div>
 
@@ -733,11 +738,11 @@ export default function LandingClient() {
                 <br />
                 어디서 찾아야 할지 모르겠다면.
               </h2>
-              <p>내 조건만 알려주세요. 맞는 공고 추천과 신청 자격 확인까지 무료로 시작할 수 있습니다.</p>
+              <p>내 상황만 알려주세요. 맞는 지원사업 찾기와 신청 가능 여부 확인까지 무료로 시작할 수 있습니다.</p>
             </div>
             <div className="final-actions">
               <FreeDiagnosisLink className="btn btn-dark" location="final">
-                내 지원사업 무료로 찾기 <span className="arrow">→</span>
+                무료로 맞는 지원사업 찾기 <span className="arrow">→</span>
               </FreeDiagnosisLink>
               <a className="btn btn-light" href="#how-to-find" onClick={() => track("cta_view_finder", { location: "final" })}>
                 무료 추천 과정 다시 보기
@@ -752,11 +757,11 @@ export default function LandingClient() {
           <div className="footer-grid">
             <div>
               <div className="footer-brand"><span className="brand-mark">BCC</span><strong>딱, 지원핏</strong></div>
-              <p className="footer-copy">지역·업력·사업단계에 맞는 정부지원사업을 무료로 찾고, 자격과 원문을 확인한 뒤 필요할 때만 공고 맞춤 사업계획서 초안까지 이어가는 도구입니다.</p>
+              <p className="footer-copy">사업을 시작한 시기와 지역, 하는 일을 바탕으로 지금 신청할 수 있는 지원사업을 무료로 찾고, 필요할 때만 사업계획서 작성까지 이어가는 도구입니다.</p>
             </div>
             <div>
               <div className="footer-title">SERVICE</div>
-              <div className="footer-links"><a href="#how-to-find">무료 공고 찾기</a><a href="#demo">사업계획서 초안</a><a href="#price">가격</a><a href="#faq">FAQ</a></div>
+              <div className="footer-links"><a href="#how-to-find">무료 지원사업 찾기</a><a href="#demo">사업계획서 초안</a><a href="#price">가격</a><a href="#faq">FAQ</a></div>
             </div>
             <div>
               <div className="footer-title">LEGAL</div>
@@ -772,7 +777,7 @@ export default function LandingClient() {
 
       <div className="sticky-mobile-cta">
         <FreeDiagnosisLink className="btn btn-gold" location="sticky_mobile">
-          내 지원사업 무료로 찾기
+          무료로 맞는 지원사업 찾기
         </FreeDiagnosisLink>
       </div>
     </div>
