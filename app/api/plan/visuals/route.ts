@@ -2,7 +2,7 @@ import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider"
 import type { ChatMsg } from "@/lib/llm/provider";
 import { checkDraftAccess, paymentRequiredResponse } from "@/lib/plan/paidAccess";
 import { maintenanceGate } from "@/lib/config";
-import { googleLoginGate } from "@/lib/auth/googleUser";
+import { paidGoogleLoginGate } from "@/lib/auth/googleUser";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { buildCharts, type VizData } from "@/lib/viz/svg";
 
@@ -23,8 +23,9 @@ const SYSTEM = `당신은 사업계획서에 들어갈 도식 데이터를 정�
 
 규칙:
 - 모든 라벨은 쉬운 일상어, 짧게.
-- 시장 규모 숫자는 합리적 추정으로 채우되 과장 금지(추정치임).
-- 대화에 근거가 약하면 해당 업종에서 흔한 일반적인 값/단계로 채우세요.
+- 시장 규모 숫자와 시장 단계는 대화에 출처·기준연도·산식이 실제로 있을 때만 tamSamSom을 출력하세요. 없으면 tamSamSom 키를 생략하세요.
+- 고객 여정, 판매 퍼널, 수익원도 사용자가 실제로 말한 내용만 사용하세요. 업종의 흔한 값이나 일반론으로 빈칸을 채우지 마세요.
+- 근거가 없는 도식은 해당 키 자체를 생략하세요. 그럴듯한 숫자·단계를 새로 만들지 마세요.
 - journey/funnel은 4~5단계, revenue는 2~4개.`;
 
 export async function POST(req: Request) {
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
 
   const gate = maintenanceGate();
   if (gate) return gate;
-  const loginGate = await googleLoginGate(req);
+  const loginGate = await paidGoogleLoginGate(req, code);
   if (loginGate) return loginGate;
   // rate limit을 코드 검증보다 먼저 — 코드 추측 시도도 제한에 걸리게(점검표 문제 3)
   const rl = await checkRateLimit(req, "planDraft");

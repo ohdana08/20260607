@@ -9,6 +9,12 @@ const { isStillOpen, kstToday } = await import("../lib/data/openFilter.ts");
 const { SAMPLE_PROGRAMS } = await import("../lib/data/sample.ts");
 const { firstTrustedProgramUrl } = await import("../lib/data/trustedProgramUrl.ts");
 const { buildPlanDocxBuffer } = await import("../lib/plan/docx.ts");
+const {
+  normalizePlanReview,
+  normalizeReadinessAssessment,
+  READINESS_DIMENSIONS,
+  reviewReportSections,
+} = await import("../lib/plan/reviewer.ts");
 const { normalizeBojoItem, normalizeDataGoKrServiceKey } = await import("../lib/data/bojo.ts");
 const { parseEgbizPage, egbizFinalPage } = await import("../lib/data/egbiz.ts");
 const { dedupePrograms } = await import("../lib/data/dedupePrograms.ts");
@@ -17,6 +23,7 @@ const { buildPublicEvidencePrompt, rankPublicEvidenceItems } = await import(
   "../lib/data/publicEvidence.ts"
 );
 const { isLocalReviewMatchRequest } = await import("../lib/auth/localReview.ts");
+const { paidGoogleLoginGate } = await import("../lib/auth/googleUser.ts");
 const { LOCAL_REVIEW_EVIDENCE_ROWS } = await import(
   "../lib/diagnosis/localReviewEvidence.ts"
 );
@@ -224,6 +231,55 @@ assert.equal(plainCondition("✓ 업력 3년 이내 충족"), "✓ 사업을 시
 assert.equal(plainEvidenceItem("유료 고객 확보"), "실제로 돈을 낸 고객이 있어요");
 assert.match(PLAIN_LANGUAGE_PROMPT, /대표님이 직접 내야 하는 돈/);
 
+const readyDimensions = READINESS_DIMENSIONS.map((item) => ({
+  key: item.key,
+  status: "strong",
+  evidenceLevel: "verified",
+  finding: `${item.label} 근거 확인`,
+  nextQuestion: "",
+}));
+const readyAssessment = normalizeReadinessAssessment({
+  ready: true,
+  score: 88,
+  verdict: "핵심 답변과 근거가 모였습니다.",
+  dimensions: readyDimensions,
+  criticalGaps: [],
+  nextQuestions: [],
+  evaluationAlignment: ["문제인식 → 고객 인터뷰"],
+});
+assert.equal(readyAssessment.ready, true, "독립 준비도 심사는 8개 필수 축이 모두 있어야 통과해야 함");
+const missingAssessment = normalizeReadinessAssessment({
+  ready: true,
+  score: 95,
+  dimensions: readyDimensions.filter((item) => item.key !== "business_model"),
+  criticalGaps: [],
+});
+assert.equal(missingAssessment.ready, false, "AI가 높은 점수를 줘도 필수 축이 빠지면 초안 작성을 막아야 함");
+assert.ok(missingAssessment.score < 80);
+const claimsOnlyAssessment = normalizeReadinessAssessment({
+  ready: true,
+  score: 92,
+  dimensions: readyDimensions.map((item) => ({ ...item, evidenceLevel: "stated" })),
+  criticalGaps: [],
+});
+assert.equal(claimsOnlyAssessment.ready, false, "구체적인 주장만 있고 확인 가능한 근거가 없으면 작성을 보류해야 함");
+assert.match(claimsOnlyAssessment.criticalGaps.join(" "), /최소 2개/);
+
+const blockedReview = normalizePlanReview(
+  {
+    score: 96,
+    verdict: "좋은 초안",
+    scores: [],
+    issues: [],
+    evidenceChecklist: [],
+  },
+  [{ heading: "성장 전략", content: "[보완 필요: 실제 예산을 입력해 주세요]\n[증빙 필요: 매출 자료]" }],
+);
+assert.equal(blockedReview.status, "blocked", "보완 표시가 남은 초안은 높은 AI 점수와 무관하게 제출 보류여야 함");
+assert.equal(blockedReview.submissionReady, false);
+assert.ok(blockedReview.score <= 69);
+assert.ok(reviewReportSections(blockedReview).some((section) => section.heading.includes("심사위원 관점")));
+
 const localReviewEnv = { NODE_ENV: "development", LOCAL_REVIEW_MODE: "on" };
 assert.equal(
   isLocalReviewMatchRequest(new Request("http://localhost:3000/api/match"), localReviewEnv),
@@ -247,6 +303,18 @@ assert.equal(
   false,
   "운영 빌드에서는 환경변수를 잘못 넣어도 인증 예외가 열리면 안 됨",
 );
+const previousMasterCodes = process.env.MASTER_CODES;
+process.env.MASTER_CODES = "REVIEW-ONLY-MASTER";
+assert.equal(
+  await paidGoogleLoginGate(
+    new Request("https://example.com/api/plan/readiness"),
+    "REVIEW-ONLY-MASTER",
+  ),
+  null,
+  "등록된 운영자 마스터 코드는 Google 세션 없이 유료 심사 흐름을 점검할 수 있어야 함",
+);
+if (previousMasterCodes === undefined) delete process.env.MASTER_CODES;
+else process.env.MASTER_CODES = previousMasterCodes;
 assert.ok(LOCAL_REVIEW_EVIDENCE_ROWS.length >= 5);
 assert.ok(LOCAL_REVIEW_EVIDENCE_ROWS.every((row) => typeof row.item === "string"));
 
@@ -267,6 +335,13 @@ assert.ok((documentXml.match(/<w:tbl>/g) ?? []).length >= 2, "검토표와 내�
 const landingSource = readFileSync(new URL("../app/landing/LandingClient.tsx", import.meta.url), "utf8");
 const wizardSource = readFileSync(new URL("../components/chat/DiagnosisWizard.tsx", import.meta.url), "utf8");
 const chatSource = readFileSync(new URL("../components/chat/Chat.tsx", import.meta.url), "utf8");
+const readinessRouteSource = readFileSync(
+  new URL("../app/api/plan/readiness/route.ts", import.meta.url),
+  "utf8",
+);
+const auditRouteSource = readFileSync(new URL("../app/api/plan/audit/route.ts", import.meta.url), "utf8");
+const reviseRouteSource = readFileSync(new URL("../app/api/plan/revise/route.ts", import.meta.url), "utf8");
+const visualsRouteSource = readFileSync(new URL("../app/api/plan/visuals/route.ts", import.meta.url), "utf8");
 const evidencePanelSource = readFileSync(
   new URL("../components/chat/PublicEvidencePanel.tsx", import.meta.url),
   "utf8",
@@ -296,6 +371,16 @@ assert.match(wizardSource, /programWithApplicationDecision/);
 assert.match(chatSource, /requestedStart === "find"/);
 assert.match(chatSource, /requestedStart === "direct"/);
 assert.match(chatSource, /PublicEvidencePanel/);
+assert.match(chatSource, /작성 준비도 심사 후 사업계획서 만들기/);
+assert.match(chatSource, /심사위원 관점 모의심사/);
+assert.match(chatSource, /현재 자료로 고칠 수 있는 부분 다시 다듬기/);
+assert.match(readinessRouteSource, /초안 작성 준비도/);
+assert.match(readinessRouteSource, /evidenceLevel/);
+assert.match(auditRouteSource, /신청자 원답변과 작성 대화/);
+assert.match(auditRouteSource, /canAutoFix/);
+assert.match(reviseRouteSource, /새 수치·고객·계약·성과·기관명을 만들지 않습니다/);
+assert.doesNotMatch(visualsRouteSource, /해당 업종에서 흔한 일반적인 값/);
+assert.match(visualsRouteSource, /그럴듯한 숫자·단계를 새로 만들지 마세요/);
 assert.match(evidencePanelSource, /계획서에 쓸 공식 근거 찾기/);
 assert.match(evidencePanelSource, /\[확인 필요\]/);
 assert.match(collectorWorkflow, /node-version: "22"/);
@@ -314,5 +399,5 @@ assert.match(programStore, /NON_EXHAUSTIVE_SOURCES/);
 assert.match(programStore, /부분 수집 소스라/);
 
 console.log(
-  "✅ 진입·제출유형·마감·e나라도움·경기 지역공고·지역포털 약관경계·중복제거·NTIS 안전경계·6단계 공식근거·DOCX 회귀 테스트 통과",
+  "✅ 진입·제출유형·마감·수집원·공식근거·독립 작성준비도·심사위원 모의심사·사실기반 재작성·DOCX 회귀 테스트 통과",
 );

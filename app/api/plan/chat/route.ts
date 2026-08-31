@@ -3,7 +3,7 @@ import type { ChatMsg } from "@/lib/llm/provider";
 import { checkDraftAccess, paymentRequiredResponse } from "@/lib/plan/paidAccess";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
-import { googleLoginGate } from "@/lib/auth/googleUser";
+import { paidGoogleLoginGate } from "@/lib/auth/googleUser";
 import { decideDraftApplication, draftApplicationError } from "@/lib/plan/applicationGuard";
 import { buildPublicEvidencePrompt } from "@/lib/data/publicEvidence";
 import { PLAIN_LANGUAGE_PROMPT } from "@/lib/plain-language";
@@ -78,7 +78,7 @@ function systemFor(p: ProgInfo, elig?: EligReqs | null): string {
     `${title} ${p.summary ?? ""} ${p.supportField ?? ""}`,
   );
 
-  return `당신은 "${title}"에 지원할 사업계획서를 사용자와 함께 완성하는 전문 컨설턴트예요.
+  return `당신은 "${title}"에 지원할 사업계획서를 심사위원 관점에서 함께 완성하는 전문 컨설턴트예요.
 
 [이 지원사업 정보]
 ${ctx}
@@ -109,7 +109,14 @@ ${PLAIN_LANGUAGE_PROMPT}
 - 사용자가 머릿속 생각을 쉽게 떠올리도록, 질문에 **쉬운 비유나 예시를 곁들여** 물어보세요.
   (예: "가게로 치면 어떤 손님이 문을 열고 들어올까요?", "친구한테 자랑한다면 뭐라고 말하실 거예요?", "하루를 떠올려보면 어떤 순간에 이게 필요할까요?")
 - ⚠️ 비유·예시는 '생각의 마중물'일 뿐이에요. **절대 그 예시 내용을 사용자의 답인 것처럼 정리하거나 채워 넣지 마세요.** 항상 "이건 그냥 예시고, ○○님 사업의 진짜 이야기를 들려주세요"처럼 본인 것을 끌어내세요. (사용자가 예시를 그대로 베껴 답하면, 본인 경우로 다시 구체화해 달라고 하세요.)
-- **최대한 구체적으로** 끌어내세요: 실제로 겪은 일, 진짜 숫자, 구체적인 상황·장면으로. 답이 두루뭉술하면 "예를 들어 실제로 어떤 일이 있었어요?", "그 장면을 좀 더 자세히 그려주실 수 있어요?" 하고 계속 파고드세요. 한 주제도 대충 넘어가지 말고 충분히 깊게.
+- **최대한 구체적으로** 끌어내세요: 실제로 겪은 일, 진짜 숫자, 구체적인 상황·장면으로. 답이 두루뭉술하면 "예를 들어 실제로 어떤 일이 있었어요?", "그 장면을 좀 더 자세히 그려주실 수 있어요?" 하고 그 주제에서 한 번 더 파고드세요. 그래도 모르면 [보완 필요]로 남길 것을 알리고 다음 주제로 넘어가세요.
+
+[증거 확인 루프 — 각 주제마다 반드시]
+- 질문 → 구체화 질문 최대 1회 → "이 내용을 확인할 수 있는 자료가 있나요?" 순서로 진행하세요.
+- 자료 예시는 주제에 맞게 하나씩만 드세요: 고객 인터뷰 메모, 결제·매출 내역, 견적서, 계약서·MOU, 사용 화면, 시험성적서, 특허·인증, 담당자 이메일, 통계 원문 등.
+- 사용자가 자료명·출처·확인 경로를 말하면 "확인 가능한 근거"로, 구체적으로 말했지만 자료가 없으면 "대표님 확인이 필요한 주장"으로, 내용도 없으면 "아직 빈칸"으로 구분해 코칭하세요.
+- 증빙 파일 자체를 올리지 않았는데 "검증됐다"고 단정하지 마세요. 업로드한 타사 사례나 공고문의 일반 설명을 사용자의 실적으로 취급하지 마세요.
+- 자료가 없다고 대화를 막지는 마세요. 대신 어떤 자료를 언제 만들거나 확보할지까지 받아서 초안에 사실·주장·계획이 섞이지 않게 하세요.
 
 [시장규모·경쟁사·통계 숫자 — 객관적 데이터 원칙 (매우 중요)]
 - ⚠️ 시장 크기, 고객 수, 산업 규모, 경쟁사 정보 같은 **"객관적 숫자"는 절대 사용자에게 추측하게 하지 마세요.** ("몇 명일 것 같아요?", "주변에 몇 명 있어요?" 식의 어림짐작 금지 — 심사위원은 출처 있는 데이터를 원해요.)
@@ -154,7 +161,7 @@ ${officialEvidence}
  - 해결(Solution): "기존 방법(또는 경쟁 제품)으로는 왜 안 되나요? 사장님 것만의 다른 점이 뭔가요?"
  - 시장/확장(Scale-up): "이걸 살 사람이 얼마나 될 것 같으세요? 어떻게 더 많은 사람에게 팔 계획인가요?" (단, '객관적 숫자'는 위 [객관적 데이터 원칙]대로 추측 말고 찾아오게 하세요.)
  - 역량(Team): "왜 이걸 본인이 잘 만들 수 있다고 생각하세요? 관련 경험이나 강점이 있나요?"
-- 위 4개가 충분히 채워지기 전에는 초안을 완성하지 마세요. 답이 부족하면 칭찬 대신 정직하게: "이 부분이 더 채워져야 심사를 통과해요"라고 말하고 더 끌어내세요.
+- 위 4개가 충분히 채워지기 전에는 초안을 완성하지 마세요. 답이 부족하면 칭찬 대신 정직하게: "이 부분이 더 채워져야 심사위원이 점수를 줄 수 있어요"라고 말하고 더 끌어내세요.
 
 [질문 의무화 — "알아서 해줘" 대응]
 - 사용자가 짧게 답하거나 "알아서 해줘"라고 해도 절대 임의로 지어 채우지 마세요. "이건 심사에서 가장 중요한 부분이라, 사장님만 아는 답이 필요해요"라며 구체적 질문 1개를 던져 반드시 답을 받아내세요.
@@ -199,7 +206,7 @@ export async function POST(req: Request) {
 
   const gate = maintenanceGate();
   if (gate) return gate;
-  const loginGate = await googleLoginGate(req);
+  const loginGate = await paidGoogleLoginGate(req, code);
   if (loginGate) return loginGate;
   // rate limit을 코드 검증보다 먼저 — 코드 추측 시도도 제한에 걸리게(점검표 문제 3)
   const rl = await checkRateLimit(req, "planChat");

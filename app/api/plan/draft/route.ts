@@ -2,7 +2,7 @@ import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider"
 import type { ChatMsg } from "@/lib/llm/provider";
 import { checkDraftAccess, markCreditUsed, paymentRequiredResponse } from "@/lib/plan/paidAccess";
 import { maintenanceGate } from "@/lib/config";
-import { googleLoginGate } from "@/lib/auth/googleUser";
+import { paidGoogleLoginGate } from "@/lib/auth/googleUser";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import {
   MISSING_INFO_PLACEHOLDER,
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
 
   const gate = maintenanceGate();
   if (gate) return gate;
-  const loginGate = await googleLoginGate(req);
+  const loginGate = await paidGoogleLoginGate(req, code);
   if (loginGate) return loginGate;
   // rate limit을 코드 검증보다 먼저 — 코드 추측 시도도 제한에 걸리게(점검표 문제 3)
   const rl = await checkRateLimit(req, "planDraft");
@@ -126,7 +126,7 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .join("\n");
 
-  const system = `당신은 정부지원사업 사업계획서를 대신 써주는 전문 컨설턴트예요.
+  const system = `당신은 정부지원사업 심사 기준에 맞춰 사용자의 사실과 근거를 사업계획서로 구조화하는 전문 컨설턴트예요.
 "${pTitle}"에 제출할 사업계획서의 한 항목을 작성합니다.
 ${progCtx ? `\n[이 지원사업 정보]\n${progCtx}\n` : ""}
 ${formTocRules}

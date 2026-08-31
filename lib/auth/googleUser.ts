@@ -1,5 +1,6 @@
-import { AUTH_ANON_KEY, AUTH_URL } from "@/lib/auth/config";
-import { isLocalReviewMatchRequest } from "@/lib/auth/localReview";
+import { AUTH_ANON_KEY, AUTH_URL } from "./config.ts";
+import { isLocalReviewMatchRequest } from "./localReview.ts";
+import { isMasterCode } from "../plan/access.ts";
 
 export interface GoogleUser {
   id: string;
@@ -43,4 +44,11 @@ export async function googleLoginGate(req: Request): Promise<Response | null> {
     { error: "Google 로그인 후 이용해 주세요.", reason: "google_login_required" },
     { status: 401 },
   );
+}
+
+// 운영자 마스터 코드는 원래 결제·공고 바인딩 없이 유료 흐름을 점검하는 수단이다.
+// 유료 라우트가 로그인 검사를 먼저 실행해 이 경로를 막지 않도록, 등록된 마스터 코드만 예외 처리한다.
+export async function paidGoogleLoginGate(req: Request, code: unknown): Promise<Response | null> {
+  if (isMasterCode(code)) return null;
+  return googleLoginGate(req);
 }
