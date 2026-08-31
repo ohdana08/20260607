@@ -5,6 +5,7 @@ import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
 import { googleLoginGate } from "@/lib/auth/googleUser";
 import { decideDraftApplication, draftApplicationError } from "@/lib/plan/applicationGuard";
+import { buildPublicEvidencePrompt } from "@/lib/data/publicEvidence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,6 +73,9 @@ function systemFor(p: ProgInfo, elig?: EligReqs | null): string {
   ]
     .filter(Boolean)
     .join("\n");
+  const officialEvidence = buildPublicEvidencePrompt(
+    `${title} ${p.summary ?? ""} ${p.supportField ?? ""}`,
+  );
 
   return `당신은 "${title}"에 지원할 사업계획서를 사용자와 함께 완성하는 전문 컨설턴트예요.
 
@@ -114,6 +118,8 @@ ${eligibilitySection(elig)}
 - 안내 문구 예: "이 숫자는 추측하면 심사에서 약해져요. **통계청 KOSIS(kosis.kr)**에 들어가서 '○○' 검색하시거나, 구글에 '**○○ 시장 규모 2025**'라고 쳐보세요. 거기 나온 숫자랑 출처를 알려주시면(캡처해서 📎로 올리셔도 돼요!) 제가 계획서에 출처와 함께 넣어드릴게요."
 - 사용자가 찾아온 숫자는 **출처와 함께** 계획서에 반영하세요.
 - 사용자가 "도저히 못 찾겠다"고 할 때만 → 합리적 가정에 근거한 **추정치**로 채우되, 반드시 "추정", 근거(가정)와 함께 표기하고 "지원 전에 실제 통계로 보강하면 좋아요"라고 안내하세요.
+
+${officialEvidence}
 
 [일반 주제 — 양식 첨부가 없을 때만 이 순서로]
   1) 어떤 불편/문제를 해결하려는지, 왜 중요한지

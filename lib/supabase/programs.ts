@@ -71,6 +71,13 @@ export async function upsertAndDiff(
   programs: Program[],
   runAt: Date = new Date(),
 ): Promise<DiffSummary> {
+  // 키 누락·외부 장애·응답 스키마 변경이 0건으로 보일 때 기존 공고를 전부 닫으면 안 된다.
+  // 한 건이라도 정상 수집된 실행에서만 mark-and-sweep을 수행한다.
+  if (programs.length === 0) {
+    console.warn(`[programs] ${source}: 0건 응답이라 기존 공고를 보존합니다.`);
+    return { source, seen: 0, new: 0, closed: 0, deadlineChanged: 0 };
+  }
+
   const db = createAdminClient();
   const runIso = runAt.toISOString();
 

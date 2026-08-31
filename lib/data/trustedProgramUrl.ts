@@ -3,6 +3,8 @@ import type { ChatMsg } from "@/lib/llm/provider";
 const TRUSTED_DOMAINS = [
   "k-startup.go.kr",
   "bizinfo.go.kr",
+  "bojo.go.kr",
+  "gosims.go.kr",
   "nipa.kr",
   "kocca.kr",
   "smtech.go.kr",

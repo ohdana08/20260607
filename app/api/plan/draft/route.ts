@@ -12,6 +12,7 @@ import {
 } from "@/lib/plan/sections";
 import { generateChunked, CONTINUE_PROMPT } from "@/lib/plan/draftChunking";
 import { decideDraftApplication, draftApplicationError } from "@/lib/plan/applicationGuard";
+import { buildPublicEvidencePrompt } from "@/lib/data/publicEvidence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -96,6 +97,9 @@ export async function POST(req: Request) {
     .join("\n");
 
   const pTitle = program?.title || programTitle || "해당 지원사업";
+  const officialEvidence = buildPublicEvidencePrompt(
+    `${pTitle} ${program?.summary ?? ""} ${program?.supportField ?? ""}`,
+  );
   const safeFormToc = Array.isArray(formToc)
     ? sanitizeFormToc(formToc.filter((x): x is string => typeof x === "string"))
     : [];
@@ -126,6 +130,8 @@ export async function POST(req: Request) {
 "${pTitle}"에 제출할 사업계획서의 한 항목을 작성합니다.
 ${progCtx ? `\n[이 지원사업 정보]\n${progCtx}\n` : ""}
 ${formTocRules}
+${officialEvidence}
+
 작성 규칙:
 - 이 지원사업의 취지·지원대상에 맞게 쓰세요.
 - 아래 [대화]에서 사용자가 실제로 말한 내용을 근거로 구체적으로 쓰세요.

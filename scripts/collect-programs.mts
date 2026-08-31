@@ -1,9 +1,10 @@
-// 5소스 배치 수집기 (2026-07-14 스프린트, 시나리오A) — GitHub Actions가 주기 실행한다.
-// 라이브 API 호출(요청마다) 대신 이 스크립트가 K-Startup·기업마당·NIPA·KOCCA·SMTECH를
+// 6소스 배치 수집기 — GitHub Actions와 Vercel Cron이 주기 실행한다.
+// 라이브 API 호출(요청마다) 대신 이 스크립트가 K-Startup·기업마당·e나라도움·NIPA·KOCCA·SMTECH를
 // 모아 Supabase programs 테이블에 upsert하고, 신규/마감변경/종료(diff)를 로그로 남긴다.
 //
 // 실행: npx tsx scripts/collect-programs.mts
-// 필요 환경변수: KSTARTUP_KEY, BIZINFO_KEY, KOCCA_KEY(선택 — 없으면 kocca 0건 스킵),
+// 필요 환경변수: KSTARTUP_KEY, BIZINFO_KEY, BOJO_SERVICE_KEY(또는 같은 data.go.kr 키),
+//              KOCCA_KEY(선택 — 없으면 kocca 0건 스킵),
 //              NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 //
 // 소스 하나가 실패해도 나머지는 계속 진행한다(Promise.allSettled) — 사이트 개편으로

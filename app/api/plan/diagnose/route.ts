@@ -5,6 +5,7 @@ import { maintenanceGate } from "@/lib/config";
 import { googleLoginGate } from "@/lib/auth/googleUser";
 import { isEmail, sendReportEmail } from "@/lib/diagnosis";
 import { buildReportDocxBase64 } from "@/lib/report-docx";
+import { buildPublicEvidencePrompt } from "@/lib/data/publicEvidence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,6 +70,9 @@ function teaserSystem(p: ProgInfo): string {
 // 이메일로 보낼 전체 보고서 — '평문'으로 생성(긴 출력에 견고). JSON 미사용.
 function fullReportSystem(p: ProgInfo): string {
   const title = p.title || "이 지원사업";
+  const officialEvidence = buildPublicEvidencePrompt(
+    `${title} ${p.summary ?? ""} ${p.supportField ?? ""}`,
+  );
   return `당신은 13년간 380개 공공기관 정부지원사업을 심사해 온 수석 심사위원이자 컨설턴트예요.
 7단계 자가진단 대화(+첨부 자료)를 바탕으로, 사용자가 '실제로 합격용 사업계획서를 쓸 수 있도록' 구체적·실행가능한 진단 보고서를 작성하세요.
 대상 지원사업: "${title}"
@@ -94,6 +98,8 @@ function fullReportSystem(p: ProgInfo): string {
   • 왜 약한가(Why·심사위원 기준): 정부지원 심사위원이 이 항목을 어떤 관점·배점으로 보는지, 비면 왜 감점/탈락 사유인지 (구체적으로)
   • 어떻게 바꾸나(How): 합격 수준으로 끌어올리는 구체적 개선 방향 + 당장 할 수 있는 실행 액션(숫자·예시 포함. 예: "타깃 고객 10명 인터뷰", "사전예약 폼으로 2주간 선주문 받기", "체험단 5명 모집")
   • 근거 찾는 법(Find): 필요한 데이터·증거를 어디서 어떻게 구하는지 구체적 출처·검색어. 예) 통계청 KOSIS(kosis.kr)에 "○○ 시장규모" 검색 / 네이버 데이터랩으로 검색량 / DART로 경쟁사 매출 / 구글폼 설문 / 사전예약·선주문 캡처
+
+${officialEvidence}
 
 💡 심사위원 한마디
 심사위원이 실제로 할 법한 직설적인 코멘트 1~2문장.

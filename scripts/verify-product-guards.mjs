@@ -8,6 +8,10 @@ const { classifyApplicationKind, matchByButtons } = await import(
 const { isStillOpen, kstToday } = await import("../lib/data/openFilter.ts");
 const { firstTrustedProgramUrl } = await import("../lib/data/trustedProgramUrl.ts");
 const { buildPlanDocxBuffer } = await import("../lib/plan/docx.ts");
+const { normalizeBojoItem } = await import("../lib/data/bojo.ts");
+const { buildPublicEvidencePrompt, rankPublicEvidenceItems } = await import(
+  "../lib/data/publicEvidence.ts"
+);
 
 function program(title, overrides = {}) {
   return {
@@ -74,6 +78,41 @@ assert.equal(
   firstTrustedProgramUrl([{ role: "user", content: "https://evil.example/k-startup.go.kr" }]),
   null,
 );
+assert.equal(
+  firstTrustedProgramUrl([{ role: "user", content: "https://www.bojo.go.kr/example" }]),
+  "https://www.bojo.go.kr/example",
+);
+
+const bojoBusiness = normalizeBojoItem({
+  DTLBZ_ID: "detail-1",
+  DDTLBZ_ID: "sub-1",
+  PBLANC_NM: "2026년 지역 소상공인 판로지원 공고",
+  DTLBZ_BSNS_PURPS_DC: "지역 상권의 온라인 판로 개척을 지원",
+  SPORT_TRGET_CN: "사업장을 운영 중인 소상공인·개인사업자",
+  RCEPT_END_DE: "20261231",
+  CTPRVN_NM: "부산광역시",
+  PBLANC_POPUP_URL: "http://www.bojo.go.kr/example",
+});
+assert.ok(bojoBusiness, "기업·사업자 대상 e나라도움 공고는 정규화되어야 함");
+assert.equal(bojoBusiness?.source, "bojo");
+assert.equal(bojoBusiness?.applyEnd, "2026-12-31");
+assert.equal(bojoBusiness?.url, "https://www.bojo.go.kr/example");
+assert.equal(
+  normalizeBojoItem({
+    PBLANC_NM: "공공기관 전용 연구사업",
+    SPORT_TRGET_CN: "국가·지방자치단체·대학·연구기관",
+    RCEPT_END_DE: "20261231",
+  }),
+  null,
+  "명백한 기관전용 공고는 기업 추천 풀에 넣지 않아야 함",
+);
+const aiEvidence = rankPublicEvidenceItems("AI 공공데이터 기반 관광 서비스", "step6", 3);
+assert.ok(aiEvidence.some((item) => item.id === "public-data-portal"));
+assert.ok(aiEvidence.some((item) => item.id === "kogl-ai"));
+const evidencePrompt = buildPublicEvidencePrompt("AI 공공데이터");
+assert.match(evidencePrompt, /공식 근거 후보/);
+assert.match(evidencePrompt, /확인할 공식 출처 후보/);
+assert.match(evidencePrompt, /개방 예정/);
 
 const docx = await buildPlanDocxBuffer("검증용 사업계획서", [
   {
@@ -92,6 +131,19 @@ assert.ok((documentXml.match(/<w:tbl>/g) ?? []).length >= 2, "검토표와 내�
 const landingSource = readFileSync(new URL("../app/landing/LandingClient.tsx", import.meta.url), "utf8");
 const wizardSource = readFileSync(new URL("../components/chat/DiagnosisWizard.tsx", import.meta.url), "utf8");
 const chatSource = readFileSync(new URL("../components/chat/Chat.tsx", import.meta.url), "utf8");
+const evidencePanelSource = readFileSync(
+  new URL("../components/chat/PublicEvidencePanel.tsx", import.meta.url),
+  "utf8",
+);
+const collectorWorkflow = readFileSync(
+  new URL("../.github/workflows/collect-programs.yml", import.meta.url),
+  "utf8",
+);
+const collectorRegistry = readFileSync(new URL("../lib/data/collect.ts", import.meta.url), "utf8");
+const programStore = readFileSync(
+  new URL("../lib/supabase/programs.ts", import.meta.url),
+  "utf8",
+);
 
 assert.match(landingSource, /내 사업에 맞는/);
 assert.match(landingSource, /무료로 맞는 지원사업 찾기/);
@@ -101,5 +153,20 @@ assert.match(wizardSource, /나에게 맞는 지원사업을 찾아주세요/);
 assert.match(wizardSource, /지원사업 찾기와 신청 가능 여부 확인은 무료/);
 assert.match(chatSource, /requestedStart === "find"/);
 assert.match(chatSource, /requestedStart === "direct"/);
+assert.match(chatSource, /PublicEvidencePanel/);
+assert.match(evidencePanelSource, /계획서에 쓸 공식 근거 찾기/);
+assert.match(evidencePanelSource, /\[확인 필요\]/);
+assert.match(collectorWorkflow, /node-version: "22"/);
+assert.match(collectorWorkflow, /BOJO_SERVICE_KEY/);
+assert.match(collectorRegistry, /"bojo"/);
+assert.doesNotMatch(
+  collectorRegistry,
+  /"ntis"/,
+  "승인되지 않은 NTIS HTML 수집기는 운영 레지스트리에 없어야 함",
+);
+assert.match(programStore, /programs\.length === 0/);
+assert.match(programStore, /기존 공고를 보존합니다/);
 
-console.log("✅ 진입 문구·두 경로·제출유형·마감·공식 URL·DOCX 검토표 회귀 테스트 통과");
+console.log(
+  "✅ 진입·제출유형·마감·e나라도움·NTIS 안전경계·6단계 공식근거·DOCX 회귀 테스트 통과",
+);

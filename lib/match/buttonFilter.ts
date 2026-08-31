@@ -328,7 +328,8 @@ export function matchByButtons(programs: Program[], profile: ButtonProfile): But
   // 두 보장을 먼저 전부 모은 뒤 한 번에 병합한다(순차 적용 시 뒤 단계가 앞 단계의
   // 보장 항목을 밀어낼 수 있어 — 반드시 단일 병합).
   const MAX_RECS = 30;
-  const NEW_SOURCES: Program["source"][] = ["nipa", "kocca", "smtech"];
+  // 기존 K-Startup·기업마당 쏠림을 줄이고, 새로 붙인 4개 소스도 후보에 노출한다.
+  const NEW_SOURCES: Program["source"][] = ["bojo", "nipa", "kocca", "smtech"];
   const NEW_SOURCE_GUARANTEE = 3;
   let selected = scored.slice(0, MAX_RECS);
   const forced = new Set<(typeof scored)[number]>();

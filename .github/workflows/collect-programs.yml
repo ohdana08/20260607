@@ -1,4 +1,4 @@
-name: Collect government support programs (5 sources)
+name: Collect government support programs (6 sources)
 
 on:
   schedule:
@@ -12,11 +12,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
       - run: npm ci
       - run: npx tsx scripts/collect-programs.mts
         env:
           KSTARTUP_KEY: ${{ secrets.KSTARTUP_KEY }}
+          BOJO_SERVICE_KEY: ${{ secrets.BOJO_SERVICE_KEY }}
           BIZINFO_KEY: ${{ secrets.BIZINFO_KEY }}
           KOCCA_KEY: ${{ secrets.KOCCA_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

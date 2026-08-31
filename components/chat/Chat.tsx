@@ -30,6 +30,7 @@ import DiagnosisWizard, {
   type WizPayload,
   type FindState,
 } from "@/components/chat/DiagnosisWizard";
+import PublicEvidencePanel from "@/components/chat/PublicEvidencePanel";
 import { NATIONWIDE } from "@/lib/match/buttonFilter";
 import { deriveConvYears } from "@/lib/match/convProfile";
 import {
@@ -2582,6 +2583,8 @@ export default function Chat() {
           ) : (
             <EvidenceSheetCard sheet={evResult.sheet} onPreview={openPreview} />
           ))}
+
+        {mode === "plan" && selectedProgram && <PublicEvidencePanel program={selectedProgram} />}
 
         {draft && (
           <DraftView

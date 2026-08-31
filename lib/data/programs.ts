@@ -5,7 +5,7 @@ import { isStillOpen } from "./openFilter";
 
 // (2026-07-14 스프린트 — 시나리오A) 라이브 API 호출(요청마다 K-Startup·기업마당 호출) →
 // 배치 수집(scripts/collect-programs.mts, GitHub Actions 주기 실행)이 Supabase
-// programs 테이블에 5소스(K-Startup·기업마당·NIPA·KOCCA·SMTECH)를 미리 적재해두고,
+// programs 테이블에 6소스(K-Startup·기업마당·e나라도움·NIPA·KOCCA·SMTECH)를 미리 적재해두고,
 // 이 함수는 그 테이블을 읽기만 한다. 무료(버튼) 매칭 경로는 DB 조회 1회뿐이라
 // 외부 API·LLM 호출이 0회 — 비용 경계(무료 구간 고정비 0) 원칙에 부합하고 응답도 더 빠르다.
 // DB 조회가 비거나 실패하면(배치 미실행·장애) 샘플로 폴백 — 기존 동작과 동일.
