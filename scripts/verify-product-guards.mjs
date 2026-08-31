@@ -111,6 +111,14 @@ const bojoCamelCase = normalizeBojoItem({
 });
 assert.equal(bojoCamelCase?.title, "2026년 AI 소상공인 지원");
 assert.equal(bojoCamelCase?.applyEnd, "2026-12-31");
+const bojoCdata = normalizeBojoItem({
+  PBLANC_NM: "<![CDATA[2026년 콘텐츠 기업 사업화 지원]]>",
+  SPORT_TRGET_CN: "<![CDATA[콘텐츠 분야 중소기업·개인사업자]]>",
+  RCEPT_END_DE: "<![CDATA[20261231]]>",
+  DDTLBZ_BSNS_PURPS_DC: "<![CDATA[콘텐츠 기업의 사업화와 판로 개척 지원]]>",
+});
+assert.equal(bojoCdata?.title, "2026년 콘텐츠 기업 사업화 지원");
+assert.equal(bojoCdata?.applyEnd, "2026-12-31");
 assert.equal(
   normalizeBojoItem({
     PBLANC_NM: "공공기관 전용 연구사업",

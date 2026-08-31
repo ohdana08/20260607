@@ -66,6 +66,9 @@ interface BojoBody {
 
 function clean(value: unknown): string {
   const decoded = String(value ?? "")
+    // 이 API는 JSON 응답에서도 문자열을 <![CDATA[...]]>로 감싸서 내려준다.
+    // 일반 HTML 태그 제거를 먼저 하면 CDATA 안의 실제 값까지 사라지므로 선해제한다.
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1")
     .replace(/<[^>]+>/g, " ")
     .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
     .replace(/&#(\d+);/g, (_, decimal: string) => String.fromCodePoint(Number(decimal)))
