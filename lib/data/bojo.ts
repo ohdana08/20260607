@@ -210,15 +210,27 @@ export function normalizeBojoItem(item: BojoApiItem): Program | null {
   };
 }
 
+export function normalizeDataGoKrServiceKey(raw: string): string {
+  const trimmed = raw.trim();
+  // 공공데이터포털은 Encoding 키와 Decoding 키를 함께 보여준다.
+  // Encoding 키를 URLSearchParams에 그대로 넣으면 '%'가 다시 인코딩되어 403이 날 수 있으므로
+  // 내부에서는 한 번 디코딩한 원문 키로 통일하고, URLSearchParams가 정확히 한 번만 인코딩하게 한다.
+  try {
+    return decodeURIComponent(trimmed);
+  } catch {
+    return trimmed;
+  }
+}
+
 function keyForBojo(): string | null {
   // 같은 data.go.kr 프로젝트 서비스키를 재사용할 수 있도록 KSTARTUP_KEY를 후보로 둔다.
   // 단, #15156853에 대한 활용신청이 안 되어 있으면 공공데이터 게이트웨이가 권한 없음으로 응답한다.
-  return (
+  const raw =
     process.env.BOJO_SERVICE_KEY?.trim() ||
     process.env.DATA_GO_KR_SERVICE_KEY?.trim() ||
     process.env.KSTARTUP_KEY?.trim() ||
-    null
-  );
+    null;
+  return raw ? normalizeDataGoKrServiceKey(raw) : null;
 }
 
 async function fetchPage(key: string, year: number, pageNo: number): Promise<{

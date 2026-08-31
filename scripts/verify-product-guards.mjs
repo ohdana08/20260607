@@ -8,7 +8,7 @@ const { classifyApplicationKind, matchByButtons } = await import(
 const { isStillOpen, kstToday } = await import("../lib/data/openFilter.ts");
 const { firstTrustedProgramUrl } = await import("../lib/data/trustedProgramUrl.ts");
 const { buildPlanDocxBuffer } = await import("../lib/plan/docx.ts");
-const { normalizeBojoItem } = await import("../lib/data/bojo.ts");
+const { normalizeBojoItem, normalizeDataGoKrServiceKey } = await import("../lib/data/bojo.ts");
 const { buildPublicEvidencePrompt, rankPublicEvidenceItems } = await import(
   "../lib/data/publicEvidence.ts"
 );
@@ -97,6 +97,11 @@ assert.ok(bojoBusiness, "기업·사업자 대상 e나라도움 공고는 정규
 assert.equal(bojoBusiness?.source, "bojo");
 assert.equal(bojoBusiness?.applyEnd, "2026-12-31");
 assert.equal(bojoBusiness?.url, "https://www.bojo.go.kr/example");
+assert.equal(
+  normalizeDataGoKrServiceKey("abc%2Bdef%2Fghi%3D"),
+  "abc+def/ghi=",
+  "공공데이터포털 Encoding 키는 URL에 한 번만 인코딩되도록 정규화해야 함",
+);
 assert.equal(
   normalizeBojoItem({
     PBLANC_NM: "공공기관 전용 연구사업",

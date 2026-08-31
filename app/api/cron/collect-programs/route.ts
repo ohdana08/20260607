@@ -25,6 +25,8 @@ export async function GET(req: NextRequest) {
   );
   const summaries = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
 
+  console.log("[collect-programs] summaries", summaries);
+
   if (failures.length > 0) {
     console.error("[collect-programs] partial failure", failures);
   }
