@@ -9,6 +9,10 @@ const { isStillOpen, kstToday } = await import("../lib/data/openFilter.ts");
 const { SAMPLE_PROGRAMS } = await import("../lib/data/sample.ts");
 const { firstTrustedProgramUrl } = await import("../lib/data/trustedProgramUrl.ts");
 const { buildPlanDocxBuffer } = await import("../lib/plan/docx.ts");
+const { normalizeEvidencePack, normalizeStrategyPack } = await import("../lib/plan/strategy.ts");
+const { PLAN_MAX_REVISIONS, PLAN_OUTCOME_NOTICE, PLAN_REVISION_NOTICE } = await import(
+  "../lib/plan/productPolicy.ts"
+);
 const {
   normalizePlanReview,
   normalizeReadinessAssessment,
@@ -281,6 +285,106 @@ assert.ok(blockedReview.score <= 69);
 assert.ok(reviewReportSections(blockedReview).some((section) => section.heading.includes("심사위원 관점")));
 
 const localReviewEnv = { NODE_ENV: "development", LOCAL_REVIEW_MODE: "on" };
+
+const searchedEvidence = [
+  {
+    id: "web-1",
+    title: "공식 통계",
+    url: "https://example.com/stat",
+    publisher: "공공기관",
+    checkedAt: "2026-09-01T00:00:00.000Z",
+    sourceType: "official",
+    claim: "시장 모집단",
+    excerpt: "확인 내용",
+    verified: true,
+  },
+  {
+    id: "web-2",
+    title: "경쟁사 공식",
+    url: "https://example.com/competitor",
+    publisher: "경쟁사",
+    checkedAt: "2026-09-01T00:00:00.000Z",
+    sourceType: "company",
+    claim: "공개 가격",
+    excerpt: "확인 내용",
+    verified: true,
+  },
+];
+const evidencePack = normalizeEvidencePack(
+  {
+    sources: searchedEvidence,
+    competitorCandidates: ["가", "나", "다", "라", "마", "바"],
+    competitors: [
+      {
+        name: "가",
+        url: "https://example.com/competitor",
+        selectionReason: "고객과 구매대안이 겹침",
+        overlapScore: 90,
+        facts: [{ criterion: "가격", value: "월 구독", evidenceIds: ["web-2"] }],
+      },
+      {
+        name: "나",
+        url: "https://example.com/competitor",
+        selectionReason: "같은 문제를 해결",
+        overlapScore: 80,
+        facts: [{ criterion: "가격", value: "건별", evidenceIds: ["web-2"] }],
+      },
+      {
+        name: "다",
+        url: "https://example.com/competitor",
+        selectionReason: "후보",
+        overlapScore: 70,
+        facts: [{ criterion: "가격", value: "무료", evidenceIds: ["web-2"] }],
+      },
+    ],
+  },
+  searchedEvidence,
+);
+assert.equal(evidencePack.competitorCandidates.length, 5, "경쟁 후보는 최대 5곳이어야 함");
+assert.equal(evidencePack.competitors.length, 2, "깊은 경쟁분석은 가까운 2곳만 저장해야 함");
+const groundedStrategy = normalizeStrategyPack(
+  {
+    advantageStatus: "verified",
+    claims: [{ claim: "시장 주장", status: "verified", evidenceIds: ["web-1"] }],
+    diagrams: {
+      tamSamSom: { tam: "10억", sam: "5억", som: "1억", evidenceIds: ["web-1"] },
+      journey: { stages: ["인지", "상담", "구매"], evidenceIds: ["missing-source"] },
+    },
+  },
+  evidencePack,
+);
+assert.ok(groundedStrategy.diagrams.tamSamSom, "검증 id가 있는 시장 도식은 선택할 수 있어야 함");
+assert.equal(groundedStrategy.diagrams.journey, undefined, "근거 없는 도식은 서버 정규화에서 제거해야 함");
+const unverifiedEvidence = normalizeEvidencePack({
+  sources: [
+    {
+      id: "invented-source",
+      title: "검색에서 확인하지 않은 페이지",
+      url: "https://example.com/invented",
+      publisher: "미확인",
+      sourceType: "independent",
+      claim: "근거 없는 주장",
+      excerpt: "근거 없는 요약",
+      verified: true,
+    },
+  ],
+});
+const rejectedDiagramStrategy = normalizeStrategyPack(
+  {
+    diagrams: {
+      tamSamSom: { tam: "10억", sam: "5억", som: "1억", evidenceIds: ["invented-source"] },
+    },
+  },
+  unverifiedEvidence,
+);
+assert.equal(
+  rejectedDiagramStrategy.diagrams.tamSamSom,
+  undefined,
+  "실제 검색 결과나 사용자 자료로 검증되지 않은 출처 id는 도식 근거가 될 수 없음",
+);
+assert.equal(PLAN_MAX_REVISIONS, 3);
+assert.match(PLAN_OUTCOME_NOTICE, /선정 결과를 보장하지 않습니다/);
+assert.match(PLAN_REVISION_NOTICE, /동일 공고·동일 사업아이템·동일 양식/);
 assert.equal(
   isLocalReviewMatchRequest(new Request("http://localhost:3000/api/match"), localReviewEnv),
   true,
@@ -318,30 +422,35 @@ else process.env.MASTER_CODES = previousMasterCodes;
 assert.ok(LOCAL_REVIEW_EVIDENCE_ROWS.length >= 5);
 assert.ok(LOCAL_REVIEW_EVIDENCE_ROWS.every((row) => typeof row.item === "string"));
 
-const docx = await buildPlanDocxBuffer("검증용 사업계획서", [
-  {
-    heading: "1. 고객과 수익모델",
-    content:
-      "핵심 고객: 마감이 임박한 초기창업자\n결제자: 대표자 본인\n가격: 1건 29,900원\n\n[보완 필요: 고객 인터뷰 수를 입력해 주세요]\n[증빙 필요: 결제 내역 캡처]",
-  },
-]);
+const docx = await buildPlanDocxBuffer(
+  "검증용 사업계획서",
+  [
+    {
+      heading: "1. 고객과 수익모델",
+      content:
+        "핵심 고객: 마감이 임박한 초기창업자\n결제자: 대표자 본인\n가격: 1건 29,900원\n\n[보완 필요: 고객 인터뷰 수를 입력해 주세요]\n[증빙 필요: 결제 내역 캡처]",
+    },
+  ],
+  [],
+  [{ id: "web-1", title: "공식 통계", publisher: "공공기관", checkedAt: "2026-09-01", url: "https://example.com/stat", claim: "시장 모집단" }],
+);
 const zip = await JSZip.loadAsync(docx);
 const documentXml = await zip.file("word/document.xml")?.async("string");
 assert.ok(documentXml, "DOCX 본문 XML이 있어야 함");
 assert.match(documentXml, /제출 전 검토표/);
 assert.match(documentXml, /검증용 사업계획서/);
+assert.match(documentXml, /근거 출처/);
 assert.ok((documentXml.match(/<w:tbl>/g) ?? []).length >= 2, "검토표와 내용표가 있어야 함");
 
 const landingSource = readFileSync(new URL("../app/landing/LandingClient.tsx", import.meta.url), "utf8");
 const wizardSource = readFileSync(new URL("../components/chat/DiagnosisWizard.tsx", import.meta.url), "utf8");
 const chatSource = readFileSync(new URL("../components/chat/Chat.tsx", import.meta.url), "utf8");
-const readinessRouteSource = readFileSync(
-  new URL("../app/api/plan/readiness/route.ts", import.meta.url),
-  "utf8",
-);
+const evidenceRouteSource = readFileSync(new URL("../app/api/plan/evidence/route.ts", import.meta.url), "utf8");
+const strategyRouteSource = readFileSync(new URL("../app/api/plan/strategy/route.ts", import.meta.url), "utf8");
+const batchRouteSource = readFileSync(new URL("../app/api/plan/draft-batch/route.ts", import.meta.url), "utf8");
 const auditRouteSource = readFileSync(new URL("../app/api/plan/audit/route.ts", import.meta.url), "utf8");
 const reviseRouteSource = readFileSync(new URL("../app/api/plan/revise/route.ts", import.meta.url), "utf8");
-const visualsRouteSource = readFileSync(new URL("../app/api/plan/visuals/route.ts", import.meta.url), "utf8");
+const docxRouteSource = readFileSync(new URL("../app/api/plan/docx/route.ts", import.meta.url), "utf8");
 const evidencePanelSource = readFileSync(
   new URL("../components/chat/PublicEvidencePanel.tsx", import.meta.url),
   "utf8",
@@ -371,16 +480,23 @@ assert.match(wizardSource, /programWithApplicationDecision/);
 assert.match(chatSource, /requestedStart === "find"/);
 assert.match(chatSource, /requestedStart === "direct"/);
 assert.match(chatSource, /PublicEvidencePanel/);
-assert.match(chatSource, /작성 준비도 심사 후 사업계획서 만들기/);
+assert.match(chatSource, /근거 확인 후 사업계획서 만들기/);
 assert.match(chatSource, /심사위원 관점 모의심사/);
-assert.match(chatSource, /현재 자료로 고칠 수 있는 부분 다시 다듬기/);
-assert.match(readinessRouteSource, /초안 작성 준비도/);
-assert.match(readinessRouteSource, /evidenceLevel/);
+assert.match(chatSource, /지적·요청 한 번에 반영하기/);
+assert.match(chatSource, /필수 확인 4개/);
+assert.doesNotMatch(chatSource, /보완용 Word/);
+assert.match(evidenceRouteSource, /maxSearches: 4/);
+assert.match(evidenceRouteSource, /가까운 경쟁사 2곳/);
+assert.match(strategyRouteSource, /최대 6종/);
+assert.match(batchRouteSource, /draft_batch/);
 assert.match(auditRouteSource, /신청자 원답변과 작성 대화/);
 assert.match(auditRouteSource, /canAutoFix/);
-assert.match(reviseRouteSource, /새 수치·고객·계약·성과·기관명을 만들지 않습니다/);
-assert.doesNotMatch(visualsRouteSource, /해당 업종에서 흔한 일반적인 값/);
-assert.match(visualsRouteSource, /그럴듯한 숫자·단계를 새로 만들지 마세요/);
+assert.match(auditRouteSource, /evidenceGuardIssues/);
+assert.match(reviseRouteSource, /revision_batch/);
+assert.match(reviseRouteSource, /묶음 수정 요청/);
+assert.match(docxRouteSource, /acknowledgements/);
+assert.match(docxRouteSource, /audit\.sectionsDigest/);
+assert.match(docxRouteSource, /audit\.evidenceDigest/);
 assert.match(evidencePanelSource, /계획서에 쓸 공식 근거 찾기/);
 assert.match(evidencePanelSource, /\[확인 필요\]/);
 assert.match(collectorWorkflow, /node-version: "22"/);

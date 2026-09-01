@@ -64,7 +64,7 @@ export interface PaidRecord {
   verifiedAt: string;
   isQa?: boolean; // QA 우회로 인증된 테스트 세션 — 실주문과 구분
   // 이용권 소진(2026-07-13): 첫 초안 생성 시점에 해당 공고에 바인딩.
-  // 같은 공고는 계속 허용(인터뷰 이어가기·docx 재다운로드·수정 1회 무료), 다른 공고는 추가 결제.
+  // 같은 공고는 계속 허용(인터뷰·docx 재다운로드·포함된 묶음 수정), 다른 공고는 추가 결제.
   usedProgramId?: string;
   usedAt?: string;
 }

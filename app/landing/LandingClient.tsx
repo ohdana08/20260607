@@ -5,24 +5,27 @@ import Link from "next/link";
 import { track } from "@/lib/ga";
 import { captureUtm } from "@/lib/utm";
 import { GROBLE_CHECKOUT_URL, PRICE_KRW, PRICE_LABEL } from "@/lib/config";
+import { PLAN_OUTCOME_NOTICE, PLAN_REVISION_NOTICE } from "@/lib/plan/productPolicy";
 
 // 배포 전 설정 — 실제 URL만 여기서 관리한다.
 const FREE_DIAGNOSIS_URL = "/embed?start=find"; // 지원사업을 모르는 사람: 무료 찾기부터 시작
 const DIRECT_DIAGNOSIS_URL = "/embed?start=direct"; // 이미 지원할 공고가 있는 사람: 공고 확인부터 시작
 const PAID_CHECKOUT_URL = GROBLE_CHECKOUT_URL; // 그로블 신상품(RJczGx) 결제 링크 — lib/config.ts 단일 출처
 
-// 확정된 운영정책 6칸 (2026-07-14 반영본 그대로 — 임의 수정 금지)
+// 유료 사업계획서 계약 범위와 실제 시스템 제한을 한곳에서 관리한다.
 const POLICY = {
   usagePeriod:
-    "이용권 1건은 공고 1건에 대한 초안 생성에 사용됩니다. 초안을 생성한 공고는 이후에도 계속 열어 인터뷰를 이어가거나 DOCX를 다시 내려받을 수 있습니다. 다른 공고의 초안이 필요하면 추가 이용권을 결제하세요.",
+    "이용권 1건은 동일 공고·동일 사업아이템·동일 양식의 사업계획서 1건에 사용됩니다. 다른 공고나 다른 사업아이템은 별도 주문입니다.",
   editScope:
-    "초안을 생성하기 전까지 인터뷰 답변을 자유롭게 수정할 수 있습니다. 초안 생성 이후에도 같은 공고 기준으로 내용을 보완할 수 있습니다.",
-  regeneration: "초안을 생성한 공고는 소진되지 않고 유지되어, 같은 공고의 DOCX를 다시 내려받거나 이어서 작업할 수 있습니다.",
-  systemError: "시스템 오류로 초안 생성에 실패한 경우, 사용된 이용권을 복구해 다시 생성할 수 있도록 합니다.",
+    PLAN_REVISION_NOTICE,
+  regeneration:
+    "필수 근거 점검을 통과한 최초 최종 Word 1회를 제공합니다. 여러 요청을 모아 한 번에 제출하는 묶음 수정이며, 새로운 공고·아이템 변경·전면 재작성은 포함되지 않습니다.",
+  systemError:
+    "시스템 오류로 생성·수정에 실패한 호출은 수정 횟수로 차감하지 않습니다. 오류 직전까지 작성된 내용은 유지합니다.",
   refund:
     "결제 후 유료 맞춤 작성을 시작하기 전에는 청약철회를 요청할 수 있습니다. 별도 동의 후 개인화된 작성 서비스가 시작되면 관련 법령이 허용하는 범위에서 환불이 제한될 수 있으며, 구체적 기준은 환불정책 페이지를 따릅니다.",
   dataHandling:
-    "입력하신 사업정보와 첨부자료는 초안 생성을 위해 외부 AI 모델(Anthropic)에 전달되며, 초안 생성 목적 외에는 사용하지 않습니다. 보관 기간과 삭제 요청 방법은 개인정보처리방침을 따릅니다.",
+    "입력하신 사업정보와 첨부자료는 작성을 위해 선택한 외부 AI 모델에 전달되며, 작성 목적 외에는 사용하지 않습니다. 보관 기간과 삭제 요청 방법은 개인정보처리방침을 따릅니다.",
 };
 
 type DemoKey = "early" | "pre" | "b2g";
@@ -88,7 +91,7 @@ const DEMO_ORDER: DemoKey[] = ["early", "pre", "b2g"];
 const FAQS: { q: string; a: string }[] = [
   {
     q: "정부지원사업 찾기는 정말 무료인가요?",
-    a: `네. 나에게 맞는 지원사업 찾기, 내가 신청해도 되는지 확인하기, 마감일과 준비할 서류 확인까지 무료입니다. 지원할 사업을 고른 뒤 사업계획서가 필요할 때만 수정 가능한 워드 초안 1건 ${PRICE_LABEL}을 결제합니다.`,
+    a: `네. 나에게 맞는 지원사업 찾기, 내가 신청해도 되는지 확인하기, 마감일과 준비할 서류 확인까지 무료입니다. 지원할 사업을 고른 뒤 사업계획서가 필요할 때만 최초 최종 Word 1회와 묶음 AI 수정 최대 3회가 포함된 ${PRICE_LABEL} 상품을 결제합니다.`,
   },
   {
     q: "정부지원사업 공고는 어디에서 찾나요?",
@@ -111,16 +114,16 @@ const FAQS: { q: string; a: string }[] = [
     a: "가능하지만 매출 대신 고객 인터뷰, 사전예약, 테스트 참여자, 개발 현황, 관련 경력처럼 현재 확인 가능한 증거가 있어야 더 구체적인 초안을 만들 수 있습니다. 아이템 자체가 정해지지 않은 단계에는 적합하지 않습니다.",
   },
   {
-    q: "초안을 그대로 제출해도 되나요?",
-    a: "아닙니다. 워드 초안은 대표자가 사실, 숫자, 확인 자료와 최신 신청 조건을 최종 확인하고 보완하기 위한 출발점입니다. 선정 또는 합격을 보장하지 않습니다.",
+    q: "최종 Word를 받으면 선정이 보장되나요?",
+    a: `필수 근거 점검을 통과한 Word만 내려받을 수 있지만, 대표자가 사실·숫자·증빙과 최신 신청 조건을 최종 확인해야 합니다. ${PLAN_OUTCOME_NOTICE}`,
   },
   {
     q: "입력한 사업정보는 어떻게 처리되나요?",
-    a: "입력하신 사업정보와 첨부자료는 초안 생성을 위해 외부 AI 모델(Anthropic)에 전달되며, 초안 생성 목적 외에는 사용하지 않습니다. 보관 기간과 삭제 요청 방법은 개인정보처리방침을 따릅니다.",
+    a: "입력하신 사업정보와 첨부자료는 근거 확인·전략 설계·문서 작성을 위해 선택한 외부 AI 모델에 전달됩니다. 경쟁정보 조사는 개인정보와 비공개 사업정보를 제외한 일반 검색어로 공개 페이지에서만 진행하며, 출처 URL과 확인일을 남깁니다. 보관 기간과 삭제 요청 방법은 개인정보처리방침을 따릅니다.",
   },
   {
     q: "어떤 대표자에게 가장 적합한가요?",
-    a: "지원사업을 어디서 찾아야 할지 모르는 대표자부터, 이미 지원할 공고가 있어 자격·공식 양식·확인 자료를 빠르게 정리해야 하는 대표자까지 이용할 수 있습니다. 찾기와 신청 가능 여부 확인은 무료이며, 긴 사업계획서가 필요한 경우에만 워드 초안으로 이어집니다.",
+    a: "지원사업을 어디서 찾아야 할지 모르는 대표자부터, 이미 지원할 공고가 있어 자격·공식 양식·확인 자료를 빠르게 정리해야 하는 대표자까지 이용할 수 있습니다. 찾기와 신청 가능 여부 확인은 무료이며, 긴 사업계획서가 필요한 경우에만 최종 Word 작성으로 이어집니다.",
   },
   {
     q: "사업계획서가 필요 없는 공고도 결제해야 하나요?",
@@ -176,7 +179,7 @@ export default function LandingClient() {
         <div className="container notice-inner">
           <span><b>받을 수 있는 지원 찾기·신청 가능 여부 확인 0원</b></span>
           <span>·</span>
-          <span>사업계획서 초안은 필요할 때만</span>
+          <span>사업계획서 작성은 필요할 때만</span>
         </div>
       </div>
 
@@ -193,7 +196,7 @@ export default function LandingClient() {
           <nav className="nav-links" aria-label="주요 메뉴">
             <a href="#why-find">왜 필요한가요?</a>
             <a href="#how-to-find">어떻게 찾나요?</a>
-            <a href="#demo">사업계획서 초안</a>
+            <a href="#demo">사업계획서 작성</a>
             <a href="#price">가격</a>
             <a href="#faq">FAQ</a>
           </nav>
@@ -219,7 +222,7 @@ export default function LandingClient() {
         <nav className="mobile-menu" id="mobileMenu" aria-label="모바일 메뉴">
           <a href="#why-find" onClick={() => setMenuOpen(false)}>왜 필요한가요?</a>
           <a href="#how-to-find" onClick={() => setMenuOpen(false)}>어떻게 찾나요?</a>
-          <a href="#demo" onClick={() => setMenuOpen(false)}>사업계획서 초안</a>
+          <a href="#demo" onClick={() => setMenuOpen(false)}>사업계획서 작성</a>
           <a href="#price" onClick={() => setMenuOpen(false)}>가격</a>
           <a href="#faq" onClick={() => setMenuOpen(false)}>FAQ</a>
           <FreeDiagnosisLink className="btn btn-gold" location="mobile_menu">
@@ -374,7 +377,7 @@ export default function LandingClient() {
               </h2>
               <p className="section-copy">
                 매출·고객·거래처 같은 자료는 있지만 어디에 써야 할지 모르거나 마감이 다가오는데 작성이 끝나지 않았다면,
-                선택한 지원사업과 공식 양식에 맞춘 수정 가능한 워드 초안을 이용할 수 있습니다.
+                선택한 지원사업의 공식 양식에 맞추고, 근거 점검을 통과한 수정 가능한 최종 Word를 이용할 수 있습니다.
               </p>
             </div>
 
@@ -576,7 +579,7 @@ export default function LandingClient() {
               <article className="difference-card"><span className="tag">01 · 모집 중 지원</span><h3>마감된 지원은 빼고<br />지금 볼 것부터</h3><p>여러 공식 출처의 모집 정보를 모아 사업 시작 시기·지역·필요한 도움에 가까운 순서로 보여드립니다.</p></article>
               <article className="difference-card"><span className="tag">02 · 결제 전 자격</span><h3>신청 가능성과 필요한 서류를<br />무료로 먼저</h3><p>긴 사업계획서가 필요 없는 지원에는 유료 초안 결제를 열지 않습니다.</p></article>
               <article className="difference-card"><span className="tag">03 · 실제 사실·자료</span><h3>아이디어를 꾸미지 않고<br />이미 해낸 일을 확인</h3><p>고객·매출·계약·팀 경험을 묻고, 확인되지 않은 내용은 [확인 필요]로 남깁니다.</p></article>
-              <article className="difference-card"><span className="tag">04 · 공식 양식 워드</span><h3>대표님의 말은 쉽게,<br />마지막 문서는 정확하게</h3><p>받은 작성 파일의 항목과 순서를 보존해 수정 가능한 워드 초안과 확인 목록을 만듭니다.</p></article>
+              <article className="difference-card"><span className="tag">04 · 공식 양식 워드</span><h3>대표님의 말은 쉽게,<br />마지막 문서는 정확하게</h3><p>받은 작성 파일의 항목과 순서를 보존하고, 근거 확인을 통과한 수정 가능한 최종 Word를 만듭니다.</p></article>
             </div>
           </div>
         </section>
@@ -608,7 +611,7 @@ export default function LandingClient() {
               <h2 className="section-title">
                 받을 수 있는 지원 찾기와 신청 가능 여부 확인은 무료,
                 <br />
-                <span className="gold-text">사업계획서 초안만 선택 결제.</span>
+                <span className="gold-text">사업계획서 작성만 선택 결제.</span>
               </h2>
               <p className="section-copy">대표님의 사업 이야기를 듣고 맞는 지원을 찾는 단계에서는 결제를 요구하지 않습니다.</p>
             </div>
@@ -631,15 +634,15 @@ export default function LandingClient() {
               </article>
 
               <article className="price-card">
-                <div className="plan">선택 기능 · 공식 양식 사업계획서 워드 초안 1건</div>
+                <div className="plan">선택 결제 · 최종 Word 1회 + 묶음 AI 수정 최대 3회</div>
                 <div className="price">{PRICE_KRW.toLocaleString("ko-KR")}<small>원</small></div>
                 <div className="price-desc">지원할 사업을 정한 뒤 필요할 때만</div>
                 <ul className="price-list">
                   <li>평소 쓰는 말로 사업 이야기 인터뷰</li>
-                  <li>받은 작성 파일 순서의 전체 초안</li>
-                  <li>[확인 필요] 문장 별도 표시</li>
-                  <li>제출 전에 확인할 숫자와 자료 목록</li>
-                  <li>수정 가능한 워드 파일 다운로드</li>
+                  <li>공식 출처 확인과 가까운 경쟁사 2곳 비교</li>
+                  <li>근거가 충분한 A4용 도식 최대 6종 자동선택</li>
+                  <li>근거 충돌·필수 데이터 보완 후 최종 점검</li>
+                  <li>받은 작성 파일 순서의 수정 가능한 최종 Word</li>
                 </ul>
                 <a
                   className="btn btn-line btn-full"
@@ -648,21 +651,21 @@ export default function LandingClient() {
                   rel="noopener noreferrer"
                   onClick={() => track("cta_paid_checkout", { location: "pricing_paid" })}
                 >
-                  공식 양식 워드 초안 만들기 · {PRICE_LABEL}
+                  근거 기반 사업계획서 만들기 · {PRICE_LABEL}
                 </a>
-                <div className="price-foot">사업계획서가 필요한 지원사업을 선택했을 때만 안내됩니다.</div>
+                <div className="price-foot">사업계획서가 필요한 지원사업을 선택했을 때만 안내됩니다. {PLAN_OUTCOME_NOTICE}</div>
               </article>
             </div>
 
             <div className="policy-note">
-              <strong>운영정책:</strong> 확인되지 않은 유효기간·재생성·환불·데이터 보관 기준을 임의로 약속하지 않습니다. 아래
-              내용은 실제 서비스 기준이며, 세부 조건은 각 정책 페이지(환불정책·개인정보처리방침)를 따릅니다.
+              <strong>운영정책:</strong> 아래 내용은 실제 서비스에 적용되는 이용기간·수정·환불·데이터 보관 기준입니다. 세부
+              조건은 이용약관, 환불정책과 개인정보처리방침을 따릅니다.
             </div>
 
             <div className="policy-grid" id="policy">
               <article className="policy-card"><small>01 · 이용권</small><h3>사용 가능 기간</h3><p>{POLICY.usagePeriod}</p></article>
               <article className="policy-card"><small>02 · 수정</small><h3>답변 수정 범위</h3><p>{POLICY.editScope}</p></article>
-              <article className="policy-card"><small>03 · 재생성</small><h3>동일 공고 재생성</h3><p>{POLICY.regeneration}</p></article>
+              <article className="policy-card"><small>03 · 최종본</small><h3>최종 Word 제공 범위</h3><p>{POLICY.regeneration}</p></article>
               <article className="policy-card"><small>04 · 오류</small><h3>파일 생성 실패 처리</h3><p>{POLICY.systemError}</p></article>
               <article className="policy-card"><small>05 · 환불</small><h3>생성 전·후 환불 기준</h3><p>{POLICY.refund}</p></article>
               <article className="policy-card"><small>06 · 자료 처리</small><h3>보관·삭제·AI 전달 범위</h3><p>{POLICY.dataHandling}</p></article>
@@ -756,11 +759,11 @@ export default function LandingClient() {
           <div className="footer-grid">
             <div>
               <div className="footer-brand"><span className="brand-mark">BCC</span><strong>딱, 지원핏</strong></div>
-              <p className="footer-copy">정부지원사업을 몰라도 사업 얘기부터 시작할 수 있습니다. 지금 신청할 수 있는 지원을 찾고, 신청 조건과 빠진 자료를 확인한 뒤 필요할 때만 공식 양식 워드 초안으로 이어집니다.</p>
+              <p className="footer-copy">정부지원사업을 몰라도 사업 얘기부터 시작할 수 있습니다. 지금 신청할 수 있는 지원을 찾고, 신청 조건과 빠진 자료를 확인한 뒤 필요할 때만 공식 양식 최종 Word로 이어집니다.</p>
             </div>
             <div>
               <div className="footer-title">SERVICE</div>
-              <div className="footer-links"><a href="#how-to-find">받을 수 있는 지원 찾기</a><a href="#demo">사업계획서 초안</a><a href="#price">가격</a><a href="#faq">FAQ</a></div>
+              <div className="footer-links"><a href="#how-to-find">받을 수 있는 지원 찾기</a><a href="#demo">사업계획서 작성</a><a href="#price">가격</a><a href="#faq">FAQ</a></div>
             </div>
             <div>
               <div className="footer-title">LEGAL</div>

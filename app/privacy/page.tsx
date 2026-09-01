@@ -5,7 +5,7 @@ export const metadata: Metadata = { title: "개인정보처리방침 | 정부지
 
 export default function PrivacyPage() {
   return (
-    <PolicyPage title="개인정보처리방침" updatedLabel="최종 수정일: 2026-08-14">
+    <PolicyPage title="개인정보처리방침" updatedLabel="최종 수정일: 2026-09-01">
       <Article title="1. 수집하는 개인정보 항목">
         <ul className="list-disc space-y-1 pl-5">
           <li>회원가입 시: 이름, 이메일, 전화번호, 비밀번호(통합 회원 인증 시스템이 암호화 처리)</li>
@@ -17,7 +17,7 @@ export default function PrivacyPage() {
 
       <Article title="2. 개인정보의 이용 목적">
         <ul className="list-disc space-y-1 pl-5">
-          <li>회원 식별 및 서비스 제공(사업계획서 초안 생성, DOCX 다운로드)</li>
+          <li>회원 식별 및 서비스 제공(사업계획서 근거 확인, 작성·수정, DOCX 다운로드)</li>
           <li>결제 및 이용권 관리</li>
           <li>서비스 개선 및 문의 대응</li>
         </ul>
@@ -34,6 +34,10 @@ export default function PrivacyPage() {
           대화·진단 기록은 이용자의 브라우저 저장소에 보관될 수 있으며, 브라우저에서 대화를 삭제하거나 사이트
           데이터를 지우면 삭제됩니다. 회원 탈퇴만으로 해당 브라우저의 로컬 기록이 자동 삭제되지는 않습니다.
         </p>
+        <p>
+          유료 작성 과정의 근거팩·전략팩·최종 점검 기록은 문서의 사실성과 수정 범위를 확인하기 위해 주문 단위로
+          최대 45일간 보관한 뒤 자동 삭제합니다.
+        </p>
       </Article>
 
       <Article title="4. 개인정보의 제3자 제공">
@@ -41,7 +45,8 @@ export default function PrivacyPage() {
         <ul className="list-disc space-y-1 pl-5">
           <li>법령에 근거가 있거나 수사 목적으로 관계 기관의 요구가 있는 경우</li>
           <li>이용자가 사전에 동의한 경우</li>
-          <li>서비스 제공을 위해 AI 처리가 필요한 경우, 입력된 사업정보와 첨부자료에서 추출한 내용이 초안 생성 목적으로 Anthropic(Claude API)에 전달됩니다.</li>
+          <li>서비스 제공을 위해 AI 처리가 필요한 경우, 입력된 사업정보와 첨부자료에서 추출한 내용이 이용자가 선택한 AI 제공자(Anthropic Claude 또는 OpenAI)에 전달됩니다.</li>
+          <li>경쟁정보와 근거 출처 확인 시 개인정보·비공개 사업정보를 제외한 일반 검색어가 Anthropic의 공개 웹 검색 기능에 전달됩니다.</li>
         </ul>
       </Article>
 
@@ -71,7 +76,7 @@ export default function PrivacyPage() {
       </Article>
 
       <p className="pt-4 text-sm text-zinc-500">
-        본 방침은 2026년 8월 14일부터 시행합니다.
+        본 방침은 2026년 9월 1일부터 시행합니다.
       </p>
     </PolicyPage>
   );

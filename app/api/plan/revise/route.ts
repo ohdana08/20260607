@@ -1,15 +1,20 @@
 import { paidGoogleLoginGate } from "@/lib/auth/googleUser";
 import { maintenanceGate } from "@/lib/config";
 import { getLlm, isProviderConfigured, parseProvider, type ChatMsg } from "@/lib/llm/provider";
+import { aiBudgetExceededResponse, reservePaidAiCall } from "@/lib/plan/aiBudget";
 import { decideDraftApplication, draftApplicationError } from "@/lib/plan/applicationGuard";
+import { getEvidencePack, getStrategyPack } from "@/lib/plan/artifacts";
 import { checkDraftAccess, paymentRequiredResponse } from "@/lib/plan/paidAccess";
+import type { PlanDocxSection } from "@/lib/plan/docx";
 import type { PlanReviewIssue } from "@/lib/plan/reviewer";
+import { getRevisionStatus, reserveRevisionRound, revisionUnavailableResponse } from "@/lib/plan/revisions";
 import { MISSING_INFO_PLACEHOLDER, PROOF_NEEDED_PLACEHOLDER } from "@/lib/plan/sections";
+import { evidencePackPrompt } from "@/lib/plan/strategy";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 interface ProgramInput {
   id?: string;
@@ -22,6 +27,30 @@ interface ProgramInput {
   applicationKindReason?: string;
 }
 
+interface RevisionResult {
+  sections?: Array<{ heading?: unknown; content?: unknown }>;
+}
+
+function compactSections(sections: PlanDocxSection[], maxChars: number): string {
+  const perSection = Math.max(800, Math.floor(maxChars / Math.max(1, sections.length)));
+  return sections
+    .map((section) => `## ${section.heading}\n${section.content.slice(0, perSection)}`)
+    .join("\n\n");
+}
+
+const SYSTEM = `당신은 정부지원사업 사업계획서의 수석 편집자입니다. 신청자가 한 번에 묶어 제출한 수정 요청과 심사 지적을 전체 문서에 일관되게 반영하세요.
+
+[절대 규칙]
+- 수정이 필요한 목차만 sections에 반환하고, 목차명은 현재 초안과 정확히 같아야 합니다. 수정하지 않은 목차는 출력하지 마세요.
+- 사용자 원답변, 첨부자료, 저장된 근거팩·전략팩에 없는 수치·고객·계약·성과·기관명을 만들지 마세요.
+- 새 자료가 필요한 문제는 그럴듯하게 메우지 말고 아래 표시를 구체적으로 남기세요.
+${MISSING_INFO_PLACEHOLDER}
+${PROOF_NEEDED_PLACEHOLDER}
+- 근거팩의 conflicts와 gaps를 숨기지 마세요. 사용자가 새 자료로 해결한 경우에만 관련 표시를 제거하세요.
+- 현재 성과와 향후 계획, 사용자와 결제자, 사실과 추정을 구분하세요.
+- 요청이 없는 기존 강점과 확인된 사실은 보존하세요.
+- 설명 없이 {"sections":[{"heading":"정확한 목차명","content":"수정 본문"}]} JSON 하나만 출력하세요.`;
+
 export async function POST(req: Request) {
   let body: unknown;
   try {
@@ -29,15 +58,17 @@ export async function POST(req: Request) {
   } catch {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
-  const { messages, code, program, section, currentContent, findings, provider: rawProvider } = (body ?? {}) as {
-    messages?: ChatMsg[];
-    code?: string;
-    program?: ProgramInput;
-    section?: { heading?: string };
-    currentContent?: string;
-    findings?: PlanReviewIssue[];
-    provider?: unknown;
-  };
+  const { messages, code, program, sections, findings, requestNote, provider: rawProvider } =
+    (body ?? {}) as {
+      messages?: ChatMsg[];
+      code?: string;
+      program?: ProgramInput;
+      sections?: PlanDocxSection[];
+      findings?: PlanReviewIssue[];
+      requestNote?: string;
+      provider?: unknown;
+    };
+
   const gate = maintenanceGate();
   if (gate) return gate;
   const loginGate = await paidGoogleLoginGate(req, code);
@@ -48,74 +79,106 @@ export async function POST(req: Request) {
   if (!access.ok) return paymentRequiredResponse(access.reason);
   const application = decideDraftApplication(program);
   if (!application.ok) return draftApplicationError(application);
-  if (!Array.isArray(messages) || !section?.heading || !currentContent || !Array.isArray(findings)) {
-    return Response.json({ error: "수정할 초안과 심사 의견이 필요해요." }, { status: 400 });
+  if (!Array.isArray(messages) || !Array.isArray(sections) || sections.length === 0) {
+    return Response.json({ error: "수정할 전체 초안이 필요해요." }, { status: 400 });
   }
-
-  const provider = parseProvider(rawProvider);
-  if (!isProviderConfigured(provider)) {
-    return Response.json({ error: "AI 키가 설정되지 않았어요." }, { status: 503 });
-  }
-  const fullConversation = messages
-    .filter((message) => message.role === "user" || message.role === "assistant")
-    .map((message) => `${message.role === "user" ? "신청자" : "도우미"}: ${message.content}`)
-    .join("\n");
-  const conversation =
-    fullConversation.length > 60000
-      ? `${fullConversation.slice(0, 16000)}\n\n[중간 대화 생략]\n\n${fullConversation.slice(-44000)}`
-      : fullConversation;
-  const safeFindings = findings.slice(0, 8).map((item) => ({
+  const safeSections = sections.slice(0, 80).map((section) => ({
+    heading: String(section.heading ?? "").trim().slice(0, 160),
+    content: String(section.content ?? "").trim().slice(0, 18_000),
+  }));
+  const safeFindings = (Array.isArray(findings) ? findings : []).slice(0, 30).map((item) => ({
+    severity: item.severity,
+    section: String(item.section ?? "전체").slice(0, 160),
     issue: String(item.issue ?? "").slice(0, 800),
     action: String(item.action ?? "").slice(0, 800),
     evidenceNeeded: String(item.evidenceNeeded ?? "").slice(0, 500),
   }));
-  const system = `당신은 정부지원사업 사업계획서의 수석 편집자입니다.
-심사위원 지적을 반영해 지정된 목차의 본문만 다시 쓰세요.
+  const note = String(requestNote ?? "").trim().slice(0, 3_000);
+  if (safeFindings.length === 0 && !note) {
+    return Response.json({ error: "한 번에 반영할 수정 요청을 입력해 주세요." }, { status: 400 });
+  }
+  const provider = parseProvider(rawProvider);
+  if (!isProviderConfigured(provider)) {
+    return Response.json({ error: "선택한 AI 키가 설정되지 않았어요." }, { status: 503 });
+  }
 
-규칙:
-- 신청자가 실제로 말한 사실과 첨부·공고 맥락만 사용합니다. 새 수치·고객·계약·성과·기관명을 만들지 않습니다.
-- 현재 자료만으로 고칠 수 있는 논리 순서, 비교 기준, 구체성, 중복, 가독성 문제를 우선 고칩니다.
-- 새 자료가 필요한 지적은 그럴듯하게 메우지 말고 다음 표시를 유지하거나 더 구체적으로 바꿉니다:
-${MISSING_INFO_PLACEHOLDER}
-${PROOF_NEEDED_PLACEHOLDER}
-- 현재 성과와 계획, 사용자와 결제자, 사실과 추정을 명확히 구분합니다.
-- 공식 목차명은 출력하지 말고 본문만 씁니다. 설명·머리말·마크다운 기호를 쓰지 않습니다.
-- 기존에 확인된 강점과 사실은 삭제하지 않습니다.`;
+  const revision = await reserveRevisionRound(access.user?.id);
+  if (!revision.ok) return revisionUnavailableResponse(revision.status);
+  const budget = await reservePaidAiCall({
+    userId: access.user?.id,
+    stage: "revision_batch",
+    provider,
+    tier: "fast",
+    estimatedInputTokens: 52_000,
+    maxOutputTokens: 5_000,
+  });
+  if (!budget.ok) {
+    await revision.rollback();
+    return aiBudgetExceededResponse(budget);
+  }
+  const [evidence, strategy] = access.user
+    ? await Promise.all([getEvidencePack(access.user.id), getStrategyPack(access.user.id)])
+    : [null, null];
+  const conversation = messages
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .slice(-48)
+    .map((message) => `${message.role === "user" ? "신청자" : "도우미"}: ${message.content}`)
+    .join("\n")
+    .slice(-45_000);
   const prompt = `[지원사업]
-${program?.title ?? "해당 지원사업"}
+- 사업명: ${program?.title || "확인되지 않음"}
+- 공고 요약: ${program?.summary || "확인되지 않음"}
 
-[신청자 원답변]
+[신청자 원답변 및 새로 첨부한 정보]
 ${conversation}
 
-[수정할 목차]
-${section.heading}
+[저장된 근거팩]
+${evidence ? evidencePackPrompt(evidence).slice(0, 40_000) : "저장 근거 없음"}
 
-[현재 본문]
-${String(currentContent).slice(0, 18000)}
+[저장된 전략팩]
+${strategy ? JSON.stringify(strategy, null, 2).slice(0, 30_000) : "저장 전략 없음"}
 
-[반영할 심사 의견]
-${safeFindings.map((item, index) => `${index + 1}. 문제: ${item.issue}\n조치: ${item.action}\n필요 자료: ${item.evidenceNeeded || "없음"}`).join("\n")}`;
+[현재 전체 초안]
+${compactSections(safeSections, 80_000)}
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      try {
-        for await (const chunk of getLlm(provider, "quality").streamText({
-          system,
-          messages: [{ role: "user", content: prompt }],
-          maxTokens: 2800,
-        })) {
-          controller.enqueue(encoder.encode(chunk));
-        }
-      } catch (error) {
-        console.error("[/api/plan/revise]", error);
-        controller.enqueue(encoder.encode(currentContent));
-      } finally {
-        controller.close();
-      }
-    },
-  });
-  return new Response(stream, {
-    headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
-  });
+[묶음 수정 요청]
+${note || "별도 요청 없음"}
+
+[심사 지적]
+${safeFindings.length ? safeFindings.map((item, index) => `${index + 1}. [${item.severity}] ${item.section}\n문제: ${item.issue}\n조치: ${item.action}\n필요자료: ${item.evidenceNeeded || "없음"}`).join("\n") : "없음"}`;
+
+  let completed = false;
+  try {
+    const raw = await getLlm(provider, "fast").json<RevisionResult>({
+      system: SYSTEM,
+      messages: [{ role: "user", content: prompt }],
+      schema: {},
+      maxTokens: 5_000,
+      onUsage: async (usage) => {
+        await budget.complete(usage);
+        completed = true;
+      },
+    });
+    const received = Array.isArray(raw.sections) ? raw.sections : [];
+    const output = safeSections.map((section) => {
+      const exact = received.find((item) => String(item.heading ?? "").trim() === section.heading);
+      const content = String(exact?.content ?? section.content).trim().slice(0, 18_000);
+      return { heading: section.heading, content: content || section.content };
+    });
+    return Response.json(
+      {
+        sections: output,
+        revision: access.user ? await getRevisionStatus(access.user.id) : revision.status,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    if (!completed) await budget.release();
+    await revision.rollback();
+    console.error("[/api/plan/revise]", error);
+    return Response.json(
+      { error: "묶음 수정을 완료하지 못했어요. 시스템 오류로 수정 횟수는 차감하지 않았어요." },
+      { status: 500 },
+    );
+  }
 }

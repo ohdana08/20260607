@@ -40,13 +40,14 @@ function toMessages(
 
 export function createOpenAIClient(model: string): LlmClient {
   return {
-    async *streamText({ system, messages, maxTokens = 1024, signal, onStop }: StreamTextOptions) {
+    async *streamText({ system, messages, maxTokens = 1024, signal, onStop, onUsage }: StreamTextOptions) {
       const stream = await client().chat.completions.create(
         {
           model,
           messages: toMessages(system, messages),
           max_completion_tokens: maxTokens,
           stream: true,
+          stream_options: { include_usage: true },
         },
         { signal },
       );
@@ -59,14 +60,28 @@ export function createOpenAIClient(model: string): LlmClient {
             reason: finishReason === "length" ? "max_tokens" : finishReason,
           });
         }
+        if (chunk.usage) {
+          await onUsage?.({
+            provider: "openai",
+            model,
+            inputTokens: chunk.usage.prompt_tokens ?? 0,
+            outputTokens: chunk.usage.completion_tokens ?? 0,
+          });
+        }
       }
     },
 
-    async json<T>({ system, messages, maxTokens = 2048 }: JsonOptions): Promise<T> {
+    async json<T>({ system, messages, maxTokens = 2048, onUsage }: JsonOptions): Promise<T> {
       const res = await client().chat.completions.create({
         model,
         messages: toMessages(system, messages),
         max_completion_tokens: maxTokens,
+      });
+      await onUsage?.({
+        provider: "openai",
+        model,
+        inputTokens: res.usage?.prompt_tokens ?? 0,
+        outputTokens: res.usage?.completion_tokens ?? 0,
       });
       return extractJson<T>(res.choices[0]?.message?.content ?? "");
     },

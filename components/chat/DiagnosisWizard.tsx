@@ -396,7 +396,7 @@ export default function DiagnosisWizard({
           </div>
           <div className="mt-5 rounded-xl bg-zinc-50 px-4 py-3 text-[13px] leading-6 text-zinc-600">
             <p><b className="text-emerald-700">맞는 지원 찾기와 내가 신청할 수 있는지 확인하는 건 무료</b>예요.</p>
-            <p>긴 문서 작성이 필요한 사업을 골랐을 때만 워드 초안 1건 {PRICE_LABEL}을 안내합니다.</p>
+            <p>긴 문서 작성이 필요한 사업을 골랐을 때만 최종 Word 1회와 묶음 AI 수정 최대 3회가 포함된 {PRICE_LABEL} 상품을 안내합니다.</p>
           </div>
           {findRes && findRes.recommendations.length > 0 && (
             <button

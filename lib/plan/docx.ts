@@ -19,10 +19,22 @@ export interface PlanDocxSection {
 }
 
 export interface PlanDocxChart {
+  key?: string;
   title: string;
   png: string;
   width: number;
   height: number;
+  targetSection?: string;
+  sourceNote?: string;
+}
+
+export interface PlanDocxEvidenceSource {
+  id: string;
+  title: string;
+  publisher: string;
+  checkedAt: string;
+  url: string;
+  claim?: string;
 }
 
 const BLUE = "1D4ED8";
@@ -152,10 +164,62 @@ function reviewTable(sections: PlanDocxSection[]): Table {
   });
 }
 
+function normalizedHeading(value: string): string {
+  return (value || "").replace(/[\s·:：()（）\[\]]/g, "").toLowerCase();
+}
+
+function chartMatchesSection(chart: PlanDocxChart, sectionHeading: string): boolean {
+  const target = normalizedHeading(chart.targetSection || "");
+  const heading = normalizedHeading(sectionHeading);
+  if (!target || !heading) return false;
+  return heading.includes(target) || target.includes(heading);
+}
+
+function renderChart(chart: PlanDocxChart): Paragraph[] {
+  const maxWidth = 480;
+  const width = Math.min(maxWidth, chart.width || maxWidth);
+  const rawHeight = Math.round((width / (chart.width || maxWidth)) * (chart.height || 300));
+  const height = Math.min(620, rawHeight);
+  const paragraphs = [
+    new Paragraph({
+      spacing: { before: 180, after: 60 },
+      children: [new TextRun({ text: chart.title, font: BODY_FONT, bold: true, color: DARK, size: 21 })],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: chart.sourceNote ? 40 : 120 },
+      children: [
+        new ImageRun({
+          type: "png",
+          data: Buffer.from(chart.png, "base64"),
+          transformation: { width, height },
+        }),
+      ],
+    }),
+  ];
+  if (chart.sourceNote) {
+    paragraphs.push(
+      new Paragraph({
+        spacing: { after: 120 },
+        children: [
+          new TextRun({
+            text: `출처·기준: ${chart.sourceNote}`,
+            font: BODY_FONT,
+            color: MUTED,
+            size: 16,
+          }),
+        ],
+      }),
+    );
+  }
+  return paragraphs;
+}
+
 export async function buildPlanDocxBuffer(
   title: string | undefined,
   sections: PlanDocxSection[],
   charts: PlanDocxChart[] = [],
+  evidenceSources: PlanDocxEvidenceSource[] = [],
 ): Promise<Buffer> {
   const docTitle = title || "사업계획서";
   const generatedDate = new Intl.DateTimeFormat("ko-KR", {
@@ -175,7 +239,7 @@ export async function buildPlanDocxBuffer(
       alignment: AlignmentType.CENTER,
       spacing: { after: 220 },
       children: [
-        new TextRun({ text: "정부지원사업 제출용 초안", font: BODY_FONT, color: MUTED, size: 24 }),
+        new TextRun({ text: "정부지원사업 제출용 사업계획서", font: BODY_FONT, color: MUTED, size: 24 }),
       ],
     }),
     new Paragraph({
@@ -206,6 +270,7 @@ export async function buildPlanDocxBuffer(
     reviewTable(sections),
   ];
 
+  const embeddedCharts = new Set<number>();
   for (const section of sections) {
     children.push(
       new Paragraph({
@@ -217,9 +282,19 @@ export async function buildPlanDocxBuffer(
       }),
       ...renderContent(section.content),
     );
+    charts.forEach((chart, index) => {
+      if (embeddedCharts.has(index) || !chartMatchesSection(chart, section.heading)) return;
+      try {
+        children.push(...renderChart(chart));
+        embeddedCharts.add(index);
+      } catch (error) {
+        console.error("[docx] inline image embed failed", chart.title, error);
+      }
+    });
   }
 
-  if (Array.isArray(charts) && charts.length > 0) {
+  const remainingCharts = charts.filter((_, index) => !embeddedCharts.has(index));
+  if (remainingCharts.length > 0) {
     children.push(
       new Paragraph({
         heading: HeadingLevel.HEADING_1,
@@ -229,30 +304,70 @@ export async function buildPlanDocxBuffer(
         ],
       }),
     );
-    const maxWidth = 480;
-    for (const chart of charts) {
+    for (const chart of remainingCharts) {
       try {
-        const width = Math.min(maxWidth, chart.width || maxWidth);
-        const height = Math.round((width / (chart.width || maxWidth)) * (chart.height || 300));
-        children.push(
-          new Paragraph({
-            spacing: { before: 180, after: 60 },
-            children: [new TextRun({ text: chart.title, font: BODY_FONT, bold: true })],
-          }),
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 120 },
-            children: [
-              new ImageRun({
-                type: "png",
-                data: Buffer.from(chart.png, "base64"),
-                transformation: { width, height },
-              }),
-            ],
-          }),
-        );
+        children.push(...renderChart(chart));
       } catch (error) {
         console.error("[docx] image embed failed", chart.title, error);
+      }
+    }
+  }
+
+  if (evidenceSources.length > 0) {
+    children.push(
+      new Paragraph({
+        heading: HeadingLevel.HEADING_1,
+        spacing: { before: 320, after: 120 },
+        children: [
+          new TextRun({ text: "[붙임] 근거 출처", font: BODY_FONT, bold: true, color: BLUE }),
+        ],
+      }),
+      new Paragraph({
+        spacing: { after: 160 },
+        children: [
+          new TextRun({
+            text: "아래 확인일은 자동 조사 또는 사용자 첨부자료를 검토한 날짜입니다. 제출 직전 원문 최신성을 다시 확인해야 합니다.",
+            font: BODY_FONT,
+            color: MUTED,
+            size: 18,
+          }),
+        ],
+      }),
+    );
+    for (const source of evidenceSources.slice(0, 24)) {
+      children.push(
+        new Paragraph({
+          spacing: { before: 120, after: 40 },
+          children: [
+            new TextRun({
+              text: `[${source.id}] ${source.title}`,
+              font: BODY_FONT,
+              bold: true,
+              color: DARK,
+              size: 19,
+            }),
+          ],
+        }),
+        new Paragraph({
+          spacing: { after: 30 },
+          children: [
+            new TextRun({
+              text: `${source.publisher || "사용자 제공 자료"} · 확인일 ${source.checkedAt.slice(0, 10)}`,
+              font: BODY_FONT,
+              color: MUTED,
+              size: 16,
+            }),
+          ],
+        }),
+      );
+      if (source.claim) children.push(textParagraph(`근거 주장: ${source.claim}`));
+      if (source.url) {
+        children.push(
+          new Paragraph({
+            spacing: { after: 80 },
+            children: [new TextRun({ text: source.url, font: BODY_FONT, color: BLUE, size: 16 })],
+          }),
+        );
       }
     }
   }

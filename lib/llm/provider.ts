@@ -17,6 +17,16 @@ export type Provider = "claude" | "openai";
 // quality = 최고품질(유료 사업계획서 초안 — 비용 감수)
 export type Tier = "fast" | "balanced" | "quality";
 
+export interface LlmUsage {
+  provider: Provider;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
+  webSearchRequests?: number;
+}
+
 export interface ChatImage {
   mediaType: string; // "image/png" | "image/jpeg" | "image/webp" | "image/gif"
   data: string; // base64 (no data: prefix)
@@ -41,6 +51,7 @@ export interface StreamTextOptions {
   maxTokens?: number;
   signal?: AbortSignal;
   onStop?: (stop: { reason?: string | null; outputTokens?: number }) => void;
+  onUsage?: (usage: LlmUsage) => void | Promise<void>;
 }
 
 export interface JsonOptions {
@@ -49,6 +60,7 @@ export interface JsonOptions {
   // JSON Schema the model output is validated against.
   schema: Record<string, unknown>;
   maxTokens?: number;
+  onUsage?: (usage: LlmUsage) => void | Promise<void>;
 }
 
 export interface LlmClient {
@@ -75,16 +87,20 @@ export function isProviderConfigured(provider: Provider): boolean {
  * fast = cheap model (intake/match), quality = best model (plan draft).
  */
 export function getLlm(provider: Provider, tier: Tier = "fast"): LlmClient {
+  return provider === "openai"
+    ? createOpenAIClient(resolveModel(provider, tier))
+    : createAnthropicClient(resolveModel(provider, tier));
+}
+
+export function resolveModel(provider: Provider, tier: Tier = "fast"): string {
   if (provider === "openai") {
-    const model =
-      tier === "fast" ? "gpt-4o-mini" : process.env.OPENAI_MODEL || "gpt-4o";
-    return createOpenAIClient(model);
+    return tier === "fast" ? "gpt-4o-mini" : process.env.OPENAI_MODEL || "gpt-4o";
   }
-  const model =
+  return (
     tier === "quality"
       ? "claude-opus-4-8" // 유료 초안: 최고 품질
       : tier === "balanced"
         ? "claude-sonnet-4-6" // 진단 보고서: 빠르고 충분한 품질
-        : "claude-haiku-4-5"; // 문진·적합도·맛보기: 빠름/저렴
-  return createAnthropicClient(model);
+        : "claude-haiku-4-5"
+  ); // 문진·적합도·맛보기: 빠름/저렴
 }

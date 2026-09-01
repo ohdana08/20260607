@@ -16,10 +16,14 @@ import {
   sanitizeFormToc,
 } from "@/lib/plan/sections";
 import {
-  reviewReportSections,
-  type PlanReadinessAssessment,
   type PlanReviewReport,
 } from "@/lib/plan/reviewer";
+import type { EvidencePack, StrategyPack } from "@/lib/plan/strategy";
+import type { RevisionStatus } from "@/lib/plan/revisions";
+import {
+  PLAN_OUTCOME_NOTICE,
+  PLAN_REVISION_NOTICE,
+} from "@/lib/plan/productPolicy";
 import { track } from "@/lib/ga";
 import { captureUtm, getLeadSource } from "@/lib/utm";
 import { useAuth, authedHeaders, forceRefreshToken, AuthModal } from "@/components/auth/AuthGate";
@@ -118,6 +122,15 @@ interface Chart {
   png: string;
   width: number;
   height: number;
+  targetSection?: string;
+  sourceNote?: string;
+}
+
+interface FinalAcknowledgements {
+  reviewedIssues: boolean;
+  factsConfirmed: boolean;
+  outcomeUnderstood: boolean;
+  revisionPolicyUnderstood: boolean;
 }
 // 합격 가능성 진단 결과 (2026-07-10 확정 설계 — 전부 무료 공개, LLM 호출 0회)
 type EvidenceResult =
@@ -377,11 +390,20 @@ export default function Chat() {
   const [code, setCode] = useState<string>("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [drafting, setDrafting] = useState(false);
-  const [readinessChecking, setReadinessChecking] = useState(false);
   const [reviewingDraft, setReviewingDraft] = useState(false);
   const [revisingDraft, setRevisingDraft] = useState(false);
   const [planReview, setPlanReview] = useState<PlanReviewReport | null>(null);
   const [charts, setCharts] = useState<Chart[] | null>(null);
+  const [evidencePack, setEvidencePack] = useState<EvidencePack | null>(null);
+  const [strategyPack, setStrategyPack] = useState<StrategyPack | null>(null);
+  const [evidenceMessageCount, setEvidenceMessageCount] = useState(0);
+  const [generationStage, setGenerationStage] = useState("");
+  const [revisionStatus, setRevisionStatus] = useState<RevisionStatus | null>(null);
+  useEffect(() => {
+    if (draft && evidenceMessageCount > 0 && messages.length > evidenceMessageCount) {
+      setPlanReview(null);
+    }
+  }, [draft, evidenceMessageCount, messages.length]);
   const [planStartIdx, setPlanStartIdx] = useState(0); // 2차 대화 시작 지점
   // 합격 가능성 진단 (2026-07-10 확정 설계) — 매핑표는 evidence_map 테이블(하드코딩 금지)
   const [evMap, setEvMap] = useState<EvidenceRow[] | null>(null);
@@ -691,6 +713,11 @@ export default function Chat() {
     setRecs(null);
     setDraft(null);
     setCharts(null);
+    setEvidencePack(null);
+    setStrategyPack(null);
+    setEvidenceMessageCount(0);
+    setGenerationStage("");
+    setRevisionStatus(null);
     setSelectedProgram(null);
     setCode("");
     setMode("intake");
@@ -716,6 +743,9 @@ export default function Chat() {
     setRecs(null);
     setDraft(null);
     setCharts(null);
+    setEvidencePack(null);
+    setStrategyPack(null);
+    setRevisionStatus(null);
     setSelectedProgram(null);
     setMode(restoreMode(c.mode)); // 진행 단계 복원(2026-07-13 T3)
     setProfile(c.profile ?? null); // 3문항 프로필 복원(2026-07-14 P1) — 이전 대화 프로필 누수도 차단
@@ -762,7 +792,6 @@ export default function Chat() {
     setKitSheet(null);
     setDraftReadiness(null);
     setPlanReview(null);
-    setReadinessChecking(false);
     setReviewingDraft(false);
     setRevisingDraft(false);
     setKickoffError(null);
@@ -1514,6 +1543,9 @@ export default function Chat() {
     setRecs(null);
     setDraft(null);
     setCharts(null);
+    setEvidencePack(null);
+    setStrategyPack(null);
+    setRevisionStatus(null);
     resetEvidence();
     setWizAnalysis({ text: "", busy: false });
     setWizardStart("find");
@@ -1538,6 +1570,10 @@ export default function Chat() {
     setMode("fitcheck");
     setDraft(null);
     setCharts(null);
+    setEvidencePack(null);
+    setStrategyPack(null);
+    setEvidenceMessageCount(0);
+    setRevisionStatus(null);
     resetEvidence();
     resetEligibility();
     setWizAnalysis({ text: "", busy: false });
@@ -1800,6 +1836,9 @@ export default function Chat() {
     setMode("plan");
     setDraft(null);
     setCharts(null);
+    setEvidencePack(null);
+    setStrategyPack(null);
+    setEvidenceMessageCount(0);
     setPlanReview(null);
     setDraftReadiness(null);
     resetEvidence();
@@ -1941,71 +1980,64 @@ export default function Chat() {
     return { ok: false, error: String(data?.error || "확인에 실패했어요. 다시 시도해 주세요.") };
   }
 
-  async function checkPlanReadiness(): Promise<PlanReadinessAssessment | null> {
-    if (!selectedProgram) return null;
-    setReadinessChecking(true);
+  async function refreshPlanStatus() {
+    if (!paid || !session) return;
     try {
-      const res = await fetch("/api/plan/readiness", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
-        body: JSON.stringify({
-          messages: [...summaryHead(), ...stripImages(messages)],
-          code,
-          program: selectedProgram,
-          formToc,
-          provider,
-        }),
-      });
-      const data = (await res.json().catch(() => null)) as (PlanReadinessAssessment & { error?: string }) | null;
-      if (!res.ok || !data) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: data?.error ?? "작성 준비도를 점검하지 못했어요. 잠시 후 다시 눌러주세요.",
-          },
-        ]);
-        return null;
-      }
-      const missing = Array.from(new Set([...data.criticalGaps, ...data.nextQuestions])).slice(0, 7);
-      setDraftReadiness({ ready: data.ready, score: data.score, missing: data.ready ? [] : missing });
-      if (!data.ready) {
-        const questions = missing.length
-          ? missing.map((item, index) => `${index + 1}. ${item}`).join("\n")
-          : "심사에서 판단할 수 있는 실제 상황·숫자·확인 자료를 더 알려주세요.";
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `심사위원 관점으로 다시 점검해 보니 아직 초안을 만들기보다 먼저 채워야 할 내용이 있어요.\n\n${data.verdict}\n\n${questions}\n\n위에서 가장 먼저 답할 수 있는 것부터 하나씩 알려주세요.`,
-          },
-        ]);
-      }
-      return data;
+      const res = await fetch("/api/plan/status", { headers: await authedHeaders() });
+      const data = (await res.json().catch(() => null)) as
+        | { paid?: boolean; revision?: RevisionStatus }
+        | null;
+      if (res.ok && data?.paid && data.revision) setRevisionStatus(data.revision);
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "작성 준비도 점검 중 연결이 끊겼어요. 잠시 후 다시 눌러주세요." },
-      ]);
-      return null;
-    } finally {
-      setReadinessChecking(false);
+      /* 상태 표시는 보조 정보이며 작성 흐름을 막지 않는다 */
     }
   }
 
-  async function auditDraftSections(sections: DraftSection[]): Promise<PlanReviewReport | null> {
+  useEffect(() => {
+    if (paid && session) void refreshPlanStatus();
+    // 인증 상태가 바뀔 때만 서버의 주문별 수정 상태를 복원한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paid, session?.access_token]);
+
+  function planTextMessages(): Msg[] {
+    return stripImages(lightenForPlan(messages));
+  }
+
+  function planEvidenceMessages(): Msg[] {
+    const prepared = lightenForPlan(messages).slice(-40);
+    let latestAttachment = -1;
+    for (let index = prepared.length - 1; index >= 0; index--) {
+      if (prepared[index].images?.length || prepared[index].files?.length) {
+        latestAttachment = index;
+        break;
+      }
+    }
+    return prepared.map((message, index) =>
+      index === latestAttachment
+        ? message
+        : { role: message.role, content: message.content },
+    );
+  }
+
+  async function auditDraftSections(
+    sections: DraftSection[],
+    artifacts?: { evidence: EvidencePack; strategy: StrategyPack },
+  ): Promise<PlanReviewReport | null> {
     if (!selectedProgram || sections.length === 0) return null;
     setReviewingDraft(true);
+    setGenerationStage("근거 충돌과 필수 데이터 부족을 최종 점검하는 중");
     try {
       const res = await fetch("/api/plan/audit", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
         body: JSON.stringify({
-          messages: [...summaryHead(), ...stripImages(messages)],
+          messages: planTextMessages(),
           sections,
           code,
           program: selectedProgram,
           formToc,
+          evidence: artifacts?.evidence ?? evidencePack,
+          strategy: artifacts?.strategy ?? strategyPack,
           provider,
         }),
       });
@@ -2027,189 +2059,208 @@ export default function Chat() {
       return null;
     } finally {
       setReviewingDraft(false);
+      setGenerationStage("");
     }
+  }
+
+  async function organizeEvidenceAndStrategy(): Promise<{
+    evidence: EvidencePack;
+    strategy: StrategyPack;
+    charts: Chart[];
+  } | null> {
+    if (!selectedProgram) return null;
+    try {
+      setGenerationStage("공식 출처와 가까운 경쟁사 2곳을 확인하는 중");
+      const evidenceRes = await fetch("/api/plan/evidence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
+        body: JSON.stringify({
+          messages: planEvidenceMessages(),
+          code,
+          program: selectedProgram,
+        }),
+      });
+      const evidenceData = (await evidenceRes.json().catch(() => null)) as
+        | { evidence?: EvidencePack; error?: string }
+        | null;
+      if (!evidenceRes.ok || !evidenceData?.evidence) {
+        throw new Error(evidenceData?.error || "근거를 정리하지 못했어요.");
+      }
+      setEvidencePack(evidenceData.evidence);
+
+      setGenerationStage("검증된 근거로 전략과 A4 도식을 설계하는 중");
+      const strategyRes = await fetch("/api/plan/strategy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
+        body: JSON.stringify({
+          messages: planTextMessages(),
+          code,
+          program: selectedProgram,
+          formToc,
+          evidence: evidenceData.evidence,
+          provider,
+        }),
+      });
+      const strategyData = (await strategyRes.json().catch(() => null)) as
+        | { strategy?: StrategyPack; charts?: Chart[]; error?: string }
+        | null;
+      if (!strategyRes.ok || !strategyData?.strategy) {
+        throw new Error(strategyData?.error || "전략과 도식을 설계하지 못했어요.");
+      }
+      const selectedCharts = Array.isArray(strategyData.charts) ? strategyData.charts.slice(0, 6) : [];
+      setStrategyPack(strategyData.strategy);
+      setCharts(selectedCharts);
+      setEvidenceMessageCount(messages.length);
+      return { evidence: evidenceData.evidence, strategy: strategyData.strategy, charts: selectedCharts };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "근거 조사 중 문제가 생겼어요.";
+      setMessages((prev) => [...prev, { role: "assistant", content: message }]);
+      return null;
+    } finally {
+      setGenerationStage("");
+    }
+  }
+
+  function splitDraftBatches<T>(items: T[]): T[][] {
+    const batchCount = Math.min(3, Math.max(1, Math.ceil(items.length / 8)));
+    const size = Math.ceil(items.length / batchCount);
+    return Array.from({ length: batchCount }, (_, index) => items.slice(index * size, (index + 1) * size)).filter(
+      (batch) => batch.length > 0,
+    );
   }
 
   async function generateDraft() {
     if (!selectedProgram || drafting || !(paid || code) || !draftAnswersReady) return;
     setPlanReview(null);
-    const assessed = await checkPlanReadiness();
-    if (!assessed?.ready) return;
-    const verifiedReadiness: DraftReadiness = { ready: true, score: assessed.score, missing: [] };
     setDrafting(true);
     setCharts(null);
     const title = `${selectedProgram.title} 사업계획서`;
     const formSections = formTocToPlanSections(formToc);
     const draftPlanSections = formSections ?? PLAN_SECTIONS;
-    const draftFormToc = formSections?.map((s) => s.heading) ?? [];
-    const userTextForRegion = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n");
-    const regionRequirementText = [
-      docSummary ?? "",
-      selectedProgram.target,
-      selectedProgram.summary,
-      ...(eligReqs?.required ?? []),
-      ...(eligReqs?.disqualifiers ?? []),
-      ...(eligReqs?.obligations ?? []),
-    ].join("\n");
+    const draftFormToc = formSections?.map((section) => section.heading) ?? [];
+    const initialSections = draftPlanSections.map((section) => ({ heading: section.heading, content: "" }));
+    setDraft({ title, sections: initialSections });
+
+    const artifacts = await organizeEvidenceAndStrategy();
+    if (!artifacts) {
+      setDrafting(false);
+      return;
+    }
+    const userTextForRegion = messages.filter((message) => message.role === "user").map((message) => message.content).join("\n");
     const regionNotice = buildRegionNotice(
-      regionRequirementText,
+      [
+        docSummary ?? "",
+        selectedProgram.target,
+        selectedProgram.summary,
+        ...(eligReqs?.required ?? []),
+        ...(eligReqs?.disqualifiers ?? []),
+        ...(eligReqs?.obligations ?? []),
+      ].join("\n"),
       extractBusinessRegion(userTextForRegion, profile?.region ?? null),
     );
-    const regionNoticeHeading = preferredRegionNoticeHeading(draftPlanSections.map((s) => s.heading));
-    const sections: DraftSection[] = [];
-    setDraft({ title, sections: [] });
+    const regionNoticeHeading = preferredRegionNoticeHeading(draftPlanSections.map((section) => section.heading));
+    const completedSections = initialSections.map((section) => ({ ...section }));
+    const batches = splitDraftBatches(draftPlanSections);
 
-    for (const sec of draftPlanSections) {
-      sections.push({ heading: sec.heading, content: "" });
-      setDraft({ title, sections: [...sections] });
-      try {
-        const res = await fetch("/api/plan/draft", {
+    try {
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        setGenerationStage(`공식 목차 묶음 ${batchIndex + 1}/${batches.length} 작성 중`);
+        const batch = batches[batchIndex];
+        const res = await fetch("/api/plan/draft-batch", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
           body: JSON.stringify({
-            // 작성요약(양식 목차 포함)을 앞에 실어 초안이 공고·양식 맥락을 유지하게 (2026-07-12)
-            messages: [...summaryHead(), ...stripImages(messages)],
+            messages: planTextMessages(),
             code,
             program: selectedProgram,
-            section: { heading: sec.heading, guide: sec.guide },
+            sections: batch,
             formToc: draftFormToc.length > 0 ? draftFormToc : undefined,
-            readiness: verifiedReadiness,
+            evidence: artifacts.evidence,
+            strategy: artifacts.strategy,
             provider,
           }),
         });
-        if (res.status === 429) {
-          sections[sections.length - 1].content = "(잠시 너무 많이 사용했어요. 잠깐 후 다시 시도해 주세요.)";
-          setDraft({ title, sections: [...sections] });
-          break;
+        const data = (await res.json().catch(() => null)) as
+          | { sections?: DraftSection[]; error?: string }
+          | null;
+        if (!res.ok || !Array.isArray(data?.sections)) {
+          throw new Error(data?.error || `목차 묶음 ${batchIndex + 1} 작성에 실패했어요.`);
         }
-        if (res.status === 402) {
-          // 이용권 소진 등 — 서버 사유를 그대로 보여주고 중단 (2026-07-13)
-          const d = (await res.json().catch(() => null)) as { error?: string } | null;
-          sections[sections.length - 1].content =
-            typeof d?.error === "string" ? `(${d.error})` : "(추가 이용권 결제가 필요해요.)";
-          setDraft({ title, sections: [...sections] });
-          break;
-        }
-        if (!res.ok || !res.body) {
-          sections[sections.length - 1].content = "(이 항목 작성에 실패했어요.)";
-          setDraft({ title, sections: [...sections] });
-          continue;
-        }
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let acc = "";
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          acc += decoder.decode(value, { stream: true });
-          sections[sections.length - 1].content = ensureConditionalRegionNotice(
-            sec.heading,
-            ensureFormTableNotice(sec.heading, acc),
+        for (const written of data.sections) {
+          const target = completedSections.find((section) => section.heading === written.heading);
+          if (!target) continue;
+          target.content = ensureConditionalRegionNotice(
+            target.heading,
+            ensureFormTableNotice(target.heading, written.content),
             regionNotice,
             regionNoticeHeading,
           );
-          setDraft({ title, sections: [...sections] });
         }
-        sections[sections.length - 1].content = ensureConditionalRegionNotice(
-          sec.heading,
-          ensureFormTableNotice(sec.heading, acc),
-          regionNotice,
-          regionNoticeHeading,
-        );
-        setDraft({ title, sections: [...sections] });
-      } catch {
-        sections[sections.length - 1].content = ensureConditionalRegionNotice(
-          sec.heading,
-          ensureFormTableNotice(sec.heading, "(이 항목 작성 중 연결이 끊겼어요.)"),
-          regionNotice,
-          regionNoticeHeading,
-        );
-        setDraft({ title, sections: [...sections] });
+        setDraft({ title, sections: completedSections.map((section) => ({ ...section })) });
       }
-    }
-
-    // 도식 자료 생성 (TAM/SAM/SOM·고객여정맵·퍼널·수익모델)
-    try {
-      const res = await fetch("/api/plan/visuals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
-        body: JSON.stringify({
-          messages: [...summaryHead(), ...stripImages(messages)],
-          code,
-          program: selectedProgram,
-          provider,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.charts) && data.charts.length > 0) setCharts(data.charts);
+      const completeDraft = { title, sections: completedSections };
+      setDraft(completeDraft);
+      await auditDraftSections(completedSections, artifacts);
+      track("complete_draft", { program: selectedProgram.title });
+      if (!reviewDone) {
+        track("review_prompt_shown");
+        setReviewOpen(true);
       }
-    } catch {
-      /* 도식 실패해도 초안은 유지 */
-    }
-
-    await auditDraftSections(sections);
-    setDrafting(false);
-    // 결과물 도달 측정 + 만족도 최고점에 후기 팝업 (한 번만)
-    track("complete_draft", { program: selectedProgram?.title ?? "" });
-    if (!reviewDone) {
-      track("review_prompt_shown");
-      setReviewOpen(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "사업계획서를 만들지 못했어요.";
+      setMessages((prev) => [...prev, { role: "assistant", content: `${message}\n작성된 내용은 유지됩니다. 잠시 후 다시 시도해 주세요.` }]);
+    } finally {
+      setDrafting(false);
+      setGenerationStage("");
+      void refreshPlanStatus();
     }
   }
 
-  async function reviseDraftFromReview() {
+  async function reviseDraftFromReview(requestNote = "") {
     if (!draft || !planReview || !selectedProgram || revisingDraft || reviewingDraft) return;
-    const fixable = planReview.issues.filter((item) => item.canAutoFix);
-    if (fixable.length === 0) return;
+    if (planReview.issues.length === 0 && !requestNote.trim()) return;
     setRevisingDraft(true);
-    setPlanReview(null);
-    const revised = draft.sections.map((section) => ({ ...section }));
-    const norm = (value: string) => value.replace(/\s+/g, "").toLowerCase();
-    let revisedCount = 0;
-    for (let index = 0; index < revised.length && revisedCount < 10; index++) {
-      const section = revised[index];
-      const findings = fixable.filter((item) => {
-        if (item.section === "전체") return true;
-        const issueSection = norm(item.section);
-        const heading = norm(section.heading);
-        return issueSection === heading || issueSection.includes(heading) || heading.includes(issueSection);
-      });
-      if (findings.length === 0) continue;
-      revisedCount++;
-      try {
-        const res = await fetch("/api/plan/revise", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
-          body: JSON.stringify({
-            messages: [...summaryHead(), ...stripImages(messages)],
-            code,
-            program: selectedProgram,
-            section: { heading: section.heading },
-            currentContent: section.content,
-            findings,
-            provider,
-          }),
-        });
-        if (!res.ok || !res.body) continue;
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let acc = "";
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          acc += decoder.decode(value, { stream: true });
-          revised[index].content = acc;
-          setDraft({ ...draft, sections: revised.map((item) => ({ ...item })) });
-        }
-      } catch {
-        /* 해당 항목 원문을 유지하고 나머지 수정은 계속 */
+    setGenerationStage("묶음 수정 요청을 전체 문서에 반영하는 중");
+    try {
+      let artifacts =
+        evidencePack && strategyPack ? { evidence: evidencePack, strategy: strategyPack, charts: charts ?? [] } : null;
+      // 초안 이후 새 답변·첨부가 들어오면, 그 자료를 근거팩에 먼저 저장하고 전략·도식을 다시 검증한다.
+      if (!artifacts || messages.length > evidenceMessageCount) {
+        artifacts = await organizeEvidenceAndStrategy();
+        if (!artifacts) return;
       }
+      const res = await fetch("/api/plan/revise", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
+        body: JSON.stringify({
+          messages: planTextMessages(),
+          code,
+          program: selectedProgram,
+          sections: draft.sections,
+          findings: planReview.issues,
+          requestNote,
+          provider,
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | { sections?: DraftSection[]; revision?: RevisionStatus; error?: string }
+        | null;
+      if (!res.ok || !Array.isArray(data?.sections)) {
+        throw new Error(data?.error || "묶음 수정을 완료하지 못했어요.");
+      }
+      const revisedDraft = { ...draft, sections: data.sections };
+      setDraft(revisedDraft);
+      setPlanReview(null);
+      if (data.revision) setRevisionStatus(data.revision);
+      await auditDraftSections(data.sections, artifacts);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "묶음 수정 중 문제가 생겼어요.";
+      setMessages((prev) => [...prev, { role: "assistant", content: message }]);
+    } finally {
+      setRevisingDraft(false);
+      setGenerationStage("");
+      void refreshPlanStatus();
     }
-    const revisedDraft = { ...draft, sections: revised };
-    setDraft(revisedDraft);
-    setRevisingDraft(false);
-    await auditDraftSections(revised);
   }
 
   // 후기 저장 — 구글시트(GAS) 또는 Upstash로 영구 저장
@@ -2239,20 +2290,8 @@ export default function Chat() {
     }
   }
 
-  async function downloadDocx() {
-    if (!draft || !(paid || code)) return;
-    // 자격 미충족·불확실 강행 시 — 문서 맨 앞에도 경고 섹션을 넣는다 (2026-07-12)
-    const eligWarnSections: DraftSection[] =
-      eligOverride && (eligStatus === "미충족" || eligStatus === "불확실")
-        ? [
-            {
-              heading: "⚠️ 신청 자격 확인 필요",
-              content: `이 초안은 신청 자격이 ${
-                eligStatus === "미충족" ? "충족되지 않은" : "확인되지 않은"
-              } 상태에서 작성되었습니다. 제출 전에 공고문의 신청 자격 요건(업력·매출·투자 실적·추천서 등)을 반드시 직접 확인하세요.`,
-            },
-          ]
-        : [];
+  async function downloadDocx(acknowledgements: FinalAcknowledgements) {
+    if (!draft || !(paid || code) || !planReview?.submissionReady) return;
     const res = await fetch("/api/plan/docx", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
@@ -2260,16 +2299,15 @@ export default function Chat() {
         code,
         programId: selectedProgram?.id,
         title: draft.title,
-        sections: [
-          ...eligWarnSections,
-          ...draft.sections,
-          ...(planReview ? reviewReportSections(planReview) : []),
-        ],
+        sections: draft.sections,
         charts: charts ?? [],
+        reviewStatus: planReview.status,
+        acknowledgements,
       }),
     });
     if (!res.ok) {
-      alert("다운로드에 실패했어요. 다시 시도해 주세요.");
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      alert(data?.error || "다운로드에 실패했어요. 다시 시도해 주세요.");
       return;
     }
     const blob = await res.blob();
@@ -2281,6 +2319,13 @@ export default function Chat() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    const remaining = Number(res.headers.get("X-Revision-Remaining"));
+    if (Number.isFinite(remaining)) {
+      setRevisionStatus((current) =>
+        current ? { ...current, remaining } : current,
+      );
+    }
+    void refreshPlanStatus();
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -2790,9 +2835,12 @@ export default function Chat() {
             revising={revisingDraft}
             review={planReview}
             charts={charts}
+            evidence={evidencePack}
+            revisionStatus={revisionStatus}
+            generationStage={generationStage}
             onDownload={downloadDocx}
             onReview={() => void auditDraftSections(draft.sections)}
-            onRevise={() => void reviseDraftFromReview()}
+            onRevise={(note) => void reviseDraftFromReview(note)}
             eligWarn={
               eligOverride && (eligStatus === "미충족" || eligStatus === "불확실") ? eligStatus : null
             }
@@ -2995,7 +3043,6 @@ export default function Chat() {
                     onClick={generateDraft}
                     disabled={
                       drafting ||
-                      readinessChecking ||
                       busy ||
                       planUserTurns < PLAN_MIN_TURNS ||
                       !draftAnswersReady ||
@@ -3003,19 +3050,15 @@ export default function Chat() {
                     }
                     className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {readinessChecking
-                      ? "심사위원 관점으로 작성 준비도를 확인하는 중…"
-                      : drafting
-                        ? reviewingDraft
-                          ? "초안을 심사위원 관점으로 다시 검토하는 중…"
-                          : "초안과 도식을 만드는 중이에요…"
+                    {drafting
+                        ? generationStage || (reviewingDraft ? "근거와 초안을 최종 점검하는 중…" : "사업계획서를 만드는 중이에요…")
                       : Boolean(eligReqs?.found) && eligStatus === null
                         ? "📄 초안 만들기 — 먼저 신청 자격 확인 질문에 답해 주세요"
                         : planUserTurns < PLAN_MIN_TURNS
                           ? `📄 초안 만들기 — 대화를 조금 더 해주세요 (${planUserTurns}/${PLAN_MIN_TURNS})`
                           : !draftAnswersReady
                             ? `📄 초안 만들기 — 답변을 더 채워주세요 (${draftReadiness?.score ?? 0}%)`
-                            : "🔎 작성 준비도 심사 후 사업계획서 만들기"}
+                            : "🔎 근거 확인 후 사업계획서 만들기"}
                   </button>
                   {planUserTurns < PLAN_MIN_TURNS && (
                     <p className="mt-1.5 text-center text-[11px] text-zinc-400">
@@ -3610,7 +3653,8 @@ function Paywall({
             />
             <span>
               유료 맞춤 작성 서비스를 시작합니다. 시작 후에는 개인화된 디지털콘텐츠 제공 특성상 관련 법령이
-              허용하는 범위에서 청약철회가 제한될 수 있음을 확인했습니다.{" "}
+              허용하는 범위에서 청약철회가 제한될 수 있음을 확인했습니다. 최초 최종본 1회와 최대 3회의 묶음
+              AI 수정이 포함되며 선정 결과는 보장되지 않음을 확인했습니다.{" "}
               <a href="/refund" target="_blank" rel="noopener noreferrer" className="underline">
                 환불정책 보기
               </a>
@@ -3683,16 +3727,16 @@ function Paywall({
           <p className="text-xs font-semibold text-zinc-500">{PRICE}에 포함되는 내용</p>
           <ul className="mt-1.5 space-y-1 text-sm leading-6 text-zinc-700">
             <li>✓ 공고 평가항목·공식 작성 파일 순서에 맞춘 질문</li>
-            <li>✓ 초안 전 독립 작성 준비도 심사 — 빈 답변이면 작성을 잠시 보류</li>
-            <li>✓ 고객·매출·계약 근거를 심사위원이 찾기 쉬운 자리에 배치</li>
-            <li>✓ 완성 초안의 사실 대조·모의심사·치명/중요 지적</li>
-            <li>✓ 현재 자료로 고칠 수 있는 문장 재작성 + 증빙 체크리스트</li>
-            <li>✓ 심사 리포트를 포함한 수정 가능한 Word 파일</li>
+            <li>✓ 공식 출처 확인 + 경쟁 후보 최대 5곳 중 가까운 2곳 비교</li>
+            <li>✓ 근거 기반 전략 설계와 A4용 도식 최대 6종 자동선택·목차 배치</li>
+            <li>✓ 완성 초안의 사실 대조·모의심사·근거 충돌·필수 데이터 안내</li>
+            <li>✓ 제출 가능한 상태에서만 수정 가능한 최종 Word 1회 제공</li>
+            <li>✓ 같은 공고·아이템·양식의 묶음 AI 수정 최대 3회</li>
           </ul>
         </div>
         <div className="flex items-center justify-between border-t border-zinc-100 bg-zinc-50 px-4 py-3">
           <span className="text-sm font-bold text-zinc-700">가격</span>
-          <span className="text-base font-extrabold text-zinc-900">1회 생성 {PRICE}</span>
+          <span className="text-base font-extrabold text-zinc-900">최종 Word 1회 + 묶음 수정 3회 · {PRICE}</span>
         </div>
       </div>}
 
@@ -3709,7 +3753,8 @@ function Paywall({
             className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-blue-600"
           />
           <span>
-            유료 제공 범위와 환불정책을 확인했습니다. 결제 후 <b>유료 맞춤 작성을 시작하기 전</b>에는
+            유료 제공 범위, 선정 비보장, 동일 공고·사업아이템·양식에 한한 최대 3회 묶음 수정, 새 공고·아이템
+            변경·전면 재작성은 별도 주문이라는 점과 환불정책을 확인했습니다. 결제 후 <b>유료 맞춤 작성을 시작하기 전</b>에는
             고객문의 채널로 청약철회를 요청할 수 있습니다.{" "}
             <a href="/refund" target="_blank" rel="noopener noreferrer" className="underline">
               환불정책 자세히 보기
@@ -3782,10 +3827,10 @@ function Paywall({
 
       {/* 신뢰·리스크 완화 문구 (2026-07-11 디자인수정 §8) */}
       <ul className="mt-3 space-y-1 text-[11px] leading-4 text-zinc-500">
-        <li>· 생성된 초안은 직접 복사·수정할 수 있습니다.</li>
+        <li>· {PLAN_OUTCOME_NOTICE}</li>
+        <li>· {PLAN_REVISION_NOTICE}</li>
         <li>· 입력한 사업정보는 초안 생성 목적으로만 사용됩니다.</li>
-        <li>· 결과 보완 기준과 수정 가이드를 함께 제공합니다.</li>
-        <li>· 최종 제출 전에는 사실관계와 증빙자료 확인이 필요합니다.</li>
+        <li>· 근거가 충분한 도식만 선택하며, 최종 제출 전 사실·증빙 확인이 필요합니다.</li>
       </ul>
 
       <button onClick={onCancel} className="mt-3 text-xs text-zinc-400 hover:underline">
@@ -3803,6 +3848,9 @@ function DraftView({
   revising,
   review,
   charts,
+  evidence,
+  revisionStatus,
+  generationStage,
   onDownload,
   onReview,
   onRevise,
@@ -3816,14 +3864,34 @@ function DraftView({
   revising: boolean;
   review: PlanReviewReport | null;
   charts: Chart[] | null;
-  onDownload: () => void;
+  evidence: EvidencePack | null;
+  revisionStatus: RevisionStatus | null;
+  generationStage: string;
+  onDownload: (acknowledgements: FinalAcknowledgements) => void;
   onReview: () => void;
-  onRevise: () => void;
+  onRevise: (requestNote: string) => void;
   eligWarn?: "미충족" | "불확실" | null;
   kitPrompt: string;
   onRepurchase: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [revisionNote, setRevisionNote] = useState("");
+  const [acknowledgements, setAcknowledgements] = useState<FinalAcknowledgements>({
+    reviewedIssues: false,
+    factsConfirmed: false,
+    outcomeUnderstood: false,
+    revisionPolicyUnderstood: false,
+  });
+  const allAcknowledged = Object.values(acknowledgements).every(Boolean);
+  const canDownload = Boolean(review?.submissionReady) && allAcknowledged && !drafting && !reviewing && !revising;
+  useEffect(() => {
+    setAcknowledgements({
+      reviewedIssues: false,
+      factsConfirmed: false,
+      outcomeUnderstood: false,
+      revisionPolicyUnderstood: false,
+    });
+  }, [review]);
   async function copyKitPrompt() {
     try {
       await navigator.clipboard.writeText(kitPrompt);
@@ -3864,17 +3932,59 @@ function DraftView({
 
       {(drafting || revising) && (
         <p className="mt-3 text-xs text-zinc-500">
-          {revising
+          {generationStage || (revising
             ? "심사 의견 중 현재 자료로 고칠 수 있는 문장과 구조를 다시 다듬는 중이에요…"
             : reviewing
               ? "초안의 주장과 숫자를 원답변에 대조하고, 심사 위험을 찾는 중이에요…"
-              : "초안과 도식을 만드는 중이에요…"}
+              : "초안과 도식을 만드는 중이에요…")}
         </p>
+      )}
+
+      {evidence && (
+        <details className="mt-4 rounded-xl border border-blue-200 bg-blue-50/50 p-3" open={evidence.conflicts.length > 0 || evidence.gaps.length > 0}>
+          <summary className="cursor-pointer text-sm font-bold text-zinc-900">
+            근거·경쟁정보 확인 결과 — 출처 {evidence.sources.filter((source) => source.verified).length}개,
+            가까운 경쟁사 {evidence.competitors.length}곳
+          </summary>
+          <p className="mt-2 text-xs leading-5 text-zinc-700">{evidence.summary}</p>
+          {evidence.competitors.length > 0 && (
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {evidence.competitors.map((competitor) => (
+                <a
+                  key={competitor.name}
+                  href={competitor.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-lg border border-blue-100 bg-white p-2 text-xs text-blue-800 hover:underline"
+                >
+                  <b>{competitor.name}</b> — {competitor.selectionReason}
+                </a>
+              ))}
+            </div>
+          )}
+          {(evidence.conflicts.length > 0 || evidence.gaps.length > 0) && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-5 text-amber-900">
+              <b>Word 확정 전에 확인할 내용</b>
+              <ul className="mt-1 list-disc pl-4">
+                {evidence.conflicts.map((item) => <li key={`conflict-${item}`}>근거 충돌: {item}</li>)}
+                {evidence.gaps.map((item) => <li key={item.id}>{item.label} — {item.suggestedAction}</li>)}
+              </ul>
+            </div>
+          )}
+          <div className="mt-2 space-y-1 text-[11px] leading-4 text-zinc-500">
+            {evidence.sources.filter((source) => source.verified).slice(0, 10).map((source) => (
+              <p key={source.id}>
+                [{source.id}] {source.publisher || source.title} · 확인일 {source.checkedAt.slice(0, 10)}{" "}
+                {source.url && <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">원문</a>}
+              </p>
+            ))}
+          </div>
+        </details>
       )}
 
       {charts && charts.length > 0 && (
         <div className="mt-4 border-t border-zinc-100 pt-3">
-          <div className="text-sm font-semibold text-zinc-800">📊 포함된 도식</div>
+          <div className="text-sm font-semibold text-zinc-800">📊 근거가 충족돼 자동 선택된 도식 {charts.length}/6</div>
           <div className="mt-2 space-y-3">
             {charts.map((c) => (
               <div key={c.key}>
@@ -3885,6 +3995,7 @@ function DraftView({
                   alt={c.title}
                   className="w-full rounded-lg border border-zinc-100"
                 />
+                {c.sourceNote && <p className="mt-1 text-[10px] leading-4 text-zinc-400">출처·기준: {c.sourceNote}</p>}
               </div>
             ))}
           </div>
@@ -3951,7 +4062,7 @@ function DraftView({
             {review.issues.length > 0 && (
               <div className="mt-3 space-y-2">
                 <p className="text-xs font-bold text-zinc-800">심사에서 먼저 지적될 내용</p>
-                {review.issues.slice(0, 6).map((item, index) => (
+                {review.issues.map((item, index) => (
                   <div key={`${item.section}-${index}`} className="rounded-lg border border-black/5 bg-white/85 p-2.5">
                     <p className="text-xs font-semibold text-zinc-900">
                       <span
@@ -3994,16 +4105,32 @@ function DraftView({
               </details>
             )}
 
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {review.issues.some((item) => item.canAutoFix) && (
+            <div className="mt-3 rounded-lg border border-black/5 bg-white/85 p-3">
+              <p className="text-xs font-bold text-zinc-800">자료 보완·묶음 수정</p>
+              <p className="mt-1 text-[11px] leading-4 text-zinc-600">
+                필요한 시장조사·매출·계약·실행자료는 아래 대화 입력창의 첨부 버튼으로 먼저 올리세요.
+                여러 수정 요청은 한 번에 적어 제출해야 1회로 처리됩니다.
+              </p>
+              <textarea
+                value={revisionNote}
+                onChange={(event) => setRevisionNote(event.target.value)}
+                rows={3}
+                placeholder="예: 새로 첨부한 고객 인터뷰 3건을 문제인식에 반영하고, 가격표를 수익모델과 예산에 함께 반영해 주세요."
+                className="mt-2 w-full resize-none rounded-lg border border-zinc-200 px-3 py-2 text-xs outline-none focus:border-blue-500"
+              />
+              <p className="mt-1 text-[10px] leading-4 text-zinc-500">
+                {revisionStatus?.deliveredAt
+                  ? `최종본 이후 묶음 수정 ${revisionStatus.remaining}/${revisionStatus.max}회 남음${revisionStatus.expiresAt ? ` · ${revisionStatus.expiresAt.slice(0, 10)}까지` : ""}`
+                  : "첫 최종 Word를 받기 전의 근거 보완은 포함된 수정 3회에서 차감하지 않습니다."}
+              </p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 <button
-                  onClick={onRevise}
-                  disabled={revising}
+                  onClick={() => onRevise(revisionNote)}
+                  disabled={revising || reviewing || (review.issues.length === 0 && !revisionNote.trim()) || revisionStatus?.remaining === 0}
                   className="rounded-xl bg-zinc-900 px-3 py-2.5 text-xs font-bold text-white hover:bg-zinc-700 disabled:opacity-50"
                 >
-                  {revising ? "심사 의견 반영 중…" : "현재 자료로 고칠 수 있는 부분 다시 다듬기"}
+                  {revising ? "묶음 수정 반영 중…" : "지적·요청 한 번에 반영하기"}
                 </button>
-              )}
               <button
                 onClick={onReview}
                 disabled={reviewing || revising}
@@ -4011,6 +4138,7 @@ function DraftView({
               >
                 다시 모의심사하기
               </button>
+              </div>
             </div>
           </div>
         ) : !drafting && !revising ? (
@@ -4026,25 +4154,70 @@ function DraftView({
         ) : null}
       </div>
 
-      <button
-        onClick={onDownload}
-        disabled={drafting || reviewing || revising || !review}
-        className="mt-4 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-      >
-        {drafting || reviewing || revising
-          ? "모의심사가 끝나면 저장할 수 있어요…"
-          : !review
-            ? "모의심사를 먼저 완료해 주세요"
-            : review.submissionReady
-              ? "⬇️ 심사 리포트 포함 Word(.docx)로 저장"
-              : "⬇️ 보완용 Word(.docx)로 저장 — 제출 전 수정 필요"}
-      </button>
-      {/* 허위기재 고지(2026-07-12) — 다운로드 화면 고정 문구, 코드 정적 삽입 */}
-      {!drafting && (
-        <p className="mt-1.5 text-center text-[11px] leading-4 text-zinc-500">
-          ⚠️ 제출 전 모든 수치·실적의 증빙 자료를 확인하세요.
-        </p>
-      )}
+      <div className={`mt-4 rounded-xl border p-3 ${review?.submissionReady ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}>
+        <p className="text-sm font-bold text-zinc-900">제출 전 필수 확인</p>
+        {!review?.submissionReady && (
+          <p className="mt-1 text-xs leading-5 text-red-800">
+            현재 문서는 보완 중인 내부 초안입니다. 보완 필요·증빙 필요·근거 충돌을 해결하고 다시 심사하기 전에는
+            최종 Word를 제공하지 않습니다.
+          </p>
+        )}
+        <div className="mt-2 space-y-2">
+          <label className="flex items-start gap-2 text-xs leading-5 text-zinc-700">
+            <input
+              type="checkbox"
+              disabled={!review?.submissionReady}
+              checked={acknowledgements.reviewedIssues}
+              onChange={(event) => setAcknowledgements((current) => ({ ...current, reviewedIssues: event.target.checked }))}
+              className="mt-1"
+            />
+            <span>화면에 표시된 심사 지적과 근거·경쟁정보 확인 결과를 끝까지 읽었습니다.</span>
+          </label>
+          <label className="flex items-start gap-2 text-xs leading-5 text-zinc-700">
+            <input
+              type="checkbox"
+              disabled={!review?.submissionReady}
+              checked={acknowledgements.factsConfirmed}
+              onChange={(event) => setAcknowledgements((current) => ({ ...current, factsConfirmed: event.target.checked }))}
+              className="mt-1"
+            />
+            <span>사업계획서의 수치·실적·계약·고객·일정이 실제 자료와 일치함을 직접 확인했습니다.</span>
+          </label>
+          <label className="flex items-start gap-2 text-xs leading-5 text-zinc-700">
+            <input
+              type="checkbox"
+              disabled={!review?.submissionReady}
+              checked={acknowledgements.outcomeUnderstood}
+              onChange={(event) => setAcknowledgements((current) => ({ ...current, outcomeUnderstood: event.target.checked }))}
+              className="mt-1"
+            />
+            <span>{PLAN_OUTCOME_NOTICE}</span>
+          </label>
+          <label className="flex items-start gap-2 text-xs leading-5 text-zinc-700">
+            <input
+              type="checkbox"
+              disabled={!review?.submissionReady}
+              checked={acknowledgements.revisionPolicyUnderstood}
+              onChange={(event) => setAcknowledgements((current) => ({ ...current, revisionPolicyUnderstood: event.target.checked }))}
+              className="mt-1"
+            />
+            <span>{PLAN_REVISION_NOTICE}</span>
+          </label>
+        </div>
+        <button
+          onClick={() => onDownload(acknowledgements)}
+          disabled={!canDownload}
+          className="mt-3 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {drafting || reviewing || revising
+            ? "최종 점검이 끝나면 저장할 수 있어요…"
+            : !review?.submissionReady
+              ? "보완 완료 후 최종 Word를 받을 수 있어요"
+              : !allAcknowledged
+                ? "필수 확인 4개를 읽고 체크해 주세요"
+                : "⬇️ 제출용 최종 Word(.docx) 받기"}
+        </button>
+      </div>
 
       {/* ── 완성 키트 (2026-07-12) — 자가 채점 섹션 뒤 위치 예정, 채점 기능 연결 전까지 초안 하단 ── */}
       {!drafting && (
@@ -4159,14 +4332,14 @@ function ReviewModal({
           <div className="py-8 text-center">
             <div className="text-3xl">🙏</div>
             <p className="mt-3 text-sm font-semibold text-zinc-800">
-              후기 감사해요! <b>수정 1회 무료</b>로 도와드릴게요.
+              후기 감사합니다. 포함된 묶음 수정은 후기와 관계없이 이용할 수 있어요.
             </p>
           </div>
         ) : (
           <>
             <h3 className="text-base font-bold text-zinc-900">🎉 초안이 완성됐어요!</h3>
             <p className="mt-1 text-xs leading-5 text-zinc-500">
-              30초만 후기 남겨주시면 <b>수정 1회 무료</b> 드려요.
+              사용 경험을 30초만 들려주세요. 수정 권한과 무관한 선택 후기입니다.
             </p>
 
             {/* 별점 */}
@@ -4244,7 +4417,7 @@ function ReviewModal({
                 disabled={busy}
                 className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {busy ? "보내는 중…" : "후기 보내고 혜택 받기"}
+                {busy ? "보내는 중…" : "후기 보내기"}
               </button>
             </div>
           </>

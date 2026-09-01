@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "report:plan-cost": "node --env-file=.env.local scripts/report-plan-ai-cost.mjs",
     "test:guards": "node --no-warnings --experimental-strip-types scripts/verify-product-guards.mjs"
   },
   "dependencies": {

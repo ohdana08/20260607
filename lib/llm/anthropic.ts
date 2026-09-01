@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ChatMsg, JsonOptions, LlmClient, StreamTextOptions } from "./provider";
+import type { ChatMsg, JsonOptions, LlmClient, LlmUsage, StreamTextOptions } from "./provider";
 import { extractJson } from "./json";
 
 // Cheap model for the conversational intake + matching (Phase 2). The final
@@ -110,7 +110,16 @@ function logCacheUsage(label: string, usage: Anthropic.Usage): void {
 
 export function createAnthropicClient(model: string = INTAKE_MODEL): LlmClient {
   return {
-    async *streamText({ system, messages, maxTokens = 1024, signal, onStop }: StreamTextOptions) {
+    async *streamText({ system, messages, maxTokens = 1024, signal, onStop, onUsage }: StreamTextOptions) {
+      let usage: LlmUsage = {
+        provider: "claude",
+        model,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+        webSearchRequests: 0,
+      };
       const stream = client().messages.stream(
         {
           model,
@@ -123,12 +132,29 @@ export function createAnthropicClient(model: string = INTAKE_MODEL): LlmClient {
       for await (const event of stream) {
         if (event.type === "message_start") {
           logCacheUsage(`${model} streamText`, event.message.usage);
+          usage = {
+            ...usage,
+            inputTokens: event.message.usage.input_tokens ?? 0,
+            cacheCreationInputTokens: event.message.usage.cache_creation_input_tokens ?? 0,
+            cacheReadInputTokens: event.message.usage.cache_read_input_tokens ?? 0,
+            webSearchRequests: event.message.usage.server_tool_use?.web_search_requests ?? 0,
+          };
         }
         if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
           yield event.delta.text;
         }
         // 잘림 관측용(2026-07-12): stop_reason=max_tokens 면 응답이 한도에 잘린 것
         if (event.type === "message_delta") {
+          usage = {
+            ...usage,
+            inputTokens: event.usage.input_tokens ?? usage.inputTokens,
+            outputTokens: event.usage.output_tokens ?? usage.outputTokens,
+            cacheCreationInputTokens:
+              event.usage.cache_creation_input_tokens ?? usage.cacheCreationInputTokens,
+            cacheReadInputTokens: event.usage.cache_read_input_tokens ?? usage.cacheReadInputTokens,
+            webSearchRequests:
+              event.usage.server_tool_use?.web_search_requests ?? usage.webSearchRequests,
+          };
           onStop?.({
             reason: event.delta.stop_reason,
             outputTokens: event.usage?.output_tokens,
@@ -138,9 +164,10 @@ export function createAnthropicClient(model: string = INTAKE_MODEL): LlmClient {
           );
         }
       }
+      await onUsage?.(usage);
     },
 
-    async json<T>({ system, messages, maxTokens = 2048 }: JsonOptions): Promise<T> {
+    async json<T>({ system, messages, maxTokens = 2048, onUsage }: JsonOptions): Promise<T> {
       const res = await client().messages.create({
         model,
         max_tokens: maxTokens,
@@ -148,6 +175,15 @@ export function createAnthropicClient(model: string = INTAKE_MODEL): LlmClient {
         messages: withConversationCache(toApiMessages(messages)),
       });
       logCacheUsage(`${model} json`, res.usage);
+      await onUsage?.({
+        provider: "claude",
+        model,
+        inputTokens: res.usage.input_tokens ?? 0,
+        outputTokens: res.usage.output_tokens ?? 0,
+        cacheCreationInputTokens: res.usage.cache_creation_input_tokens ?? 0,
+        cacheReadInputTokens: res.usage.cache_read_input_tokens ?? 0,
+        webSearchRequests: res.usage.server_tool_use?.web_search_requests ?? 0,
+      });
       const text = res.content
         .filter((b): b is Anthropic.TextBlock => b.type === "text")
         .map((b) => b.text)

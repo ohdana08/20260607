@@ -7,6 +7,7 @@ import { paidGoogleLoginGate } from "@/lib/auth/googleUser";
 import { decideDraftApplication, draftApplicationError } from "@/lib/plan/applicationGuard";
 import { buildPublicEvidencePrompt } from "@/lib/data/publicEvidence";
 import { PLAIN_LANGUAGE_PROMPT } from "@/lib/plain-language";
+import { aiBudgetExceededResponse, reservePaidAiCall } from "@/lib/plan/aiBudget";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,32 @@ interface EligReqs {
   required?: string[];
   disqualifiers?: string[];
   obligations?: string[];
+}
+
+function compactPlanMessages(messages: ChatMsg[]): ChatMsg[] {
+  const selected = messages.length > 31 ? [messages[0], ...messages.slice(-30)] : messages.slice();
+  const firstContent = selected[0]?.content ?? "";
+  const firstAllowance = Math.min(12_000, firstContent.length);
+  let remaining = 70_000 - firstAllowance;
+  let latestAttachment = -1;
+  for (let index = selected.length - 1; index >= 0; index--) {
+    if (selected[index].images?.length || selected[index].files?.length) {
+      latestAttachment = index;
+      break;
+    }
+  }
+  const output: ChatMsg[] = selected.map((message) => ({ ...message, images: undefined, files: undefined }));
+  if (output[0]) output[0].content = firstContent.slice(0, firstAllowance);
+  for (let index = output.length - 1; index >= 1; index--) {
+    const allowance = Math.min(remaining, selected[index].content.length);
+    output[index].content = selected[index].content.slice(-allowance);
+    remaining = Math.max(0, remaining - allowance);
+  }
+  if (latestAttachment >= 0) {
+    output[latestAttachment].images = selected[latestAttachment].images?.slice(0, 1);
+    output[latestAttachment].files = selected[latestAttachment].files?.slice(0, 1);
+  }
+  return output.filter((message) => message.content || message.images?.length || message.files?.length);
 }
 
 // 자격 판정 모듈 (2026-07-12) — 판정 없이 "써드릴게요"로 넘어가는 경로를 막는다.
@@ -234,13 +261,23 @@ export async function POST(req: Request) {
   }
 
   const firstUser = messages.findIndex((m) => m.role === "user");
-  const trimmed = firstUser === -1 ? [] : messages.slice(firstUser);
+  const trimmed = firstUser === -1 ? [] : compactPlanMessages(messages.slice(firstUser));
   if (trimmed.length === 0) {
     return Response.json({ error: "먼저 답변을 입력해 주세요." }, { status: 400 });
   }
 
   const llm = getLlm(provider, "fast");
+  const reservation = await reservePaidAiCall({
+    userId: access.user?.id,
+    stage: "plan_chat",
+    provider,
+    tier: "fast",
+    estimatedInputTokens: 100_000,
+    maxOutputTokens: 2_000,
+  });
+  if (!reservation.ok) return aiBudgetExceededResponse(reservation);
   const encoder = new TextEncoder();
+  let completed = false;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
@@ -249,10 +286,15 @@ export async function POST(req: Request) {
           messages: trimmed,
           // 1024에서 자격 판정 표+질문이 단어 중간에 잘리던 문제 (2026-07-12 통합진단 ⓒ)
           maxTokens: 2000,
+          onUsage: async (usage) => {
+            await reservation.complete(usage);
+            completed = true;
+          },
         })) {
           controller.enqueue(encoder.encode(chunk));
         }
       } catch (err) {
+        if (!completed) await reservation.release();
         console.error("[/api/plan/chat]", err);
         controller.enqueue(encoder.encode("\n\n(잠시 문제가 생겼어요. 다시 보내주시겠어요?)"));
       } finally {
