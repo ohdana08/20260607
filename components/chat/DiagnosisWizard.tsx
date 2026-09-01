@@ -161,6 +161,66 @@ function BigChoice({
   );
 }
 
+// 추천 공고는 원문·첨부 양식을 먼저 확인한 뒤 자격 진단으로 이어진다.
+// 외부 페이지 방문을 강제로 막지는 않되, 실제 확인 순서를 CTA 위계로 분명하게 보여준다.
+function ProgramCheckActions({
+  program,
+  onView,
+  onContinue,
+}: {
+  program: Program;
+  onView: () => void;
+  onContinue: () => void;
+}) {
+  const directFormUrl = program.formUrl && program.formUrl !== program.url ? program.formUrl : null;
+
+  return (
+    <div className="mt-4 space-y-2.5 rounded-2xl border border-blue-200 bg-blue-50/60 p-3">
+      <p className="px-1 text-xs font-semibold leading-5 text-blue-950">
+        공고문과 첨부 양식을 받은 뒤 신청 조건을 확인하세요.
+      </p>
+      <a
+        href={program.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={onView}
+        className="flex w-full items-center gap-3 rounded-xl bg-blue-600 px-4 py-3 text-left text-white transition-colors hover:bg-blue-700"
+      >
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-sm font-extrabold text-blue-700">
+          1
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-extrabold sm:text-base">공식 공고문·첨부 양식 먼저 확인하기</span>
+          <span className="mt-0.5 block text-xs leading-5 text-blue-100">
+            공식 페이지에서 신청조건과 제출서류를 확인하고 파일을 받아주세요.
+          </span>
+        </span>
+        <span aria-hidden="true" className="shrink-0 text-lg">↗</span>
+      </a>
+      {directFormUrl && (
+        <a
+          href={directFormUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={onView}
+          className="flex w-full items-center justify-center rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50"
+        >
+          📄 사업계획서·신청서 양식 바로 받기 ↗
+        </a>
+      )}
+      <button
+        onClick={onContinue}
+        className="flex w-full items-center gap-3 rounded-xl border border-blue-300 bg-white px-4 py-3 text-left text-blue-900 transition-colors hover:bg-blue-50"
+      >
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-extrabold text-blue-700">
+          2
+        </span>
+        <span className="text-sm font-extrabold sm:text-base">받은 자료로 신청 가능 여부 확인하기</span>
+      </button>
+    </div>
+  );
+}
+
 // 추천 카드에서 계산한 제출서류 판정을 선택한 Program에도 보존한다.
 // 이 값이 빠지면 무료 결과 뒤에서 6단계 전환이 "확인 중"으로 멈춘다.
 function programWithApplicationDecision(recommendation: Recommendation): Program {
@@ -461,23 +521,11 @@ export default function DiagnosisWizard({
           <p className="mt-3 rounded-xl bg-blue-50 px-4 py-3 text-sm leading-6 text-zinc-700">
             <b className="text-blue-700">쉽게 말하면</b> · {plainProgramExplanation(program)}
           </p>
-          {program.url && (
-            <a
-              href={program.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => onViewProgram(program)}
-              className="mt-2 inline-block text-sm font-medium text-blue-600 underline underline-offset-2"
-            >
-              공식 안내문 보기 ↗
-            </a>
-          )}
-          <button
-            onClick={() => setStep("notice")}
-            className="mt-5 h-14 w-full rounded-xl bg-blue-600 text-lg font-extrabold text-white transition-colors hover:bg-blue-700"
-          >
-            내가 신청해도 되는지 확인하기
-          </button>
+          <ProgramCheckActions
+            program={program}
+            onView={() => onViewProgram(program)}
+            onContinue={() => setStep("notice")}
+          />
           {findRes && findRes.recommendations.length > 0 && (
             <button
               onClick={() => setStep("find-results")}
@@ -839,23 +887,11 @@ export default function DiagnosisWizard({
                         </span>
                       ))}
                     </div>
-                    <button
-                      onClick={() => onChooseProgram(programWithApplicationDecision(r))}
-                      className="mt-3.5 h-12 w-full rounded-xl bg-blue-600 text-base font-bold text-white transition-colors hover:bg-blue-700"
-                    >
-                      내가 신청해도 되는지 무료로 확인하기
-                    </button>
-                    <div className="mt-2 text-center">
-                      <a
-                        href={r.program.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => onViewProgram(r.program)}
-                        className="text-sm font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-700"
-                      >
-                        공식 안내문 보기 ↗
-                      </a>
-                    </div>
+                    <ProgramCheckActions
+                      program={r.program}
+                      onView={() => onViewProgram(r.program)}
+                      onContinue={() => onChooseProgram(programWithApplicationDecision(r))}
+                    />
                   </div>
                 );
               })}
@@ -1034,12 +1070,41 @@ export default function DiagnosisWizard({
       {step === "notice" && (
         <section className="rounded-2xl border border-zinc-200 bg-white p-6 sm:p-9">
           <StagePill>무료 확인 1/4</StagePill>
-          <Title>지원사업 안내문을 올려주세요</Title>
+          <Title>공고문과 첨부 양식을 올려주세요</Title>
           <Sub>
             {program && program.source !== "sample"
-              ? `‘${program.title}’ 안내문, 화면 캡처 또는 링크를 등록해주세요.`
-              : "모집 안내문, 화면 캡처 또는 링크를 등록해주세요."}
+              ? `‘${program.title}’ 공식 페이지에서 받은 공고문과 사업계획서·신청서 양식을 함께 올려주세요.`
+              : "공식 페이지에서 받은 공고문과 사업계획서·신청서 양식을 함께 올려주세요."}
           </Sub>
+          {program?.url && (
+            <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+              <p className="text-xs font-semibold leading-5 text-blue-950">
+                아직 파일을 받지 않았다면 공식 페이지에서 먼저 내려받아 주세요.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <a
+                  href={program.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => onViewProgram(program)}
+                  className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
+                >
+                  ① 공식 공고문·첨부 양식 열기 ↗
+                </a>
+                {program.formUrl && program.formUrl !== program.url && (
+                  <a
+                    href={program.formUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => onViewProgram(program)}
+                    className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50"
+                  >
+                    📄 사업계획서·신청서 양식 받기 ↗
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
           <input
             ref={noticeInputRef}
             type="file"
@@ -1053,9 +1118,12 @@ export default function DiagnosisWizard({
           />
           <button
             onClick={() => noticeInputRef.current?.click()}
-            className="mt-5 w-full rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/50 px-4 py-9 text-center text-[15px] text-zinc-600 transition-colors hover:bg-blue-50"
+            className={`${program?.url ? "mt-3" : "mt-5"} w-full rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/50 px-4 py-9 text-center text-[15px] text-zinc-600 transition-colors hover:bg-blue-50`}
           >
-            📎 <b className="text-blue-700">파일 올리기</b> — 사진·PDF·워드·한글(.hwp/.hwpx) 모두 괜찮아요
+            📎 <b className="text-blue-700">② 받은 공고문·양식 올리기</b>
+            <span className="mt-1 block text-xs text-zinc-500">
+              사진·PDF·워드·한글(.hwp/.hwpx) 모두 괜찮아요
+            </span>
           </button>
           {chips.length > 0 && (
             <div className="mt-2.5 flex flex-wrap gap-2">
@@ -1079,23 +1147,23 @@ export default function DiagnosisWizard({
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="🔗 또는 안내문 링크 붙여넣기 / 어떤 지원인지 한 줄 설명"
+            placeholder="선택사항: 공식 링크나 AI가 함께 알아야 할 내용"
             className="mt-2.5 w-full rounded-xl border border-zinc-200 px-4 py-3.5 text-[15px] outline-none focus:border-blue-500"
           />
           <button
             onClick={afterNotice}
-            disabled={fileCount === 0 && !note.trim()}
+            disabled={fileCount === 0}
             className="mt-4 h-14 w-full rounded-xl bg-blue-600 text-lg font-extrabold text-white transition-colors hover:bg-blue-700 disabled:opacity-40"
           >
-            내가 신청해도 되는지 확인하기
+            첨부한 자료로 신청 가능 여부 확인하기
           </button>
           <details className="mt-4 text-sm">
             <summary className="w-fit cursor-pointer text-blue-600 underline underline-offset-2">
               받은 파일이나 안내문이 없나요?
             </summary>
             <p className="mt-2 rounded-xl bg-zinc-50 px-4 py-3 leading-6 text-zinc-600">
-              정해진 서류가 없다면 안내 페이지에서 무엇을 도와주는지와 어떻게 뽑는지가 적힌 부분을
-              캡처해 올려주세요. 아무것도 없다면 위 칸에 어떤 지원인지 한 줄만 적어도 됩니다.
+              공식 PDF가 없다면 안내 페이지의 신청대상·지원내용·제출서류·평가기준이 보이도록 화면을
+              캡처해 올려주세요. 링크나 한 줄 설명만으로는 신청 가능 여부를 판정하지 않습니다.
             </p>
           </details>
           {start === "scope" ? (

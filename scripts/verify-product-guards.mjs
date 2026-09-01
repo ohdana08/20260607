@@ -477,6 +477,16 @@ assert.match(wizardSource, /사업을 시작한 지 얼마나 되셨나요/);
 assert.match(wizardSource, /plain_flow_step_view/);
 assert.match(wizardSource, /plain_flow_answer/);
 assert.match(wizardSource, /programWithApplicationDecision/);
+assert.match(wizardSource, /공식 공고문·첨부 양식 먼저 확인하기/);
+assert.match(wizardSource, /받은 자료로 신청 가능 여부 확인하기/);
+assert.match(wizardSource, /공고문과 첨부 양식을 올려주세요/);
+assert.match(wizardSource, /disabled=\{fileCount === 0\}/);
+assert.match(wizardSource, /링크나 한 줄 설명만으로는 신청 가능 여부를 판정하지 않습니다/);
+assert.ok(
+  wizardSource.indexOf("공식 공고문·첨부 양식 먼저 확인하기") <
+    wizardSource.indexOf("받은 자료로 신청 가능 여부 확인하기"),
+  "추천 카드에서는 공식 공고 확인이 신청 가능 여부 확인보다 먼저 보여야 함",
+);
 assert.match(chatSource, /requestedStart === "find"/);
 assert.match(chatSource, /requestedStart === "direct"/);
 assert.match(chatSource, /PublicEvidencePanel/);
