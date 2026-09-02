@@ -20,7 +20,7 @@ const MATERIAL_SYSTEM = `사용자가 모두의창업 지원서를 준비하며 
 - 숫자, 날짜, 고객 반응, 문의, 판매, 예약, 실행 경험이 보이면 쉽게 정리하세요.
 - 읽히지 않는 부분은 [읽기 어려움]이라고 표시하세요.
 - 과장하거나 합격 가능성을 판단하지 마세요.
-- 설명 없이 {"summary":"string"} 형태의 JSON 하나만 출력하세요.`;
+- 지원서에 옮겨 적기 쉬운 짧은 문장이나 항목으로만 답하세요.`;
 
 function extensionOf(name: string): string {
   return name.toLowerCase().split(".").pop() ?? "";
@@ -37,12 +37,6 @@ function imageMediaType(file: File, extension: string): ChatImage["mediaType"] |
   if (extension === "webp") return "image/webp";
   if (extension === "gif") return "image/gif";
   return null;
-}
-
-function cleanSummary(raw: unknown): string {
-  if (!raw || typeof raw !== "object") return "";
-  const summary = (raw as Record<string, unknown>).summary;
-  return typeof summary === "string" ? summary.trim().slice(0, MAX_MATERIAL_TEXT) : "";
 }
 
 async function readOfficeDocument(file: File, extension: string): Promise<string> {
@@ -63,7 +57,8 @@ async function readPdfOrImage(file: File, extension: string): Promise<string> {
   const base64 = Buffer.from(await file.arrayBuffer()).toString("base64");
   const imageType = imageMediaType(file, extension);
   const llm = getLlm("claude", "fast");
-  const generated = await llm.json<unknown>({
+  let summary = "";
+  for await (const chunk of llm.streamText({
     system: MATERIAL_SYSTEM,
     messages: [
       {
@@ -74,10 +69,11 @@ async function readPdfOrImage(file: File, extension: string): Promise<string> {
           : { files: [{ mediaType: "application/pdf", data: base64, name: safeName(file.name) }] }),
       },
     ],
-    schema: { type: "object" },
     maxTokens: 1_200,
-  });
-  return cleanSummary(generated);
+  })) {
+    summary += chunk;
+  }
+  return summary.trim().slice(0, MAX_MATERIAL_TEXT);
 }
 
 export async function POST(request: Request) {
