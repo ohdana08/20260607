@@ -39,6 +39,10 @@ const {
   plainSupportOption,
   plainYearOption,
 } = await import("../lib/plain-language.ts");
+const {
+  normalizeModooDraftRequest,
+  normalizeModooDraftResult,
+} = await import("../lib/campaigns/modoo2026.ts");
 
 function program(title, overrides = {}) {
   return {
@@ -234,6 +238,34 @@ assert.equal(plainEligibilityLabel("확인 필요"), "한 가지만 더 확인�
 assert.equal(plainCondition("✓ 업력 3년 이내 충족"), "✓ 사업을 시작한 시기가 맞아요");
 assert.equal(plainEvidenceItem("유료 고객 확보"), "실제로 돈을 낸 고객이 있어요");
 assert.match(PLAIN_LANGUAGE_PROMPT, /대표님이 직접 내야 하는 돈/);
+
+const validModooRequest = normalizeModooDraftRequest({
+  track: "일반·기술 트랙",
+  industry: "동네 식당 재고를 줄이는 예약 판매",
+  businessStatus: "사업자등록 전(예비창업)",
+  customerScene: "가족이 운영하는 식당에서 매일 남은 식재료를 버리는 장면을 직접 보았습니다.",
+  currentAlternative: "남은 재료를 직원 식사에 쓰거나 그대로 폐기합니다.",
+  problemEvidence: "",
+  solutionMechanism: "마감 전 남은 메뉴를 등록하면 인근 고객이 예약하고 정해진 시간에 찾아갑니다.",
+  paymentMoment: "",
+  firstValidation: "",
+  founderEvidence: "",
+  localGrounding: "",
+  mentorDecision: "",
+});
+assert.equal(validModooRequest.ok, true, "모두의창업 필수 사실이 있으면 초안 생성을 허용해야 함");
+assert.equal(
+  normalizeModooDraftRequest({ ...validModooRequest.value, track: "임의 트랙" }).ok,
+  false,
+  "공식 선택지에 없는 트랙은 거부해야 함",
+);
+const safeModooDraft = normalizeModooDraftResult({ answers: { oneLineDefinition: "한 줄 사업 정의" } });
+assert.ok(safeModooDraft, "일부 답변만 와도 안전한 초안으로 정규화해야 함");
+assert.match(
+  safeModooDraft.answers.customerProblem,
+  /\[보완 필요\]/,
+  "AI 응답에서 빠진 항목은 사실을 꾸미지 않고 보완 필요로 표시해야 함",
+);
 
 const readyDimensions = READINESS_DIMENSIONS.map((item) => ({
   key: item.key,
@@ -464,9 +496,28 @@ const programStore = readFileSync(
   new URL("../lib/supabase/programs.ts", import.meta.url),
   "utf8",
 );
+const modooPageSource = readFileSync(new URL("../app/modoo-2026/page.tsx", import.meta.url), "utf8");
+const modooBuilderSource = readFileSync(
+  new URL("../app/modoo-2026/ModooApplicationBuilder.tsx", import.meta.url),
+  "utf8",
+);
+const modooDocxSource = readFileSync(
+  new URL("../lib/campaigns/modoo2026-docx.ts", import.meta.url),
+  "utf8",
+);
+const modooModelSource = readFileSync(
+  new URL("../lib/campaigns/modoo2026.ts", import.meta.url),
+  "utf8",
+);
+const modooDraftRouteSource = readFileSync(
+  new URL("../app/api/modoo-2026/draft/route.ts", import.meta.url),
+  "utf8",
+);
 
 assert.match(landingSource, /사업 얘기부터 하세요/);
 assert.match(landingSource, /3분 만에 받을 수 있는 지원 보기/);
+assert.match(landingSource, /받을 수 있는 지원 찾기·신청 가능 여부 확인 0원/);
+assert.match(landingSource, /모두의창업은 별도 입구에서 준비하기/);
 assert.match(landingSource, /빠진 사실과 자료/);
 assert.match(landingSource, /결제 전 자격/);
 assert.doesNotMatch(landingSource, /다음 2년|앞으로 2년/);
@@ -523,7 +574,18 @@ assert.match(programStore, /programs\.length === 0/);
 assert.match(programStore, /기존 공고를 보존합니다/);
 assert.match(programStore, /NON_EXHAUSTIVE_SOURCES/);
 assert.match(programStore, /부분 수집 소스라/);
+assert.match(modooPageSource, /file=notice-pdf/);
+assert.match(modooPageSource, /file=notice-hwpx/);
+assert.match(modooPageSource, /file=worksheet-docx/);
+assert.match(modooPageSource, /공식 지원서는 별도 파일이 아니라 모두의창업 플랫폼에서 온라인으로 작성합니다/);
+assert.match(modooBuilderSource, /작성 재료 정리본 Word 받기/);
+assert.match(modooBuilderSource, /이 Word 파일만으로는 신청이 완료되지 않습니다/);
+assert.match(modooDocxSource, /공식 제출 서식 아님/);
+assert.match(modooDocxSource, /공식 지원서 문항을 복제한 자료가 아닙니다/);
+assert.match(modooDraftRouteSource, /특정 외부 서비스의 질문 흐름을 흉내 내지 마세요/);
+assert.doesNotMatch(modooModelSource, /MODU_SECTORS|q3Difference|q4Execution|q8Capability/);
+assert.doesNotMatch(modooBuilderSource, /아이디어를 한 줄로 소개해주세요|아이디어를 떠올린 실제 배경/);
 
 console.log(
-  "✅ 진입·제출유형·마감·수집원·공식근거·독립 작성준비도·심사위원 모의심사·사실기반 재작성·DOCX 회귀 테스트 통과",
+  "✅ 진입·제출유형·마감·수집원·공식근거·모두의창업 전용 모드·독립 작성준비도·심사위원 모의심사·사실기반 재작성·DOCX 회귀 테스트 통과",
 );

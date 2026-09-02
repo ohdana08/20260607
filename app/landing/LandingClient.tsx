@@ -178,8 +178,16 @@ export default function LandingClient() {
       <div className="notice-bar">
         <div className="container notice-inner">
           <span><b>받을 수 있는 지원 찾기·신청 가능 여부 확인 0원</b></span>
-          <span>·</span>
+          <span aria-hidden="true">·</span>
           <span>사업계획서 작성은 필요할 때만</span>
+          <span className="notice-divider" aria-hidden="true">|</span>
+          <Link
+            href="/modoo-2026"
+            className="campaign-link"
+            onClick={() => track("modoo_campaign_click", { location: "top_notice" })}
+          >
+            <b>모두의창업은 별도 입구에서 준비하기 →</b>
+          </Link>
         </div>
       </div>
 

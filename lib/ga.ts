@@ -52,7 +52,16 @@ export type GaEvent =
   | "cta_view_demo" // "가상 결과 예시 보기" CTA 클릭
   | "cta_paid_checkout" // 가격 카드 "DOCX 받기" 결제 CTA 클릭
   | "demo_tab_view" // 랜딩 데모 탭 전환(초기창업자/예비창업자/기관납품형)
-  | "faq_open"; // 랜딩 FAQ 항목 펼침
+  | "faq_open" // 랜딩 FAQ 항목 펼침
+  // 모두의창업 2차 전용 모드(2026-09-02)
+  | "modoo_campaign_click" // 랜딩 상단 캠페인 안내 클릭
+  | "view_modoo_2026_campaign" // 캠페인 페이지 진입
+  | "modoo_draft_start" // 작성 초안 생성 시작
+  | "modoo_draft_complete" // 작성 초안 생성 완료
+  | "modoo_draft_error" // 작성 초안 생성 실패
+  | "modoo_answer_copy" // 항목별 답변 복사
+  | "modoo_draft_docx_download" // 작성 초안 Word 다운로드
+  | "modoo_official_apply_click"; // 공식 온라인 지원서 이동
 
 type GtagWindow = Window & {
   dataLayer?: Record<string, unknown>[];

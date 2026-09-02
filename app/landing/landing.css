@@ -85,6 +85,20 @@
   text-align: center;
 }
 .landing-root .notice-inner b { color: #efc45e; }
+.landing-root .campaign-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #eee9df;
+}
+.landing-root .campaign-link:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+.landing-root .notice-divider { color: rgba(255, 255, 255, 0.3); }
+
+@media (max-width: 760px) {
+  .landing-root .notice-inner { flex-wrap: wrap; gap: 3px 8px; padding-block: 8px; }
+  .landing-root .notice-divider { display: none; }
+  .landing-root .campaign-link { flex-basis: 100%; }
+}
 
 .landing-root .header {
   position: sticky;
