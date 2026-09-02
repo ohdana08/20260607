@@ -10,6 +10,8 @@ type Kind =
   | "planChat"
   | "planDraft"
   | "planReview"
+  | "planPresentationChat"
+  | "planPresentationGenerate"
   | "diagnose"
   | "campaignDraft"
   | "campaignMaterial"
@@ -24,6 +26,8 @@ const RULES: Record<Kind, { limit: number; window: `${number} m` | `${number} h`
   planChat: { limit: 80, window: "1 h" }, // 유료 2차 대화
   planDraft: { limit: 50, window: "1 h" }, // 유료 초안(항목 5개=1회)
   planReview: { limit: 30, window: "1 h" }, // 유료 작성 준비도·모의심사·수정
+  planPresentationChat: { limit: 50, window: "1 h" }, // 유료 발표자료 티키타카
+  planPresentationGenerate: { limit: 10, window: "1 h" }, // 유료 발표자료 원고 생성
   diagnose: { limit: 40, window: "1 h" }, // 무료 7단계 자가진단 + 리포트
   campaignDraft: { limit: 5, window: "1 h" }, // 마감형 무료 전용 지원서 초안
   campaignMaterial: { limit: 12, window: "1 h" }, // 마감형 전용 자료 읽기(최대 3개)

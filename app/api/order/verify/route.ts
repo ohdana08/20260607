@@ -1,7 +1,7 @@
 import { Redis } from "@upstash/redis";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
-import { GROBLE_PRODUCT_ID } from "@/lib/config";
+import { isBundleProductId, isPlanProductId } from "@/lib/config";
 import {
   GROBLE_RAW_EVENTS,
   getAuthedUser,
@@ -17,6 +17,7 @@ import {
   type PaidRecord,
   type ValidOrder,
 } from "@/lib/plan/paidAccess";
+import { grantPresentationAccess } from "@/lib/plan/presentationAccess";
 
 interface RawPaymentEvent {
   saved: Record<string, unknown>;
@@ -82,7 +83,7 @@ async function recoverOrderFromRawEvents(r: Redis, orderNo: string): Promise<Val
     const content = item.object.content as Record<string, unknown> | undefined;
     const productId = typeof content?.id === "string" ? content.id : undefined;
     // 자동 복구는 현재 판매 상품임이 확인된 원본만 허용한다.
-    if (!cancelled && productId !== GROBLE_PRODUCT_ID) return null;
+    if (!cancelled && !isPlanProductId(productId)) return null;
 
     const recovered: ValidOrder = {
       orderNo,
@@ -119,7 +120,7 @@ async function claimRecentOrderByEmail(
     if (rawBuyerEmail(item) !== email) continue;
     const content = item.object.content as Record<string, unknown> | undefined;
     const productId = typeof content?.id === "string" ? content.id : undefined;
-    if (productId !== GROBLE_PRODUCT_ID) continue;
+    if (!isPlanProductId(productId)) continue;
 
     const bound = await r.set(ORDER_USED_KEY(orderNo), user.id, { nx: true });
     if (bound === null && (await r.get<string>(ORDER_USED_KEY(orderNo))) !== user.id) continue;
@@ -139,6 +140,9 @@ async function claimRecentOrderByEmail(
       verifiedAt: new Date().toISOString(),
     };
     await r.set(PAID_KEY(user.id), record);
+    if (isBundleProductId(productId)) {
+      await grantPresentationAccess({ user, orderNo, source: "bundle" });
+    }
     console.log(`[order/verify] 결제 이메일 자동 연결: ${orderNo} (user: ${user.id})`);
     return record;
   }
@@ -180,12 +184,11 @@ async function verifyRealOrderAndRespond(
     );
   }
 
-  // 재구매 갱신 전용(2026-07-14): 상품 필터 — 재구매 대상은 신상품(RJczGx)만.
-  // productId 를 확인할 수 없는(구형·미확인) 원장은 막지 않는다 — 실결제를 오탐으로
-  // 막는 쪽이 훨씬 위험하므로 fail-open.
-  if (opts.repurchase && valid.productId && valid.productId !== GROBLE_PRODUCT_ID) {
+  // 발표자료 단품 주문으로 더 비싼 Word 상품이 열리지 않도록 최초·재구매 모두 상품을 분리한다.
+  // productId가 없는 과거 수동·구형 주문만 기존 고객 보호를 위해 통과시킨다.
+  if (valid.productId && !isPlanProductId(valid.productId)) {
     return Response.json(
-      { ok: false, error: "재구매 대상 상품의 주문번호가 아니에요. 최신 상품으로 다시 결제해 주세요." },
+      { ok: false, error: "사업계획서 Word 또는 묶음 상품의 주문번호가 아니에요." },
       { status: 400 },
     );
   }
@@ -205,6 +208,9 @@ async function verifyRealOrderAndRespond(
   // 새 레코드로 통째로 덮어쓴다 — 재구매면 이전 usedProgramId 는 자동으로 사라진다(=소진 해제).
   const record = { orderNo, email: user.email, verifiedAt: new Date().toISOString() };
   await r.set(PAID_KEY(user.id), record);
+  if (isBundleProductId(valid.productId)) {
+    await grantPresentationAccess({ user, orderNo, source: "bundle" });
+  }
 
   // 감사 기록 → BCC CRM(bcc-admin) leads 테이블 (그로블 판매 리스트 대조용).
   // 실패해도 인증 자체는 유효 — best effort.

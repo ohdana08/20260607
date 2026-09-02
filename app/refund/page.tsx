@@ -5,7 +5,7 @@ export const metadata: Metadata = { title: "환불정책 | 정부지원사업 �
 
 export default function RefundPage() {
   return (
-    <PolicyPage title="환불정책" updatedLabel="최종 수정일: 2026-09-01">
+    <PolicyPage title="환불정책" updatedLabel="최종 수정일: 2026-09-02">
       <Article title="1. 청약철회 및 환불의 원칙">
         <p>
           이용자는 관련 법령이 정한 기간과 요건에 따라 청약철회를 요청할 수 있습니다. 결제 후 아직 유료 맞춤
@@ -26,7 +26,8 @@ export default function RefundPage() {
           회사는 결제 전에 무료 공고 추천, 자격 진단, 결과 미리보기와 유료 제공 범위를 제공합니다. 결제 전에는
           환불정책 확인을 받고, 주문 인증 후 유료 맞춤 작성을 시작하기 직전에는 청약철회 제한 가능성을 별도로
           고지하고 동의를 받습니다. 유료 제공 범위는 동일 공고·동일 사업아이템·동일 양식의 최초 최종 Word 1회와
-          최초 최종본 제공일로부터 30일 이내 최대 3회의 묶음 AI 수정입니다.
+          최초 최종본 제공일로부터 30일 이내 최대 3회의 묶음 AI 수정입니다. 발표자료는 별도 선택 상품으로,
+          최초 PPTX/PDF와 발표자 노트·예상 질문 및 최초 파일 제공일로부터 30일 이내 최대 2회의 묶음 AI 수정을 제공합니다.
         </p>
       </Article>
 
@@ -56,7 +57,7 @@ export default function RefundPage() {
       </Article>
 
       <p className="pt-4 text-sm text-zinc-500">
-        본 정책은 2026년 9월 1일부터 시행합니다.
+        본 정책은 2026년 9월 2일부터 시행합니다.
       </p>
     </PolicyPage>
   );

@@ -2,7 +2,9 @@ import { Redis } from "@upstash/redis";
 import type { LlmUsage, Provider, Tier } from "@/lib/llm/provider";
 import { resolveModel } from "@/lib/llm/provider";
 import { getPaidRecord } from "./paidAccess";
+import { getPresentationPaidRecord } from "./presentationAccess";
 import { configuredPlanAiHardCapKrw } from "./productPolicy";
+import { configuredPresentationAiHardCapKrw } from "./presentationPolicy";
 
 const USD_TO_KRW_PLANNING = 1500;
 
@@ -77,7 +79,7 @@ export interface AiBudgetReservation {
   release: () => Promise<void>;
 }
 
-export async function reservePaidAiCall(args: {
+interface ReserveAiCallArgs {
   userId?: string;
   stage: string;
   provider: Provider;
@@ -85,12 +87,18 @@ export async function reservePaidAiCall(args: {
   estimatedInputTokens: number;
   maxOutputTokens: number;
   maxWebSearches?: number;
-}): Promise<AiBudgetReservation> {
+}
+
+async function reserveOrderAiCall(
+  args: ReserveAiCallArgs,
+  orderNo: string | null,
+  hardCapKrw: number,
+): Promise<AiBudgetReservation> {
   const model = resolveModel(args.provider, args.tier);
   const noop: AiBudgetReservation = {
     ok: true,
     spentKrw: 0,
-    hardCapKrw: configuredPlanAiHardCapKrw(),
+    hardCapKrw,
     estimatedKrw: 0,
     model,
     complete: async () => {},
@@ -98,9 +106,8 @@ export async function reservePaidAiCall(args: {
   };
   // 마스터코드 호출은 주문 원가와 섞지 않는다.
   if (!args.userId) return noop;
-  const paid = await getPaidRecord(args.userId);
   const r = getRedis();
-  if (!paid || !r) return { ...noop, ok: false };
+  if (!orderNo || !r) return { ...noop, ok: false };
 
   const estimatedKrw = estimateReservationKrw(
     model,
@@ -108,10 +115,9 @@ export async function reservePaidAiCall(args: {
     Math.max(1, args.maxOutputTokens),
     Math.max(0, args.maxWebSearches ?? 0),
   );
-  const hardCapKrw = configuredPlanAiHardCapKrw();
-  const allocated = await r.incrby(AI_SPEND_KEY(paid.orderNo), estimatedKrw);
+  const allocated = await r.incrby(AI_SPEND_KEY(orderNo), estimatedKrw);
   if (allocated > hardCapKrw) {
-    await r.incrby(AI_SPEND_KEY(paid.orderNo), -estimatedKrw);
+    await r.incrby(AI_SPEND_KEY(orderNo), -estimatedKrw);
     return {
       ...noop,
       ok: false,
@@ -132,22 +138,38 @@ export async function reservePaidAiCall(args: {
       if (settled) return;
       settled = true;
       const actualKrw = estimateUsageKrw(usage);
-      await r.incrby(AI_SPEND_KEY(paid.orderNo), actualKrw - estimatedKrw);
-      await r.lpush(AI_LOG_KEY(paid.orderNo), {
+      await r.incrby(AI_SPEND_KEY(orderNo), actualKrw - estimatedKrw);
+      await r.lpush(AI_LOG_KEY(orderNo), {
         at: new Date().toISOString(),
         stage: args.stage,
         estimatedKrw,
         actualKrw,
         usage,
       });
-      await r.ltrim(AI_LOG_KEY(paid.orderNo), 0, 99);
+      await r.ltrim(AI_LOG_KEY(orderNo), 0, 99);
     },
     async release() {
       if (settled) return;
       settled = true;
-      await r.incrby(AI_SPEND_KEY(paid.orderNo), -estimatedKrw);
+      await r.incrby(AI_SPEND_KEY(orderNo), -estimatedKrw);
     },
   };
+}
+
+export async function reservePaidAiCall(args: ReserveAiCallArgs): Promise<AiBudgetReservation> {
+  const paid = args.userId ? await getPaidRecord(args.userId) : null;
+  return reserveOrderAiCall(args, paid?.orderNo ?? null, configuredPlanAiHardCapKrw());
+}
+
+export async function reservePresentationAiCall(
+  args: ReserveAiCallArgs,
+): Promise<AiBudgetReservation> {
+  const paid = args.userId ? await getPresentationPaidRecord(args.userId) : null;
+  return reserveOrderAiCall(
+    args,
+    paid?.orderNo ?? null,
+    configuredPresentationAiHardCapKrw(),
+  );
 }
 
 export function aiBudgetExceededResponse(reservation: AiBudgetReservation): Response {

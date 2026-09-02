@@ -369,7 +369,7 @@
 .landing-root .process-step::after { content: "→"; position: absolute; right: -17px; top: 50%; transform: translateY(-50%); z-index: 2; width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); color: var(--gold-deep); font-weight: 850; }
 .landing-root .process-step:last-child::after { display: none; }
 
-.landing-root .pricing-wrap { margin-top: 58px; display: grid; grid-template-columns: .84fr 1.16fr; max-width: 940px; margin-inline: auto; border: 1px solid var(--line); box-shadow: var(--shadow); }
+.landing-root .pricing-wrap { margin-top: 58px; display: grid; grid-template-columns: .92fr 1.08fr 1fr; max-width: 1180px; margin-inline: auto; border: 1px solid var(--line); box-shadow: var(--shadow); }
 .landing-root .price-card { padding: 43px; background: #fff; }
 .landing-root .price-card.featured { position: relative; background: var(--ink); color: #fff; }
 .landing-root .price-card.featured::before { content: "먼저 무료로"; position: absolute; top: 0; right: 0; padding: 8px 12px; background: var(--gold); color: #17130b; font-size: 10px; font-weight: 850; }

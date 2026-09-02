@@ -4,7 +4,16 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { track } from "@/lib/ga";
 import { captureUtm } from "@/lib/utm";
-import { GROBLE_CHECKOUT_URL, PRICE_KRW, PRICE_LABEL } from "@/lib/config";
+import {
+  BUNDLE_PRICE_KRW,
+  BUNDLE_PRICE_LABEL,
+  GROBLE_BUNDLE_CHECKOUT_URL,
+  GROBLE_CHECKOUT_URL,
+  PRESENTATION_PRICE_KRW,
+  PRESENTATION_PRICE_LABEL,
+  PRICE_KRW,
+  PRICE_LABEL,
+} from "@/lib/config";
 import { PLAN_OUTCOME_NOTICE, PLAN_REVISION_NOTICE } from "@/lib/plan/productPolicy";
 
 // 배포 전 설정 — 실제 URL만 여기서 관리한다.
@@ -116,6 +125,10 @@ const FAQS: { q: string; a: string }[] = [
   {
     q: "최종 Word를 받으면 선정이 보장되나요?",
     a: `필수 근거 점검을 통과한 Word만 내려받을 수 있지만, 대표자가 사실·숫자·증빙과 최신 신청 조건을 최종 확인해야 합니다. ${PLAN_OUTCOME_NOTICE}`,
+  },
+  {
+    q: "발표자료도 사업계획서 가격에 포함되나요?",
+    a: `아닙니다. ${PRICE_LABEL} 사업계획서 상품은 최종 Word와 묶음 AI 수정 3회까지입니다. 발표평가가 필요한 이용자만 Word 완성 후 PPTX·PDF·발표 대본·예상 질문과 답변이 포함된 ${PRESENTATION_PRICE_LABEL} 추가상품을 선택할 수 있습니다. 처음부터 둘 다 필요하면 ${BUNDLE_PRICE_LABEL} 묶음 상품을 선택할 수 있습니다.`,
   },
   {
     q: "입력한 사업정보는 어떻게 처리되나요?",
@@ -651,6 +664,7 @@ export default function LandingClient() {
                   <li>근거가 충분한 A4용 도식 최대 6종 자동선택</li>
                   <li>근거 충돌·필수 데이터 보완 후 최종 점검</li>
                   <li>받은 작성 파일 순서의 수정 가능한 최종 Word</li>
+                  <li>발표자료는 필요한 경우에만 별도 선택</li>
                 </ul>
                 <a
                   className="btn btn-line btn-full"
@@ -661,7 +675,41 @@ export default function LandingClient() {
                 >
                   근거 기반 사업계획서 만들기 · {PRICE_LABEL}
                 </a>
+                {GROBLE_BUNDLE_CHECKOUT_URL && (
+                  <a
+                    className="btn btn-line btn-full"
+                    href={GROBLE_BUNDLE_CHECKOUT_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => track("cta_paid_checkout", {
+                      location: "pricing_bundle",
+                      price: BUNDLE_PRICE_KRW,
+                      product: "word_presentation_bundle",
+                    })}
+                  >
+                    Word + 발표자료 묶음 · {BUNDLE_PRICE_LABEL}
+                  </a>
+                )}
                 <div className="price-foot">사업계획서가 필요한 지원사업을 선택했을 때만 안내됩니다. {PLAN_OUTCOME_NOTICE}</div>
+              </article>
+
+              <article className="price-card">
+                <div className="plan">선택 추가 · Word 완성 후 발표평가 준비</div>
+                <div className="price">{PRESENTATION_PRICE_KRW.toLocaleString("ko-KR")}<small>원</small></div>
+                <div className="price-desc">발표평가가 있는 대표자만 추가 결제</div>
+                <ul className="price-list">
+                  <li>기존 Word·원답변·근거 자동 연결</li>
+                  <li>편집 가능한 PPTX와 제출·공유용 PDF</li>
+                  <li>슬라이드별 발표 대본과 출처 노트</li>
+                  <li>예상 질문·대표자 답변 5개 이상</li>
+                  <li>30일 이내 묶음 AI 수정 2회</li>
+                </ul>
+                <Link className="btn btn-line btn-full" href={DIRECT_DIAGNOSIS_URL}>
+                  사업계획서부터 준비하기
+                </Link>
+                <div className="price-foot">
+                  발표자료는 최종 Word 이후에 안내됩니다. 근거 없는 실적·수치가 남으면 파일 생성을 차단합니다.
+                </div>
               </article>
             </div>
 

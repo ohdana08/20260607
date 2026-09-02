@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect -- 브라우저 저장소·URL·외부 인증 결과를 마운트 후 복원하는 상태 머신입니다. */
 
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import type { Recommendation, Program } from "@/lib/match/types";
@@ -27,7 +28,14 @@ import {
 import { track } from "@/lib/ga";
 import { captureUtm, getLeadSource } from "@/lib/utm";
 import { useAuth, authedHeaders, forceRefreshToken, AuthModal } from "@/components/auth/AuthGate";
-import { GROBLE_CHECKOUT_URL, PRICE_LABEL, PRICE_KRW } from "@/lib/config";
+import {
+  BUNDLE_PRICE_KRW,
+  BUNDLE_PRICE_LABEL,
+  GROBLE_BUNDLE_CHECKOUT_URL,
+  GROBLE_CHECKOUT_URL,
+  PRICE_LABEL,
+  PRICE_KRW,
+} from "@/lib/config";
 import {
   EvidenceDiagnosisForm,
   EvidenceSheetCard,
@@ -56,6 +64,14 @@ import {
   plainProgramExplanation,
   plainSupportOption,
 } from "@/lib/plain-language";
+
+const PresentationStudio = dynamic(() => import("@/components/chat/PresentationStudio"), {
+  loading: () => (
+    <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
+      발표자료 준비 기능을 불러오는 중…
+    </div>
+  ),
+});
 
 type Role = "user" | "assistant";
 interface ChatImage {
@@ -2852,6 +2868,18 @@ export default function Chat() {
             }}
           />
         )}
+        {draft && selectedProgram && evidencePack && strategyPack && planReview?.submissionReady && !drafting && !reviewingDraft && !revisingDraft && (
+          <PresentationStudio
+            program={selectedProgram}
+            sections={draft.sections}
+            evidence={evidencePack}
+            strategy={strategyPack}
+            sourceConversation={planTextMessages()}
+            provider={provider}
+            code={code}
+            convertFiles={convertFiles}
+          />
+        )}
       </div>
       </div>
       )}
@@ -3636,6 +3664,23 @@ function Paywall({
     track("groble_click", { program: program?.title ?? "", price: PRICE_KRW });
   }
 
+  function clickBundle(e: MouseEvent<HTMLAnchorElement>) {
+    if (!refundConsent) {
+      e.preventDefault();
+      return;
+    }
+    try {
+      localStorage.setItem(CHECKOUT_STARTED_KEY, String(Date.now()));
+    } catch {
+      /* ignore */
+    }
+    track("groble_click", {
+      program: program?.title ?? "",
+      price: BUNDLE_PRICE_KRW,
+      product: "word_presentation_bundle",
+    });
+  }
+
   if (paid || done) {
     return (
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-5">
@@ -3779,6 +3824,22 @@ function Paywall({
           <p className="mt-1.5 text-xs leading-5 text-zinc-500">
             결제 링크 준비 중이에요. 이미 결제하셨다면 아래에 주문번호를 입력해 주세요.
           </p>
+        )}
+        {GROBLE_BUNDLE_CHECKOUT_URL && !returningFromPayment && (
+          <a
+            href={GROBLE_BUNDLE_CHECKOUT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-disabled={!refundConsent}
+            onClick={clickBundle}
+            className={`mt-2 block rounded-xl border py-3 text-center text-sm font-bold ${
+              refundConsent
+                ? "border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100"
+                : "cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-400"
+            }`}
+          >
+            Word + 발표자료 묶음 · {BUNDLE_PRICE_LABEL} (4,900원 할인)
+          </a>
         )}
         <p className="mt-1.5 text-[11px] leading-4 text-zinc-400">
           카드 명세서에는 결제대행사 <b>‘주식회사 페이플’</b>로 표기돼요 (정상 결제입니다).

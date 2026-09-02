@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
 import { PolicyPage, Article } from "@/components/legal/PolicyPage";
-import { PRICE_LABEL } from "@/lib/config";
+import { BUNDLE_PRICE_LABEL, PRESENTATION_PRICE_LABEL, PRICE_LABEL } from "@/lib/config";
 import { PLAN_OUTCOME_NOTICE, PLAN_REVISION_NOTICE } from "@/lib/plan/productPolicy";
+import {
+  PRESENTATION_OUTCOME_NOTICE,
+  PRESENTATION_REVISION_NOTICE,
+} from "@/lib/plan/presentationPolicy";
 
 export const metadata: Metadata = { title: "이용약관 | 정부지원사업 도우미" };
 
 export default function TermsPage() {
   return (
-    <PolicyPage title="이용약관" updatedLabel="최종 수정일: 2026-09-01">
+    <PolicyPage title="이용약관" updatedLabel="최종 수정일: 2026-09-02">
       <Article title="제1조 (목적)">
         <p>
           본 약관은 비즈니스커리어컨설팅(이하 &ldquo;회사&rdquo;)이 제공하는 정부지원사업 도우미 서비스(이하
@@ -18,9 +22,9 @@ export default function TermsPage() {
 
       <Article title="제2조 (정의)">
         <ol className="list-decimal space-y-1 pl-5">
-          <li>&ldquo;서비스&rdquo;는 이용자가 입력한 사업정보와 확인된 근거를 정부지원사업 공고의 평가항목과 공식 양식에 맞춰 사업계획서(DOCX)로 작성하는 도구를 말합니다.</li>
+          <li>&ldquo;서비스&rdquo;는 이용자가 입력한 사업정보와 확인된 근거를 정부지원사업 공고의 평가항목과 공식 양식에 맞춰 사업계획서(DOCX) 또는 선택한 발표자료(PPTX·PDF)로 작성하는 도구를 말합니다.</li>
           <li>&ldquo;이용자&rdquo;는 본 약관에 동의하고 서비스를 이용하는 회원을 말합니다.</li>
-          <li>&ldquo;내부 초안&rdquo;이란 근거 보완과 모의심사 중 화면에 표시되는 문서를, &ldquo;최종본&rdquo;이란 필수 점검을 통과한 뒤 다운로드하는 DOCX를 말합니다.</li>
+          <li>&ldquo;내부 초안&rdquo;이란 근거 보완과 모의심사 중 화면에 표시되는 문서를, &ldquo;최종본&rdquo;이란 필수 점검을 통과한 뒤 다운로드하는 DOCX·PPTX·PDF를 말합니다.</li>
         </ol>
       </Article>
 
@@ -39,10 +43,13 @@ export default function TermsPage() {
               <li>정부지원사업 공고 자격 진단 (무료)</li>
               <li>근거·경쟁정보 확인 및 사업계획서 작성 (유료, 1건 {PRICE_LABEL})</li>
               <li>최초 최종본 DOCX 1회와 포함 범위의 묶음 AI 수정</li>
+              <li>사업계획서 완성 후 발표자료 작성 (별도 선택, 1건 {PRESENTATION_PRICE_LABEL})</li>
+              <li>사업계획서와 발표자료 묶음 상품 (선택, {BUNDLE_PRICE_LABEL})</li>
             </ul>
           </li>
           <li>이용자는 최종본을 내려받기 전에 사실관계, 수치, 증빙자료, 인용 출처와 공고의 최신 조건을 직접 확인해야 합니다.</li>
           <li><b>{PLAN_OUTCOME_NOTICE}</b></li>
+          <li><b>{PRESENTATION_OUTCOME_NOTICE}</b></li>
         </ol>
       </Article>
 
@@ -57,6 +64,8 @@ export default function TermsPage() {
         <ol className="list-decimal space-y-1 pl-5">
           <li>사업계획서 작성은 유료이며, 이용권 1건은 동일 공고·동일 사업아이템·동일 양식의 문서 1건에 사용됩니다.</li>
           <li>{PLAN_REVISION_NOTICE}</li>
+          <li>발표자료는 사업계획서 상품과 별도이며, 발표자료 단품 또는 묶음 상품 결제 시에만 이용할 수 있습니다.</li>
+          <li>{PRESENTATION_REVISION_NOTICE}</li>
           <li>결제는 그로블(Groble) 결제 시스템을 통해 이루어집니다.</li>
           <li>이용권 및 환불에 관한 세부사항은 별도의 환불정책을 따릅니다.</li>
         </ol>
@@ -85,7 +94,7 @@ export default function TermsPage() {
       </Article>
 
       <p className="pt-4 text-sm text-zinc-500">
-        <b>부칙</b> — 본 약관은 2026년 9월 1일부터 시행합니다.
+        <b>부칙</b> — 본 약관은 2026년 9월 2일부터 시행합니다.
       </p>
     </PolicyPage>
   );

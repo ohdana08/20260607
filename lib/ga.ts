@@ -45,6 +45,14 @@ export type GaEvent =
   | "consult_cta_click" // 사업계획서 컨설팅 문의(카톡채널) 클릭
   | "repurchase_cta_click" // 초안 완성 후 "추가 이용권 결제" CTA 클릭 (2026-07-13 소진 정책)
   | "repurchase_verified" // 소진 후 새 주문번호로 이용권 갱신 성공 (2026-07-14, QA 제외)
+  // 발표자료 베타 — 최종 사업계획서 근거를 재사용하는 후속 퍼널
+  | "presentation_interview_start" // 발표자료 티키타카 시작
+  | "presentation_checkout_click" // 별도 발표자료 그로블 결제 진입
+  | "presentation_order_verified" // 발표자료 단품/묶음 주문번호 인증 완료
+  | "presentation_outline_generate" // 슬라이드 원고·대본 생성
+  | "presentation_brief_download" // 검증 통과 발표 원고·데이터 부록 다운로드
+  | "presentation_pptx_download" // 편집 가능한 발표자료 PPTX 다운로드
+  | "presentation_pdf_download" // 제출·공유용 발표자료 PDF 다운로드
   // 랜딩 리뉴얼(2026-07-14) — /landing 전용 클릭 이벤트
   | "cta_free_diagnosis" // "무료 진단 시작" 계열 CTA 클릭 (location 파라미터로 위치 구분)
   | "cta_direct_program" // 이미 지원할 공고가 있는 사람의 바로 시작 CTA 클릭

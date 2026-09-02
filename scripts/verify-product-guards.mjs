@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import JSZip from "jszip";
 
 const { classifyApplicationKind, matchByButtons } = await import(
@@ -10,6 +11,21 @@ const { SAMPLE_PROGRAMS } = await import("../lib/data/sample.ts");
 const { firstTrustedProgramUrl } = await import("../lib/data/trustedProgramUrl.ts");
 const { buildPlanDocxBuffer } = await import("../lib/plan/docx.ts");
 const { normalizeEvidencePack, normalizeStrategyPack } = await import("../lib/plan/strategy.ts");
+const {
+  mergePresentationClaims,
+  normalizePresentationClaims,
+  normalizePresentationPack,
+  reviewPresentationPack,
+} = await import("../lib/plan/presentation.ts");
+const {
+  buildPresentationPdfBuffer,
+  buildPresentationPptxBuffer,
+} = await import("../lib/plan/presentationExport.ts");
+const {
+  PRESENTATION_MAX_REVISIONS,
+  PRESENTATION_OUTCOME_NOTICE,
+  PRESENTATION_REVISION_NOTICE,
+} = await import("../lib/plan/presentationPolicy.ts");
 const { PLAN_MAX_REVISIONS, PLAN_OUTCOME_NOTICE, PLAN_REVISION_NOTICE } = await import(
   "../lib/plan/productPolicy.ts"
 );
@@ -421,9 +437,169 @@ assert.equal(
   undefined,
   "실제 검색 결과나 사용자 자료로 검증되지 않은 출처 id는 도식 근거가 될 수 없음",
 );
+
+const presentationClaims = normalizePresentationClaims(
+  [
+    {
+      id: "verified-market",
+      text: "공식 통계로 확인한 목표 고객 모집단",
+      stageId: "market",
+      origin: "external",
+      status: "verified",
+      evidenceIds: ["web-1"],
+      requiresEvidence: true,
+    },
+    {
+      id: "unsupported-sales",
+      text: "현재 유료 고객 50명",
+      stageId: "validation",
+      origin: "user",
+      status: "verified",
+      evidenceIds: [],
+      requiresEvidence: true,
+    },
+    {
+      id: "future-plan",
+      text: "3분기에 부산 지역 파일럿을 운영",
+      stageId: "roadmap_budget",
+      origin: "plan",
+      status: "plan",
+      evidenceIds: [],
+      verificationPlan: "3분기 담당자·참여자 수·완료 보고서로 확인",
+    },
+  ],
+  evidencePack,
+);
+assert.equal(
+  presentationClaims.find((claim) => claim.id === "unsupported-sales")?.status,
+  "stated",
+  "근거 id가 없는 현재 실적은 verified로 승격되면 안 됨",
+);
+assert.equal(
+  mergePresentationClaims(presentationClaims.slice(0, 1), presentationClaims).length,
+  presentationClaims.length,
+  "발표 인터뷰의 주장 장부는 같은 문장을 중복하지 않고 누적해야 함",
+);
+
+const presentationStages = [
+  "cover",
+  "problem",
+  "market",
+  "solution",
+  "validation",
+  "competition",
+  "business_model",
+  "go_to_market",
+  "roadmap_budget",
+  "team_partners",
+  "vision",
+];
+const presentationSections = [
+  { heading: "1. 문제인식", content: "고객 문제 원문" },
+  { heading: "2. 실현가능성", content: "해결책 원문" },
+];
+const presentationPack = normalizePresentationPack(
+  {
+    title: "검증용 발표자료",
+    audience: "정부지원사업 발표평가 심사위원",
+    durationMinutes: 7,
+    narrative: "고객 문제에서 실행 근거까지",
+    slides: presentationStages.map((stageId, index) => ({
+      id: `slide-${index + 1}`,
+      stageId,
+      title: `${index + 1}번 슬라이드`,
+      headline: "심사위원이 기억할 핵심 문장",
+      bullets: ["짧은 화면 문장"],
+      visualBrief: "텍스트 중심",
+      speakerNotes: "신청자의 실제 답변과 근거를 설명하는 발표 대본",
+      claimIds: index === 2 ? ["verified-market"] : index === 4 ? ["unsupported-sales"] : index === 8 ? ["future-plan"] : [],
+      sourceSectionHeadings: index === 1 ? ["1. 문제인식"] : index === 3 ? ["2. 실현가능성"] : [],
+    })),
+    qa: Array.from({ length: 5 }, (_, index) => ({
+      id: "qa-" + (index + 1),
+      question: "예상 질문 " + (index + 1),
+      answer: "공식 통계와 사업계획서에 연결된 대표자 답변",
+      claimIds: ["verified-market"],
+      risk: "확인된 모집단 범위 이상으로 확대 해석하지 않음",
+    })),
+  },
+  {
+    evidence: evidencePack,
+    strategy: groundedStrategy,
+    sections: presentationSections,
+    claims: presentationClaims,
+    fallbackTitle: "발표자료",
+  },
+);
+const blockedPresentationReview = reviewPresentationPack(presentationPack);
+assert.equal(
+  blockedPresentationReview.exportReady,
+  false,
+  "근거 없는 현재 유료 고객 실적이 남으면 발표자료 확정을 막아야 함",
+);
+assert.match(blockedPresentationReview.issues.map((issue) => issue.issue).join(" "), /유료 고객 50명/);
+assert.equal(
+  presentationPack.sourceCoverage.every((item) => item.slideIds.length > 0 || item.includedInAppendix),
+  true,
+  "사업계획서 원본 항목은 슬라이드 또는 데이터 부록에 모두 남아야 함",
+);
 assert.equal(PLAN_MAX_REVISIONS, 3);
 assert.match(PLAN_OUTCOME_NOTICE, /선정 결과를 보장하지 않습니다/);
 assert.match(PLAN_REVISION_NOTICE, /동일 공고·동일 사업아이템·동일 양식/);
+assert.equal(PRESENTATION_MAX_REVISIONS, 2);
+assert.match(PRESENTATION_OUTCOME_NOTICE, /보장하지 않습니다/);
+assert.match(PRESENTATION_REVISION_NOTICE, /30일 이내 최대 2회/);
+
+const exportPack = normalizePresentationPack(
+  {
+    title: "검증용 근거 발표자료",
+    subtitle: "가짜 실적 없이 만드는 발표평가 자료",
+    audience: "정부지원사업 발표평가 심사위원",
+    durationMinutes: 7,
+    narrative: "고객 문제와 확인된 시장 근거를 실행계획으로 연결",
+    slides: presentationStages.map((stageId, index) => ({
+      id: "ready-slide-" + (index + 1),
+      stageId,
+      title: (index + 1) + "번 근거 슬라이드",
+      headline: "심사위원이 기억할 근거 기반 핵심 문장",
+      bullets: ["사용자가 제공한 아이디어와 확인된 근거를 구분해 설명"],
+      visualBrief: "간결한 텍스트 중심",
+      speakerNotes: "사용자 제공 정보와 외부 근거를 구분해 말하는 발표 대본",
+      claimIds: stageId === "market" ? ["verified-market"] : stageId === "roadmap_budget" ? ["future-plan"] : [],
+      sourceSectionHeadings: index === 1 ? ["1. 문제인식"] : index === 3 ? ["2. 실현가능성"] : [],
+    })),
+    qa: Array.from({ length: 5 }, (_, index) => ({
+      id: "ready-qa-" + (index + 1),
+      question: "심사위원 예상 질문 " + (index + 1),
+      answer: "공식 통계로 확인한 범위와 향후 검증 계획을 구분해 답변합니다.",
+      claimIds: ["verified-market"],
+      risk: "확인되지 않은 고객 수를 현재 실적으로 말하지 않음",
+    })),
+  },
+  {
+    evidence: evidencePack,
+    strategy: groundedStrategy,
+    sections: presentationSections,
+    claims: presentationClaims.filter((claim) => claim.id !== "unsupported-sales"),
+    fallbackTitle: "발표자료",
+  },
+);
+assert.equal(reviewPresentationPack(exportPack).exportReady, true);
+const pptxBuffer = await buildPresentationPptxBuffer(exportPack, []);
+const pptxZip = await JSZip.loadAsync(pptxBuffer);
+assert.ok(pptxZip.file("ppt/presentation.xml"), "발표자료 PPTX 패키지가 정상이어야 함");
+assert.ok(
+  Object.keys(pptxZip.files).some((path) => path.startsWith("ppt/notesSlides/")),
+  "PPTX에 슬라이드별 발표자 노트가 포함돼야 함",
+);
+const pdfBuffer = await buildPresentationPdfBuffer(exportPack, []);
+assert.equal(pdfBuffer.subarray(0, 4).toString(), "%PDF", "제출·공유용 PDF가 정상이어야 함");
+if (process.env.WRITE_PRESENTATION_FIXTURES === "1") {
+  await Promise.all([
+    writeFile("/private/tmp/ddakji-presentation-fixture.pptx", pptxBuffer),
+    writeFile("/private/tmp/ddakji-presentation-fixture.pdf", pdfBuffer),
+  ]);
+}
 assert.equal(
   isLocalReviewMatchRequest(new Request("http://localhost:3000/api/match"), localReviewEnv),
   true,
@@ -490,6 +666,36 @@ const batchRouteSource = readFileSync(new URL("../app/api/plan/draft-batch/route
 const auditRouteSource = readFileSync(new URL("../app/api/plan/audit/route.ts", import.meta.url), "utf8");
 const reviseRouteSource = readFileSync(new URL("../app/api/plan/revise/route.ts", import.meta.url), "utf8");
 const docxRouteSource = readFileSync(new URL("../app/api/plan/docx/route.ts", import.meta.url), "utf8");
+const presentationStudioSource = readFileSync(
+  new URL("../components/chat/PresentationStudio.tsx", import.meta.url),
+  "utf8",
+);
+const presentationChatRouteSource = readFileSync(
+  new URL("../app/api/plan/presentation/chat/route.ts", import.meta.url),
+  "utf8",
+);
+const presentationGenerateRouteSource = readFileSync(
+  new URL("../app/api/plan/presentation/generate/route.ts", import.meta.url),
+  "utf8",
+);
+const presentationOrderRouteSource = readFileSync(
+  new URL("../app/api/plan/presentation/order/route.ts", import.meta.url),
+  "utf8",
+);
+const presentationExportRouteSource = readFileSync(
+  new URL("../app/api/plan/presentation/export/route.ts", import.meta.url),
+  "utf8",
+);
+const orderVerifySource = readFileSync(
+  new URL("../app/api/order/verify/route.ts", import.meta.url),
+  "utf8",
+);
+const webhookSource = readFileSync(
+  new URL("../app/api/groble/webhook/route.ts", import.meta.url),
+  "utf8",
+);
+const termsSource = readFileSync(new URL("../app/terms/page.tsx", import.meta.url), "utf8");
+const refundSource = readFileSync(new URL("../app/refund/page.tsx", import.meta.url), "utf8");
 const evidencePanelSource = readFileSync(
   new URL("../components/chat/PublicEvidencePanel.tsx", import.meta.url),
   "utf8",
@@ -569,6 +775,30 @@ assert.match(reviseRouteSource, /묶음 수정 요청/);
 assert.match(docxRouteSource, /acknowledgements/);
 assert.match(docxRouteSource, /audit\.sectionsDigest/);
 assert.match(docxRouteSource, /audit\.evidenceDigest/);
+assert.match(presentationStudioSource, /기존 원답변 자동 연결/);
+assert.match(presentationStudioSource, /주장·근거 장부/);
+assert.match(presentationStudioSource, /원본 사업계획서 데이터 부록/);
+assert.match(presentationStudioSource, /사업계획서 29,900원에는 포함되지 않는 별도 상품/);
+assert.match(presentationStudioSource, /편집 가능한 발표자료 받기/);
+assert.match(presentationStudioSource, /제출·공유용 PDF 받기/);
+assert.match(presentationStudioSource, /묶음 AI 수정/);
+assert.match(presentationStudioSource, /serviceConsent/);
+assert.match(presentationChatRouteSource, /한 번에 질문은 정확히 하나만/);
+assert.match(presentationChatRouteSource, /가상의 고객 50명 인터뷰/);
+assert.match(presentationChatRouteSource, /markPresentationServiceConsent/);
+assert.match(presentationGenerateRouteSource, /claim ledger에 없는 사실/);
+assert.match(presentationGenerateRouteSource, /savePresentationArtifact/);
+assert.match(presentationGenerateRouteSource, /reservePresentationRevision/);
+assert.match(presentationOrderRouteSource, /isPresentationProductId/);
+assert.match(presentationOrderRouteSource, /발표자료 단품 또는 Word\+발표자료 묶음 상품/);
+assert.match(presentationExportRouteSource, /artifact\.review\.exportReady/);
+assert.match(presentationExportRouteSource, /buildPresentationPptxBuffer/);
+assert.match(presentationExportRouteSource, /buildPresentationPdfBuffer/);
+assert.match(presentationExportRouteSource, /consentedAt/);
+assert.match(orderVerifySource, /사업계획서 Word 또는 묶음 상품의 주문번호/);
+assert.match(webhookSource, /PRESENTATION_PAID_KEY/);
+assert.match(termsSource, /발표자료는 사업계획서 상품과 별도/);
+assert.match(refundSource, /최대 2회의 묶음 AI 수정/);
 assert.match(evidencePanelSource, /계획서에 쓸 공식 근거 찾기/);
 assert.match(evidencePanelSource, /\[확인 필요\]/);
 assert.match(collectorWorkflow, /node-version: "22"/);
@@ -610,5 +840,5 @@ assert.doesNotMatch(modooBuilderSource, /버티고|가설|쟁점|지불 고객|�
 assert.doesNotMatch(modooModelSource, /버티거나|수익 가설|실행 근거|증빙/);
 
 console.log(
-  "✅ 진입·제출유형·마감·수집원·공식근거·모두의창업 전용 모드·독립 작성준비도·심사위원 모의심사·사실기반 재작성·DOCX 회귀 테스트 통과",
+  "✅ 진입·제출유형·마감·수집원·공식근거·모두의창업 전용 모드·독립 작성준비도·심사위원 모의심사·사실기반 재작성·발표자료 별도결제·PPTX·PDF·DOCX 회귀 테스트 통과",
 );

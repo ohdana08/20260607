@@ -1,5 +1,6 @@
 import { Redis } from "@upstash/redis";
 import { isMasterCode } from "@/lib/plan/access";
+import { isBundleProductId, isPlanProductId, isPresentationProductId } from "@/lib/config";
 import {
   GROBLE_RAW_EVENTS,
   ORDER_NO_RE,
@@ -8,6 +9,7 @@ import {
   VALID_ORDER_KEY,
   type ValidOrder,
 } from "@/lib/plan/paidAccess";
+import { PRESENTATION_PAID_KEY } from "@/lib/plan/presentationAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -152,14 +154,23 @@ export async function POST(req: Request) {
   if (isCancelEvent(payload)) {
     // 결제 취소/해지: 원장에서 취소 표시 + 이미 인증에 쓰였다면 해당 계정 is_paid 회수
     const existing = await r.get<ValidOrder>(VALID_ORDER_KEY(orderNo));
+    const productId = findProductId(payload) ?? existing?.productId;
     await r.set(VALID_ORDER_KEY(orderNo), {
       orderNo,
       registeredAt: existing?.registeredAt ?? new Date().toISOString(),
       via: existing?.via ?? "webhook",
       status: "cancelled",
+      ...(productId ? { productId } : {}),
     } satisfies ValidOrder);
     const usedBy = await r.get<string>(ORDER_USED_KEY(orderNo));
-    if (usedBy) await r.del(PAID_KEY(usedBy));
+    if (usedBy) {
+      if (!productId || isPlanProductId(productId) || isBundleProductId(productId)) {
+        await r.del(PAID_KEY(usedBy));
+      }
+      if (isPresentationProductId(productId) || isBundleProductId(productId)) {
+        await r.del(PRESENTATION_PAID_KEY(usedBy));
+      }
+    }
     try {
       await forwardClaude101Event(payload);
     } catch (error) {
