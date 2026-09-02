@@ -57,6 +57,7 @@ export type GaEvent =
   | "modoo_campaign_click" // 랜딩 상단 캠페인 안내 클릭
   | "view_modoo_2026_campaign" // 캠페인 페이지 진입
   | "modoo_draft_start" // 작성 초안 생성 시작
+  | "modoo_material_upload" // 작성 근거 자료 읽기 완료
   | "modoo_draft_complete" // 작성 초안 생성 완료
   | "modoo_draft_error" // 작성 초안 생성 실패
   | "modoo_answer_copy" // 항목별 답변 복사

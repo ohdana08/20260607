@@ -13,11 +13,11 @@ const PAGE_URL = "https://ddakfit.bccconsulting.kr/modoo-2026";
 export const metadata: Metadata = {
   title: "2026 모두의창업 지원서 작성 재료 정리 | 딱지원핏",
   description:
-    "9월 17일 마감 모두의창업 2차. 공식 공고문을 받고 고객 장면·문제 근거·검증 계획부터 무료로 정리하세요.",
+    "9월 17일 마감 모두의창업 2차. 공식 공고문을 받고, 겪은 불편·가지고 있는 자료·처음 해볼 일을 쉽은 말로 정리하세요.",
   alternates: { canonical: PAGE_URL },
   openGraph: {
     title: "모두의창업 지원서, 고객 장면과 근거부터 정리하세요",
-    description: "공식 공고문 다운로드부터 딱지원핏 작성 재료 Word까지 한 화면에서 준비합니다.",
+    description: "공식 공고문 다운로드, 실제 자료 업로드, 딱지원핏 Word 받기까지 한 화면에서 준비합니다.",
     url: PAGE_URL,
     type: "website",
     images: [{ url: "/og-government-plan-helper.png", width: 1200, height: 630 }],
@@ -41,8 +41,8 @@ const RESOURCES = [
   },
   {
     eyebrow: "딱지원핏 제공",
-    title: "딱지원핏 사실 정리 질문지 Word",
-    description: "공식 문항 복제본이 아닌 고객 장면·근거·검증계획 정리용 질문지입니다.",
+    title: "딱지원핏 아이디어 정리 질문지 Word",
+    description: "공식 문항 복제본이 아닙니다. 내가 겪은 일과 아이디어를 쉽게 정리하는 질문지입니다.",
     href: "/api/modoo-2026/download?file=worksheet-docx",
     label: "질문지 Word 받기",
   },
@@ -84,8 +84,8 @@ export default function Modoo2026Page() {
               <br />지원서 문장이 막힌다면
             </h1>
             <p className="mt-6 max-w-2xl text-base leading-8 text-zinc-300 sm:text-lg">
-              대표님이 직접 본 고객 장면과 확인 가능한 근거를 적어주세요. 딱지원핏이 없는 사실을 만들지 않고,
-              공식 지원서를 쓸 때 꺼내 쓸 수 있는 작성 재료로 정리합니다.
+              대표님이 직접 겪은 일을 말하듯 적어주세요. 사진·PDF·Word·한글 파일이 있다면 함께 올릴 수 있어요. 딱지원핏은 없는 내용을 만들지 않고,
+              공식 지원서를 쓸 때 참고할 쉬운 문장으로 정리합니다.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <a href="#builder" className="flex min-h-13 items-center justify-center rounded-xl bg-amber-400 px-6 text-sm font-black text-zinc-950 hover:bg-amber-300">
@@ -112,7 +112,7 @@ export default function Modoo2026Page() {
               <div>
                 <dt className="text-xs text-zinc-400">지원 대상</dt>
                 <dd className="mt-1 font-extrabold">예비창업자 또는 업력 7년 이내 기창업자</dd>
-                <p className="mt-2 text-xs leading-5 text-zinc-400">기창업자는 이종창업 등 세부 조건을 공식 공고에서 확인해야 합니다.</p>
+                <p className="mt-2 text-xs leading-5 text-zinc-400">이미 사업자등록증이 있다면 기존 사업과 다른 업종으로 지원해야 하는지 공고문을 확인해 주세요.</p>
               </div>
             </dl>
           </aside>
@@ -123,9 +123,9 @@ export default function Modoo2026Page() {
         <div className="mx-auto w-full max-w-6xl px-5 lg:px-8">
           <div className="max-w-2xl">
             <p className="text-sm font-extrabold tracking-[0.14em] text-blue-700">한 화면에서 준비하기</p>
-            <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">공고문과 사실 정리 질문지를 먼저 받아보세요</h2>
+            <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">공고문과 아이디어 정리 질문지를 먼저 받아보세요</h2>
             <p className="mt-4 text-[15px] leading-7 text-zinc-600">
-              공식 지원서는 별도 파일이 아니라 모두의창업 플랫폼에서 온라인으로 작성합니다. 아래 Word는 공식 문항을 옮긴 자료가 아니라 딱지원핏 고유의 증거 중심 작업지입니다.
+              공식 지원서는 별도 파일이 아니라 모두의창업 플랫폼에서 온라인으로 작성합니다. 아래 Word는 공식 문항을 옮긴 자료가 아니라, 내 경험과 아이디어를 먼저 정리하는 용도입니다.
             </p>
           </div>
           <div className="mt-8 grid gap-4 md:grid-cols-3">

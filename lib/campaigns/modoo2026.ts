@@ -14,8 +14,8 @@ export const MODU_2026_DEADLINE_LABEL = "2026년 9월 17일(목) 16:00";
 
 export const MODU_TRACKS = ["일반·기술 트랙", "로컬 트랙"] as const;
 export const MODU_BUSINESS_STATUSES = [
-  "사업자등록 전(예비창업)",
-  "사업자등록 후(기창업)",
+  "아직 사업자등록증이 없어요(예비창업)",
+  "사업자등록증이 있어요(기창업)",
 ] as const;
 
 export const MODU_DRAFT_SECTION_KEYS = [
@@ -37,29 +37,34 @@ export const MODU_DRAFT_SECTIONS: ReadonlyArray<{
   key: ModooDraftSectionKey;
   label: string;
 }> = [
-  { key: "oneLineDefinition", label: "한 문장 사업 정의" },
-  { key: "customerProblem", label: "고객 문제와 실제 발생 장면" },
-  { key: "evidenceStatus", label: "확인된 문제 근거와 아직 비어 있는 근거" },
-  { key: "solutionLogic", label: "해결 방식과 기존 대안에서 달라지는 점" },
-  { key: "revenueHypothesis", label: "지불 고객과 수익 가설" },
-  { key: "validationPlan", label: "마감 후 30일 검증 계획" },
-  { key: "founderFit", label: "대표자가 이 문제를 풀 수 있는 실행 근거" },
-  { key: "localFit", label: "지역 연결 근거(로컬 트랙용)" },
-  { key: "mentorAgenda", label: "멘토와 먼저 결정할 한 가지" },
-  { key: "submissionEvidence", label: "제출 전 모아둘 증빙" },
+  { key: "oneLineDefinition", label: "내 아이디어를 한 문장으로 소개" },
+  { key: "customerProblem", label: "누구의 어떤 불편을 해결하는지" },
+  { key: "evidenceStatus", label: "이미 확인한 내용 / 더 확인할 내용" },
+  { key: "solutionLogic", label: "내 아이디어를 쓰면 달라지는 점" },
+  { key: "revenueHypothesis", label: "누가 언제 돈을 내는지" },
+  { key: "validationPlan", label: "처음 30일 동안 해볼 일" },
+  { key: "founderFit", label: "내가 이 아이디어를 실행할 수 있는 이유" },
+  { key: "localFit", label: "이 지역에서 시작하는 이유(로컬 트랙)" },
+  { key: "mentorAgenda", label: "멘토에게 가장 먼저 물어볼 것" },
+  { key: "submissionEvidence", label: "제출 전에 챙길 자료" },
 ];
 
 export const MODU_WORKSHEET_PROMPTS = [
-  "최근 직접 보거나 겪은 고객의 불편 장면은 무엇인가요?",
-  "그 고객은 지금 어떤 방법으로 문제를 버티거나 해결하고 있나요?",
-  "문제가 실제라는 것을 보여줄 자료나 관찰은 무엇인가요?",
-  "우리 방식은 어떤 순서로 고객의 불편을 줄이나요?",
-  "누가 어떤 순간에 비용을 낼 것이라고 보나요?",
-  "마감 후 30일 동안 가장 먼저 확인할 가설은 무엇인가요?",
-  "대표자가 이미 해본 관련 일이나 확보한 자원은 무엇인가요?",
-  "로컬 트랙이라면 특정 지역에서 시작해야 하는 이유는 무엇인가요?",
-  "멘토와 가장 먼저 결정하고 싶은 쟁점 하나는 무엇인가요?",
+  "누가, 언제, 어떤 불편을 겪었나요?",
+  "그 사람은 지금 이 문제를 어떻게 해결하고 있나요?",
+  "이 문제가 실제로 있다는 것을 보여줄 대화, 사진, 문의, 기록이 있나요?",
+  "내 아이디어를 쓰면 사용하기 전과 후가 어떻게 달라지나요?",
+  "누가, 언제, 무엇에 돈을 내나요?",
+  "처음 30일 동안 작게 해볼 일은 무엇인가요?",
+  "내가 이 아이디어를 실행할 수 있다고 보여줄 경험이나 도움을 줄 사람이 있나요?",
+  "로컬 트랙이라면, 왜 바로 이 지역에서 시작하려고 하나요?",
+  "멘토에게 가장 먼저 물어보고 싶은 것은 무엇인가요?",
 ] as const;
+
+export interface ModooSupportingMaterial {
+  name: string;
+  text: string;
+}
 
 export interface ModooDraftRequest {
   track: string;
@@ -74,6 +79,7 @@ export interface ModooDraftRequest {
   founderEvidence: string;
   localGrounding: string;
   mentorDecision: string;
+  supportingMaterials: ModooSupportingMaterial[];
 }
 
 export interface ModooDraftResult {
@@ -88,6 +94,19 @@ type RequestValidation =
 
 function cleanText(value: unknown, maxLength: number): string {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function cleanSupportingMaterials(value: unknown): ModooSupportingMaterial[] {
+  if (!Array.isArray(value)) return [];
+  const materials: ModooSupportingMaterial[] = [];
+  for (const item of value.slice(0, 3)) {
+    if (!item || typeof item !== "object") continue;
+    const source = item as Record<string, unknown>;
+    const name = cleanText(source.name, 120);
+    const text = cleanText(source.text, 12_000);
+    if (name && text.length >= 10) materials.push({ name, text });
+  }
+  return materials;
 }
 
 export function normalizeModooDraftRequest(raw: unknown): RequestValidation {
@@ -108,22 +127,23 @@ export function normalizeModooDraftRequest(raw: unknown): RequestValidation {
     founderEvidence: cleanText(source.founderEvidence, 2_000),
     localGrounding: cleanText(source.localGrounding, 1_500),
     mentorDecision: cleanText(source.mentorDecision, 1_000),
+    supportingMaterials: cleanSupportingMaterials(source.supportingMaterials),
   };
 
   if (!MODU_TRACKS.includes(value.track as (typeof MODU_TRACKS)[number])) {
     return { ok: false, error: "지원할 트랙을 선택해 주세요." };
   }
   if (value.industry.length < 2) {
-    return { ok: false, error: "사업 분야를 대표님의 말로 적어주세요." };
+    return { ok: false, error: "어떤 일을 하는 아이디어인지 적어주세요." };
   }
   if (!MODU_BUSINESS_STATUSES.includes(value.businessStatus as (typeof MODU_BUSINESS_STATUSES)[number])) {
-    return { ok: false, error: "현재 사업자등록 상태를 선택해 주세요." };
+    return { ok: false, error: "지금 사업자등록증이 있는지 선택해 주세요." };
   }
   if (value.customerScene.length < 10) {
-    return { ok: false, error: "직접 보거나 겪은 고객의 불편 장면을 조금 더 적어주세요." };
+    return { ok: false, error: "누가, 언제, 어떤 불편을 겪었는지 조금 더 적어주세요." };
   }
   if (value.solutionMechanism.length < 10) {
-    return { ok: false, error: "대표님의 방식이 고객의 불편을 어떻게 줄이는지 적어주세요." };
+    return { ok: false, error: "내 아이디어를 쓰면 무엇이 어떻게 달라지는지 적어주세요." };
   }
   return { ok: true, value };
 }

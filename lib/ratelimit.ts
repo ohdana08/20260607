@@ -12,6 +12,7 @@ type Kind =
   | "planReview"
   | "diagnose"
   | "campaignDraft"
+  | "campaignMaterial"
   | "review"
   | "verify";
 
@@ -25,6 +26,7 @@ const RULES: Record<Kind, { limit: number; window: `${number} m` | `${number} h`
   planReview: { limit: 30, window: "1 h" }, // 유료 작성 준비도·모의심사·수정
   diagnose: { limit: 40, window: "1 h" }, // 무료 7단계 자가진단 + 리포트
   campaignDraft: { limit: 5, window: "1 h" }, // 마감형 무료 전용 지원서 초안
+  campaignMaterial: { limit: 12, window: "1 h" }, // 마감형 전용 자료 읽기(최대 3개)
   review: { limit: 10, window: "1 h" }, // 후기 작성(스팸 방지)
   verify: { limit: 10, window: "1 h" }, // 이용권 코드 확인(무차별 대입 방지)
 };

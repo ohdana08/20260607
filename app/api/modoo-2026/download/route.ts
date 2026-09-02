@@ -44,7 +44,7 @@ export async function GET(request: Request) {
     const buffer = await buildModooWorksheetDocxBuffer();
     return downloadResponse(
       new Uint8Array(buffer),
-      "모두의창업_딱지원핏_사실정리질문지.docx",
+      "모두의창업_딱지원핏_아이디어정리질문지.docx",
       DOCX_TYPE,
     );
   }

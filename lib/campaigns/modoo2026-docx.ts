@@ -75,10 +75,10 @@ function baseNotice(): Paragraph[] {
 
 export async function buildModooWorksheetDocxBuffer(): Promise<Buffer> {
   const children: Paragraph[] = [
-    title("2026 모두의창업 딱지원핏 사실 정리 질문지", HeadingLevel.HEADING_1),
+    title("2026 모두의창업 딱지원핏 아이디어 정리 질문지", HeadingLevel.HEADING_1),
     ...baseNotice(),
     body(
-      "공식 지원서 문항을 복제한 자료가 아닙니다. 고객 장면과 확인 가능한 근거를 먼저 정리하기 위한 딱지원핏 자체 질문지입니다.",
+      "공식 지원서 문항을 복제한 자료가 아닙니다. 내가 겪은 일, 가지고 있는 자료, 아이디어를 쉽게 정리하기 위한 딱지원핏 자체 질문지입니다.",
       { bold: true, color: BLUE },
     ),
   ];
