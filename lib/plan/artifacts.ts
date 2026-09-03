@@ -22,37 +22,37 @@ const AUDIT_KEY = (orderNo: string) => `gp:audit:${orderNo}`;
 const PRESENTATION_KEY = (orderNo: string) => `gp:presentation:${orderNo}`;
 const ARTIFACT_TTL_SECONDS = 60 * 60 * 24 * 45;
 
-async function orderNoForUser(userId: string): Promise<string | null> {
-  return (await getPaidRecord(userId))?.orderNo ?? null;
+async function orderNoForUser(userId: string, admin = false): Promise<string | null> {
+  return (await getPaidRecord(userId))?.orderNo ?? (admin ? `admin:${userId}` : null);
 }
 
-async function presentationOrderNoForUser(userId: string): Promise<string | null> {
-  return (await getPresentationPaidRecord(userId))?.orderNo ?? null;
+async function presentationOrderNoForUser(userId: string, admin = false): Promise<string | null> {
+  return (await getPresentationPaidRecord(userId))?.orderNo ?? (admin ? `admin:${userId}` : null);
 }
 
-export async function saveEvidencePack(userId: string, evidence: EvidencePack): Promise<void> {
-  const orderNo = await orderNoForUser(userId);
+export async function saveEvidencePack(userId: string, evidence: EvidencePack, admin = false): Promise<void> {
+  const orderNo = await orderNoForUser(userId, admin);
   const store = getRedis();
   if (!orderNo || !store) throw new Error("paid artifact storage unavailable");
   await store.set(EVIDENCE_KEY(orderNo), evidence, { ex: ARTIFACT_TTL_SECONDS });
 }
 
-export async function getEvidencePack(userId: string): Promise<EvidencePack | null> {
-  const orderNo = await orderNoForUser(userId);
+export async function getEvidencePack(userId: string, admin = false): Promise<EvidencePack | null> {
+  const orderNo = await orderNoForUser(userId, admin);
   const store = getRedis();
   if (!orderNo || !store) return null;
   return (await store.get<EvidencePack>(EVIDENCE_KEY(orderNo))) ?? null;
 }
 
-export async function saveStrategyPack(userId: string, strategy: StrategyPack): Promise<void> {
-  const orderNo = await orderNoForUser(userId);
+export async function saveStrategyPack(userId: string, strategy: StrategyPack, admin = false): Promise<void> {
+  const orderNo = await orderNoForUser(userId, admin);
   const store = getRedis();
   if (!orderNo || !store) throw new Error("paid artifact storage unavailable");
   await store.set(STRATEGY_KEY(orderNo), strategy, { ex: ARTIFACT_TTL_SECONDS });
 }
 
-export async function getStrategyPack(userId: string): Promise<StrategyPack | null> {
-  const orderNo = await orderNoForUser(userId);
+export async function getStrategyPack(userId: string, admin = false): Promise<StrategyPack | null> {
+  const orderNo = await orderNoForUser(userId, admin);
   const store = getRedis();
   if (!orderNo || !store) return null;
   return (await store.get<StrategyPack>(STRATEGY_KEY(orderNo))) ?? null;
@@ -84,8 +84,9 @@ export async function saveAuditArtifact(
   sections: PlanDocxSection[],
   evidence: EvidencePack | null,
   strategy: StrategyPack | null,
+  admin = false,
 ): Promise<void> {
-  const orderNo = await orderNoForUser(userId);
+  const orderNo = await orderNoForUser(userId, admin);
   const store = getRedis();
   if (!orderNo || !store) throw new Error("paid artifact storage unavailable");
   const artifact: AuditArtifact = {
@@ -98,8 +99,8 @@ export async function saveAuditArtifact(
   await store.set(AUDIT_KEY(orderNo), artifact, { ex: ARTIFACT_TTL_SECONDS });
 }
 
-export async function getAuditArtifact(userId: string): Promise<AuditArtifact | null> {
-  const orderNo = await orderNoForUser(userId);
+export async function getAuditArtifact(userId: string, admin = false): Promise<AuditArtifact | null> {
+  const orderNo = await orderNoForUser(userId, admin);
   const store = getRedis();
   if (!orderNo || !store) return null;
   return (await store.get<AuditArtifact>(AUDIT_KEY(orderNo))) ?? null;
@@ -121,8 +122,9 @@ export async function savePresentationArtifact(
   sections: PlanDocxSection[],
   evidence: EvidencePack,
   strategy: StrategyPack,
+  admin = false,
 ): Promise<void> {
-  const orderNo = await presentationOrderNoForUser(userId);
+  const orderNo = await presentationOrderNoForUser(userId, admin);
   const store = getRedis();
   if (!orderNo || !store) throw new Error("paid artifact storage unavailable");
   const artifact: PresentationArtifact = {
@@ -136,8 +138,8 @@ export async function savePresentationArtifact(
   await store.set(PRESENTATION_KEY(orderNo), artifact, { ex: ARTIFACT_TTL_SECONDS });
 }
 
-export async function getPresentationArtifact(userId: string): Promise<PresentationArtifact | null> {
-  const orderNo = await presentationOrderNoForUser(userId);
+export async function getPresentationArtifact(userId: string, admin = false): Promise<PresentationArtifact | null> {
+  const orderNo = await presentationOrderNoForUser(userId, admin);
   const store = getRedis();
   if (!orderNo || !store) return null;
   return (await store.get<PresentationArtifact>(PRESENTATION_KEY(orderNo))) ?? null;

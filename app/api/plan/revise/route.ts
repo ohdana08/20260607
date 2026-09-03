@@ -11,6 +11,7 @@ import { getRevisionStatus, reserveRevisionRound, revisionUnavailableResponse } 
 import { MISSING_INFO_PLACEHOLDER, PROOF_NEEDED_PLACEHOLDER } from "@/lib/plan/sections";
 import { evidencePackPrompt } from "@/lib/plan/strategy";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
+import { parseRevisionOutput } from "@/lib/plan/revisionText";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,10 +26,6 @@ interface ProgramInput {
   applicationKind?: "business-plan" | "simple-application" | "reservation" | "unknown";
   requiresBusinessPlan?: boolean | null;
   applicationKindReason?: string;
-}
-
-interface RevisionResult {
-  sections?: Array<{ heading?: unknown; content?: unknown }>;
 }
 
 function compactSections(sections: PlanDocxSection[], maxChars: number): string {
@@ -77,7 +74,7 @@ export async function POST(req: Request) {
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
   const access = await checkDraftAccess(req, code, program?.id);
   if (!access.ok) return paymentRequiredResponse(access.reason);
-  const application = decideDraftApplication(program);
+  const application = decideDraftApplication(program, Array.isArray(sections) && sections.length > 0);
   if (!application.ok) return draftApplicationError(application);
   if (!Array.isArray(messages) || !Array.isArray(sections) || sections.length === 0) {
     return Response.json({ error: "수정할 전체 초안이 필요해요." }, { status: 400 });
@@ -102,22 +99,26 @@ export async function POST(req: Request) {
     return Response.json({ error: "선택한 AI 키가 설정되지 않았어요." }, { status: 503 });
   }
 
-  const revision = await reserveRevisionRound(access.user?.id);
+  const revision = await reserveRevisionRound(access.user?.id, access.admin);
   if (!revision.ok) return revisionUnavailableResponse(revision.status);
   const budget = await reservePaidAiCall({
     userId: access.user?.id,
+    bypassBudget: access.admin,
     stage: "revision_batch",
     provider,
     tier: "fast",
     estimatedInputTokens: 52_000,
-    maxOutputTokens: 5_000,
+    maxOutputTokens: 8_000,
   });
   if (!budget.ok) {
     await revision.rollback();
     return aiBudgetExceededResponse(budget);
   }
   const [evidence, strategy] = access.user
-    ? await Promise.all([getEvidencePack(access.user.id), getStrategyPack(access.user.id)])
+    ? await Promise.all([
+        getEvidencePack(access.user.id, access.admin),
+        getStrategyPack(access.user.id, access.admin),
+      ])
     : [null, null];
   const conversation = messages
     .filter((message) => message.role === "user" || message.role === "assistant")
@@ -149,17 +150,27 @@ ${safeFindings.length ? safeFindings.map((item, index) => `${index + 1}. [${item
 
   let completed = false;
   try {
-    const raw = await getLlm(provider, "fast").json<RevisionResult>({
+    let rawText = "";
+    let stopReason: string | null = null;
+    for await (const chunk of getLlm(provider, "fast").streamText({
       system: SYSTEM,
       messages: [{ role: "user", content: prompt }],
-      schema: {},
-      maxTokens: 5_000,
+      maxTokens: 8_000,
+      onStop: (stop) => {
+        stopReason = stop.reason ?? null;
+      },
       onUsage: async (usage) => {
         await budget.complete(usage);
         completed = true;
       },
-    });
-    const received = Array.isArray(raw.sections) ? raw.sections : [];
+    })) {
+      rawText += chunk;
+    }
+    const parsed = parseRevisionOutput(rawText, safeSections.map((section) => section.heading));
+    const received = parsed.sections;
+    if (received.length === 0) {
+      throw new Error("AI 응답에서 수정된 목차를 복구하지 못했습니다.");
+    }
     const output = safeSections.map((section) => {
       const exact = received.find((item) => String(item.heading ?? "").trim() === section.heading);
       const content = String(exact?.content ?? section.content).trim().slice(0, 18_000);
@@ -168,7 +179,14 @@ ${safeFindings.length ? safeFindings.map((item, index) => `${index + 1}. [${item
     return Response.json(
       {
         sections: output,
-        revision: access.user ? await getRevisionStatus(access.user.id) : revision.status,
+        revision: access.user
+          ? await getRevisionStatus(access.user.id, access.admin)
+          : revision.status,
+        degraded: parsed.recoveredFromText || stopReason === "max_tokens",
+        warning:
+          parsed.recoveredFromText || stopReason === "max_tokens"
+            ? "AI가 JSON 형식을 지키지 않아 목차명 기준으로 안전하게 복구했습니다. 심사 결과에서 반영 내용을 한 번 더 확인해 주세요."
+            : null,
       },
       { headers: { "Cache-Control": "no-store" } },
     );

@@ -248,6 +248,15 @@ function getRedis(): Redis | null {
 export async function GET(req: Request) {
   const user = await getAuthedUser(req);
   if (!user) return Response.json({ paid: false, loggedIn: false });
+  if (user.isAdmin) {
+    return Response.json({
+      paid: true,
+      loggedIn: true,
+      admin: true,
+      orderNo: null,
+      usedProgramId: null,
+    });
+  }
   let paid = await getPaidRecord(user.id);
   if (!paid) {
     const r = getRedis();
@@ -270,6 +279,9 @@ export async function POST(req: Request) {
   const user = await getAuthedUser(req);
   if (!user) {
     return Response.json({ ok: false, error: "로그인이 필요해요." }, { status: 401 });
+  }
+  if (user.isAdmin) {
+    return Response.json({ ok: true, admin: true, orderNo: null });
   }
 
   let body: unknown;

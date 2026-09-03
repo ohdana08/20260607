@@ -44,3 +44,6 @@ next-env.d.ts
 
 # local review fixtures
 /test-fixtures/
+
+# local artifact builders and render previews
+/.tmp/

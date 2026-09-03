@@ -39,7 +39,8 @@ function emptyStatus(): RevisionStatus {
   };
 }
 
-export async function getRevisionStatus(userId: string): Promise<RevisionStatus> {
+export async function getRevisionStatus(userId: string, admin = false): Promise<RevisionStatus> {
+  if (admin) return emptyStatus();
   const paid = await getPaidRecord(userId);
   const r = getRedis();
   if (!paid || !r) return emptyStatus();
@@ -59,7 +60,8 @@ export async function getRevisionStatus(userId: string): Promise<RevisionStatus>
   };
 }
 
-export async function markFirstFinalDelivery(userId: string): Promise<RevisionStatus> {
+export async function markFirstFinalDelivery(userId: string, admin = false): Promise<RevisionStatus> {
+  if (admin) return emptyStatus();
   const paid = await getPaidRecord(userId);
   const r = getRedis();
   if (!paid || !r) return emptyStatus();
@@ -81,7 +83,8 @@ export interface RevisionReservation {
 }
 
 // 첫 최종본 전의 근거 보완은 수정권을 차감하지 않는다. 첫 다운로드 뒤 묶음 수정만 원자적으로 1회 차감한다.
-export async function reserveRevisionRound(userId?: string): Promise<RevisionReservation> {
+export async function reserveRevisionRound(userId?: string, admin = false): Promise<RevisionReservation> {
+  if (admin) return { ok: true, counted: false, status: emptyStatus(), rollback: async () => {} };
   if (!userId) return { ok: true, counted: false, status: emptyStatus(), rollback: async () => {} };
   const paid = await getPaidRecord(userId);
   const r = getRedis();

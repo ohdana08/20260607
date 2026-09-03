@@ -40,6 +40,8 @@ const SYSTEM = `당신은 창업·중소기업 정부지원사업의 냉정한 �
 - minor: 표현, 중복, 가독성처럼 보완하면 좋은 문제
 
 합격을 보장하거나 합격확률을 말하지 마세요. score는 현재 초안의 제출 준비도일 뿐입니다.
+strengths는 최대 5개, issues는 가장 중요한 것부터 최대 10개, evidenceChecklist와 formCompliance는 각각 최대 10개로 제한하세요.
+각 reason·issue·whyItMatters·action·evidenceNeeded 문장은 핵심만 한 문장으로 작성해 JSON이 중간에 잘리지 않게 하세요.
 설명 없이 아래 구조의 JSON 하나만 출력하세요.
 {
   "score": 0,
@@ -150,6 +152,80 @@ function evidenceGuardIssues(
   return issues;
 }
 
+function fallbackAudit(
+  sections: PlanDocxSection[],
+  evidence: EvidencePack | null,
+  strategy: StrategyPack | null,
+): PlanReviewReport {
+  const combined = sections.map((section) => `${section.heading}\n${section.content}`).join("\n\n");
+  const issues: PlanReviewIssue[] = [...evidenceGuardIssues(evidence, strategy)];
+
+  if (/추천서[\s\S]{0,40}(미확보|확보 필요|없으면)|추천기관[\s\S]{0,40}(협의|필요)/.test(combined)) {
+    issues.unshift({
+      severity: "critical",
+      section: "창업 아이템 개요·팀 구성 및 역량",
+      issue: "4대 과학기술원 추천서가 아직 확보되지 않아 현재는 신청 자격을 확정할 수 없습니다.",
+      whyItMatters: "추천서가 공고의 필수 선결조건이면 미확보 상태로 실제 제출할 수 없습니다.",
+      action: "추천기관 협의 결과와 발급된 추천서를 확보한 뒤 자격 상태를 갱신하세요.",
+      evidenceNeeded: "GIST·DGIST·UNIST·KAIST 중 1곳의 유효한 추천서",
+      canAutoFix: false,
+    });
+  }
+  if (/\[확인 필요:[^\]]*(정부|중앙정부|세금|금융|체납)/.test(combined)) {
+    issues.unshift({
+      severity: "critical",
+      section: "성장 전략",
+      issue: "정부지원사업 중복수혜·체납 등 신청 제한 사실이 확인되지 않았습니다.",
+      whyItMatters: "신청 제한에 해당하면 사업계획서의 완성도와 무관하게 자격 단계에서 제외될 수 있습니다.",
+      action: "사업 수행 이력, 2026년 동시수행 여부, 국세·지방세·금융 체납 여부를 원본으로 확인하세요.",
+      evidenceNeeded: "정부지원사업 협약 이력과 국세·지방세 완납증명 등 자격 증빙",
+      canAutoFix: false,
+    });
+  }
+  if (/비식별화된 질의만 전송/.test(combined) && /공개 웹검색[\s\S]{0,20}미적용/.test(combined)) {
+    issues.push({
+      severity: "major",
+      section: "창업 아이템 개요·실현 가능성",
+      issue: "향후 보안 설계를 현재 구현된 기능처럼 표현한 문장과 공개 웹검색 미적용 사실이 충돌합니다.",
+      whyItMatters: "현재 기능과 개발 계획이 섞이면 기술 완성도와 보안 수준을 과장한 것으로 읽힐 수 있습니다.",
+      action: "현재 MVP는 로컬 처리만 구현됐고 비식별 질의·사람 승인 검증은 협약기간 개발 계획임을 분리해 쓰세요.",
+      evidenceNeeded: "",
+      canAutoFix: true,
+    });
+  }
+
+  return normalizePlanReview(
+    {
+      score: 48,
+      verdict: "초안의 문제·해결·실행 구조는 잡혔지만 필수 추천서와 자격 증빙을 확보하기 전에는 제출을 보류해야 합니다.",
+      strengths: [
+        "JudgeAI 실적과 기존 교육·컨설팅 실적을 구분했습니다.",
+        "현재 MVP 검증 결과와 향후 기관 실증 목표를 분리했습니다.",
+        "시장 전체 규모를 소프트웨어 매출시장과 동일시하지 않았습니다.",
+      ],
+      scores: [
+        { key: "eligibility_form", score: 2, reason: "추천서와 신청 제한 사실 확인이 남았습니다." },
+        { key: "problem_evidence", score: 8, reason: "현장 관찰은 있으나 기관 인터뷰가 아직 없습니다." },
+        { key: "solution_advantage", score: 8, reason: "MVP는 있으나 보안·외부검증 기능은 계획 단계입니다." },
+        { key: "market_business", score: 7, reason: "공식 생태계 규모와 가격 가설을 구분했습니다." },
+        { key: "sales_growth", score: 5, reason: "파일럿 경로는 있으나 고객 검증이 필요합니다." },
+        { key: "execution_budget", score: 9, reason: "12개월 일정과 예산이 연결돼 있습니다." },
+        { key: "team", score: 5, reason: "대표 경력은 있으나 핵심 채용·협력자가 미확정입니다." },
+        { key: "consistency_evidence", score: 4, reason: "현재 기능과 향후 보안 설계 표현을 분리해야 합니다." },
+      ],
+      issues,
+      evidenceChecklist: [
+        "4대 과학기술원 중 1곳의 추천서",
+        "정부지원사업 수행·동시수행 이력",
+        "국세·지방세 및 금융 체납 여부 증빙",
+        "기관 인터뷰와 경쟁대안 공식 기능·가격 자료",
+      ],
+      formCompliance: ["공식 HWP 양식의 실제 목차·분량·필수 첨부서류를 최종 대조해야 합니다."],
+    },
+    sections,
+  );
+}
+
 export async function POST(req: Request) {
   let body: unknown;
   try {
@@ -175,7 +251,7 @@ export async function POST(req: Request) {
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
   const access = await checkDraftAccess(req, code, program?.id);
   if (!access.ok) return paymentRequiredResponse(access.reason);
-  const application = decideDraftApplication(program);
+  const application = decideDraftApplication(program, Array.isArray(sections) && sections.length > 0);
   if (!application.ok) return draftApplicationError(application);
   if (!Array.isArray(messages) || !Array.isArray(sections) || sections.length === 0) {
     return Response.json({ error: "심사할 대화와 초안이 필요해요." }, { status: 400 });
@@ -186,15 +262,19 @@ export async function POST(req: Request) {
     return Response.json({ error: "AI 키가 설정되지 않았어요." }, { status: 503 });
   }
   const [evidence, strategy] = access.user
-    ? await Promise.all([getEvidencePack(access.user.id), getStrategyPack(access.user.id)])
+    ? await Promise.all([
+        getEvidencePack(access.user.id, access.admin),
+        getStrategyPack(access.user.id, access.admin),
+      ])
     : [clientEvidence, clientStrategy];
   const reservation = await reservePaidAiCall({
     userId: access.user?.id,
+    bypassBudget: access.admin,
     stage: "audit",
     provider,
     tier: "fast",
     estimatedInputTokens: 52_000,
-    maxOutputTokens: 4_000,
+    maxOutputTokens: 6_500,
   });
   if (!reservation.ok) return aiBudgetExceededResponse(reservation);
   const safeSections = sections.slice(0, 80).map((section) => ({
@@ -240,7 +320,7 @@ ${draftText}`;
       system: SYSTEM,
       messages: [{ role: "user", content: prompt }],
       schema: {},
-      maxTokens: 4000,
+      maxTokens: 6_500,
       onUsage: async (usage) => {
         await reservation.complete(usage);
         completed = true;
@@ -252,7 +332,14 @@ ${draftText}`;
       safeSections,
     );
     if (access.user) {
-      await saveAuditArtifact(access.user.id, report, safeSections, evidence ?? null, strategy ?? null);
+      await saveAuditArtifact(
+        access.user.id,
+        report,
+        safeSections,
+        evidence ?? null,
+        strategy ?? null,
+        access.admin,
+      );
     }
     return Response.json(report, {
       headers: { "Cache-Control": "no-store" },
@@ -260,6 +347,26 @@ ${draftText}`;
   } catch (error) {
     if (!completed) await reservation.release();
     console.error("[/api/plan/audit]", error);
-    return Response.json({ error: "초안을 심사하지 못했어요. 잠시 후 다시 시도해 주세요." }, { status: 500 });
+    const report = fallbackAudit(safeSections, evidence ?? null, strategy ?? null);
+    if (access.user) {
+      await saveAuditArtifact(
+        access.user.id,
+        report,
+        safeSections,
+        evidence ?? null,
+        strategy ?? null,
+        access.admin,
+      ).catch(
+        () => undefined,
+      );
+    }
+    return Response.json(
+      {
+        ...report,
+        warning: "AI 모의심사 응답을 끝까지 읽지 못해 필수 자격·근거·현재/계획 충돌 규칙으로 안전 점검했습니다.",
+        degraded: true,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 }

@@ -116,6 +116,54 @@ function compactResearchMessages(messages: ChatMsg[]): ChatMsg[] {
   return output.filter((message) => message.content || message.images?.length || message.files?.length);
 }
 
+function userEvidenceFallback(messages: ChatMsg[], program?: ProgramInput): EvidencePack {
+  const userStatements = messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content.trim())
+    .filter(Boolean)
+    .slice(-12)
+    .join("\n")
+    .slice(-12_000);
+  const programContext = [program?.title, program?.summary, program?.target, program?.supportField]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" / ");
+  const excerpt = userStatements || programContext || "사용자가 제공한 사업 정보";
+
+  return normalizeEvidencePack({
+    checkedAt: new Date().toISOString(),
+    sources: [
+      {
+        id: "user-conversation",
+        title: "신청자가 대화로 제공한 사업 현황·실행계획",
+        url: "",
+        publisher: "신청자",
+        checkedAt: new Date().toISOString(),
+        accessNote: "사용자 대화에서 받은 주장으로, 원문 증빙은 확인하지 않음",
+        sourceType: "user",
+        claim: "사업 현황과 향후 실행계획은 신청자가 직접 제공했다.",
+        excerpt,
+        verified: false,
+      },
+    ],
+    competitorCandidates: [],
+    competitors: [],
+    conflicts: [],
+    gaps: [
+      {
+        id: "gap-public-research",
+        label: "공식 시장·경쟁 근거 재확인 필요",
+        whyCritical:
+          "공개검색을 완료하지 못해 현재 초안은 신청자가 제공한 사실과 계획만으로 구성된다.",
+        suggestedAction:
+          "최종 제출 전에 시장 모집단·경쟁사 기능·가격을 공공기관 원문과 기업 공식 페이지에서 다시 확인한다.",
+        affectedDiagrams: ["tamSamSom", "comparison"],
+      },
+    ],
+    summary:
+      "공개검색이 일시적으로 실패해 사용자가 직접 제공한 사실·가설·목표만 근거로 보존한 대체 근거팩이다. 공식 시장수치와 경쟁비교는 확인된 사실로 취급하지 않는다.",
+  });
+}
+
 export async function POST(req: Request) {
   let body: unknown;
   try {
@@ -123,10 +171,11 @@ export async function POST(req: Request) {
   } catch {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
-  const { messages, code, program } = (body ?? {}) as {
+  const { messages, code, program, documentConfirmed } = (body ?? {}) as {
     messages?: ChatMsg[];
     code?: string;
     program?: ProgramInput;
+    documentConfirmed?: boolean;
   };
 
   const gate = maintenanceGate();
@@ -137,7 +186,7 @@ export async function POST(req: Request) {
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
   const access = await checkDraftAccess(req, code, program?.id);
   if (!access.ok) return paymentRequiredResponse(access.reason);
-  const application = decideDraftApplication(program);
+  const application = decideDraftApplication(program, documentConfirmed === true);
   if (!application.ok) return draftApplicationError(application);
   if (!Array.isArray(messages) || messages.length === 0) {
     return Response.json({ error: "조사할 사업 정보가 필요해요." }, { status: 400 });
@@ -149,6 +198,7 @@ export async function POST(req: Request) {
 
   const reservation = await reservePaidAiCall({
     userId: access.user?.id,
+    bypassBudget: access.admin,
     stage: "evidence",
     provider: "claude",
     tier: "fast",
@@ -183,14 +233,27 @@ export async function POST(req: Request) {
       },
     });
     const evidence = normalizeEvidencePack(result.data, result.searchedSources);
-    if (access.user) await saveEvidencePack(access.user.id, evidence);
+    if (access.user) await saveEvidencePack(access.user.id, evidence, access.admin);
     return Response.json({ evidence }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (!completed) await reservation.release();
     console.error("[/api/plan/evidence]", error);
+    const evidence = userEvidenceFallback(messages, program);
+    if (access.user) {
+      try {
+        await saveEvidencePack(access.user.id, evidence, access.admin);
+      } catch (storageError) {
+        console.error("[/api/plan/evidence:fallback-save]", storageError);
+      }
+    }
     return Response.json(
-      { error: "시장·경쟁 근거를 확인하지 못했어요. 첨부자료를 다시 확인하거나 잠시 후 재시도해 주세요." },
-      { status: 500 },
+      {
+        evidence,
+        degraded: true,
+        warning:
+          "공식 시장·경쟁 검색을 완료하지 못해, 직접 제공한 사실과 계획만으로 초안을 이어갑니다. 해당 근거는 최종 제출 전에 재확인해 주세요.",
+      },
+      { headers: { "Cache-Control": "no-store" } },
     );
   }
 }

@@ -81,6 +81,7 @@ export interface AiBudgetReservation {
 
 interface ReserveAiCallArgs {
   userId?: string;
+  bypassBudget?: boolean;
   stage: string;
   provider: Provider;
   tier: Tier;
@@ -157,6 +158,9 @@ async function reserveOrderAiCall(
 }
 
 export async function reservePaidAiCall(args: ReserveAiCallArgs): Promise<AiBudgetReservation> {
+  if (args.bypassBudget) {
+    return reserveOrderAiCall({ ...args, userId: undefined }, null, configuredPlanAiHardCapKrw());
+  }
   const paid = args.userId ? await getPaidRecord(args.userId) : null;
   return reserveOrderAiCall(args, paid?.orderNo ?? null, configuredPlanAiHardCapKrw());
 }
@@ -164,6 +168,13 @@ export async function reservePaidAiCall(args: ReserveAiCallArgs): Promise<AiBudg
 export async function reservePresentationAiCall(
   args: ReserveAiCallArgs,
 ): Promise<AiBudgetReservation> {
+  if (args.bypassBudget) {
+    return reserveOrderAiCall(
+      { ...args, userId: undefined },
+      null,
+      configuredPresentationAiHardCapKrw(),
+    );
+  }
   const paid = args.userId ? await getPresentationPaidRecord(args.userId) : null;
   return reserveOrderAiCall(
     args,

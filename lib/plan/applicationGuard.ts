@@ -10,6 +10,7 @@ export interface DraftApplicationDecision {
 
 export function decideDraftApplication(
   input: Partial<Program> | null | undefined,
+  documentConfirmed = false,
 ): DraftApplicationDecision {
   if (!input) {
     return {
@@ -35,6 +36,14 @@ export function decideDraftApplication(
     applicationKindReason: input.applicationKindReason,
   };
   const result = classifyApplicationKind(program);
+  if (documentConfirmed && result.requiresBusinessPlan !== false) {
+    return {
+      ok: true,
+      applicationKind: "business-plan",
+      requiresBusinessPlan: true,
+      reason: "업로드한 작성 양식 또는 이미 생성된 사업계획서 목차에서 제출 문서를 확인했습니다.",
+    };
+  }
   return {
     ok: result.requiresBusinessPlan === true,
     applicationKind: result.applicationKind,

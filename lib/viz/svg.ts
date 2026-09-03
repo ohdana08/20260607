@@ -1,8 +1,11 @@
 import { Resvg } from "@resvg/resvg-js";
-import { getKoreanFontPath } from "./font";
+import { getKoreanFontPath } from "./font.ts";
+
+export type VisualEvidenceStatus = "verified" | "plan" | "missing";
 
 interface EvidenceBound {
   evidenceIds?: string[];
+  evidenceStatus?: VisualEvidenceStatus;
   sourceNote?: string;
   targetSection?: string;
 }
@@ -24,6 +27,9 @@ export interface VizData {
   journey?: EvidenceBound & { stages: string[] };
   funnel?: EvidenceBound & { stages: string[] };
   revenue?: EvidenceBound & { items: string[] };
+  validation?: EvidenceBound & {
+    metrics: Array<{ label: string; value: string; note?: string }>;
+  };
   roadmap?: EvidenceBound & {
     items: Array<{ period: string; action: string; output: string; owner: string }>;
   };
@@ -37,6 +43,8 @@ export interface Chart {
   height: number;
   targetSection?: string;
   sourceNote?: string;
+  evidenceIds: string[];
+  evidenceStatus: "verified";
 }
 
 const BLUE = "#2563EB";
@@ -140,6 +148,29 @@ function svgRevenue(items: string[], sourceNote?: string): { svg: string; w: num
   return { svg: wrap(s, w, h), w, h };
 }
 
+function svgValidation(d: NonNullable<VizData["validation"]>): { svg: string; w: number; h: number } {
+  const metrics = d.metrics.slice(0, 6);
+  const columns = metrics.length <= 3 ? metrics.length : 3;
+  const rows = Math.ceil(metrics.length / Math.max(1, columns));
+  const w = 720, cardW = columns > 0 ? Math.floor((w - 40 - (columns - 1) * 14) / columns) : 210;
+  const cardH = 88, h = 64 + rows * (cardH + 14) + (d.sourceNote ? 34 : 10);
+  let s = `<text x="20" y="30" fill="${INK}" font-size="15" font-weight="700">검증을 통과한 핵심 지표</text>`;
+  metrics.forEach((metric, index) => {
+    const column = index % Math.max(1, columns);
+    const row = Math.floor(index / Math.max(1, columns));
+    const x = 20 + column * (cardW + 14);
+    const y = 48 + row * (cardH + 14);
+    s += `<rect x="${x}" y="${y}" width="${cardW}" height="${cardH}" rx="10" fill="${BLUE_SOFT[0]}" stroke="${BLUE}"/>`;
+    s += `<text x="${x + 14}" y="${y + 28}" fill="${BLUE}" font-size="20" font-weight="800">${esc(short(metric.value, 18))}</text>`;
+    s += `<text x="${x + 14}" y="${y + 51}" fill="${INK}" font-size="12" font-weight="700">${esc(short(metric.label, 24))}</text>`;
+    if (metric.note) {
+      s += `<text x="${x + 14}" y="${y + 70}" fill="#4b5563" font-size="10">${esc(short(metric.note, 34))}</text>`;
+    }
+  });
+  s += footer(d.sourceNote, w, h - 14);
+  return { svg: wrap(s, w, h), w, h };
+}
+
 function svgComparison(d: NonNullable<VizData["comparison"]>): { svg: string; w: number; h: number } {
   const rows = d.rows.slice(0, 5);
   const w = 720, rowH = 58, top = 52, h = top + (rows.length + 1) * rowH + (d.sourceNote ? 34 : 12);
@@ -189,35 +220,58 @@ async function toPng(svg: string): Promise<string> {
   return Buffer.from(png).toString("base64");
 }
 
-// 후보는 최대 6종이다. 데이터·근거가 충분해 실제로 생성된 것만 반환한다.
-export async function buildCharts(data: VizData): Promise<Chart[]> {
+function verifiedIds(meta: EvidenceBound | undefined, allowedIds: ReadonlySet<string>): string[] {
+  if (meta?.evidenceStatus !== "verified") return [];
+  return Array.from(new Set((meta.evidenceIds ?? []).filter((id) => allowedIds.has(id))));
+}
+
+// 후보 중 최대 6종을 반환한다. 모든 도식은 서버에서 검증된 근거 ID와 명시적 verified 상태가 있어야 한다.
+export async function buildCharts(
+  data: VizData,
+  verifiedEvidenceIds: Iterable<string>,
+): Promise<Chart[]> {
+  const allowedIds = new Set(verifiedEvidenceIds);
   const specs: Array<{
     key: string;
     title: string;
     built: { svg: string; w: number; h: number };
     meta: EvidenceBound;
+    evidenceIds: string[];
   }> = [];
-  if (data.tamSamSom?.tam && data.tamSamSom?.sam && data.tamSamSom?.som && data.tamSamSom.evidenceIds?.length) {
-    specs.push({ key: "tamsamsom", title: "시장 규모 (TAM·SAM·SOM)", built: svgTamSamSom(data.tamSamSom), meta: data.tamSamSom });
+  const tamIds = verifiedIds(data.tamSamSom, allowedIds);
+  if (data.tamSamSom?.tam && data.tamSamSom?.sam && data.tamSamSom?.som && tamIds.length > 0) {
+    specs.push({ key: "tamsamsom", title: "시장 규모 (TAM·SAM·SOM)", built: svgTamSamSom(data.tamSamSom), meta: data.tamSamSom, evidenceIds: tamIds });
   }
-  if (data.process?.stages?.length && (data.process.evidenceIds?.length || data.process.sourceNote)) {
-    specs.push({ key: "process", title: "사업 운영 프로세스", built: svgFlow(data.process.stages, "사업 운영 프로세스", data.process.sourceNote), meta: data.process });
+  const validationIds = verifiedIds(data.validation, allowedIds);
+  if (data.validation?.metrics?.length && validationIds.length > 0) {
+    specs.push({ key: "validation", title: "검증 지표", built: svgValidation(data.validation), meta: data.validation, evidenceIds: validationIds });
   }
-  if (data.comparison?.rows?.length && data.comparison.rows.every((row) => row.evidenceIds?.length)) {
-    specs.push({ key: "comparison", title: "경쟁우위 비교", built: svgComparison(data.comparison), meta: data.comparison });
+  const processIds = verifiedIds(data.process, allowedIds);
+  if (data.process?.stages?.length && processIds.length > 0) {
+    specs.push({ key: "process", title: "사업 운영 프로세스", built: svgFlow(data.process.stages, "사업 운영 프로세스", data.process.sourceNote), meta: data.process, evidenceIds: processIds });
   }
-  if (data.journey?.stages?.length && (data.journey.evidenceIds?.length || data.journey.sourceNote)) {
-    specs.push({ key: "journey", title: "고객 여정", built: svgFlow(data.journey.stages, "고객 여정", data.journey.sourceNote), meta: data.journey });
+  const comparisonRowsVerified = data.comparison?.evidenceStatus === "verified" &&
+    Boolean(data.comparison.rows?.length) &&
+    data.comparison.rows.every((row) => (row.evidenceIds ?? []).some((id) => allowedIds.has(id)));
+  if (data.comparison && comparisonRowsVerified) {
+    const ids = Array.from(new Set(data.comparison.rows.flatMap((row) => row.evidenceIds ?? []).filter((id) => allowedIds.has(id))));
+    specs.push({ key: "comparison", title: "경쟁우위 비교", built: svgComparison(data.comparison), meta: data.comparison, evidenceIds: ids });
   }
-  if (data.revenue?.items?.length && (data.revenue.evidenceIds?.length || data.revenue.sourceNote)) {
-    specs.push({ key: "revenue", title: "수익모델", built: svgRevenue(data.revenue.items, data.revenue.sourceNote), meta: data.revenue });
+  const journeyIds = verifiedIds(data.journey, allowedIds);
+  if (data.journey?.stages?.length && journeyIds.length > 0) {
+    specs.push({ key: "journey", title: "고객 여정", built: svgFlow(data.journey.stages, "고객 여정", data.journey.sourceNote), meta: data.journey, evidenceIds: journeyIds });
   }
-  if (data.roadmap?.items?.length && data.roadmap.evidenceIds?.length && data.roadmap.sourceNote) {
-    specs.push({ key: "roadmap", title: "실행 로드맵", built: svgRoadmap(data.roadmap), meta: data.roadmap });
+  const revenueIds = verifiedIds(data.revenue, allowedIds);
+  if (data.revenue?.items?.length && revenueIds.length > 0) {
+    specs.push({ key: "revenue", title: "수익모델", built: svgRevenue(data.revenue.items, data.revenue.sourceNote), meta: data.revenue, evidenceIds: revenueIds });
   }
-  // 기존 저장 데이터의 funnel은 호환만 유지하며 6종 후보를 초과하지 않는다.
-  if (specs.length < 6 && data.funnel?.stages?.length && (data.funnel.evidenceIds?.length || data.funnel.sourceNote)) {
-    specs.push({ key: "funnel", title: "마케팅 퍼널", built: svgFunnel(data.funnel.stages, data.funnel.sourceNote), meta: data.funnel });
+  const roadmapIds = verifiedIds(data.roadmap, allowedIds);
+  if (data.roadmap?.items?.length && roadmapIds.length > 0) {
+    specs.push({ key: "roadmap", title: "실행 로드맵", built: svgRoadmap(data.roadmap), meta: data.roadmap, evidenceIds: roadmapIds });
+  }
+  const funnelIds = verifiedIds(data.funnel, allowedIds);
+  if (specs.length < 6 && data.funnel?.stages?.length && funnelIds.length > 0) {
+    specs.push({ key: "funnel", title: "마케팅 퍼널", built: svgFunnel(data.funnel.stages, data.funnel.sourceNote), meta: data.funnel, evidenceIds: funnelIds });
   }
 
   const charts: Chart[] = [];
@@ -231,6 +285,8 @@ export async function buildCharts(data: VizData): Promise<Chart[]> {
         height: spec.built.h,
         targetSection: spec.meta.targetSection,
         sourceNote: spec.meta.sourceNote,
+        evidenceIds: spec.evidenceIds,
+        evidenceStatus: "verified",
       });
     } catch (error) {
       console.error("[viz] render failed", spec.key, error);

@@ -350,6 +350,135 @@ export function normalizePresentationPack(
   };
 }
 
+function fallbackSectionForStage(
+  stage: PresentationStageId,
+  sections: PlanDocxSection[],
+): PlanDocxSection | undefined {
+  const headingPatterns: Partial<Record<PresentationStageId, RegExp>> = {
+    founder: /대표|팀|역량|배경/,
+    problem: /문제|필요|배경/,
+    market: /문제|성장|시장|수요|고객/,
+    solution: /해결|실현|기술|제품|서비스/,
+    validation: /실현|검증|성과|실적|제품/,
+    competition: /차별|경쟁|실현/,
+    business_model: /수익|가격|매출|사업화|성장/,
+    go_to_market: /시장진입|사업화|성장|고객/,
+    roadmap_budget: /일정|사업비|자금|예산|성장/,
+    team_partners: /팀|인력|대표|역량|파트너/,
+    vision: /성장|비전|목표|사업화/,
+  };
+  const pattern = headingPatterns[stage];
+  return sections.find((section) => pattern?.test(section.heading)) ??
+    sections.find((section) => pattern?.test(section.content)) ??
+    sections[0];
+}
+
+function fallbackBullets(content: string, stage: PresentationStageId): string[] {
+  const stagePatterns: Partial<Record<PresentationStageId, RegExp>> = {
+    founder: /대표|창업|경력|관찰|배경/,
+    problem: /문제|위험|부담|누락|수작업/,
+    market: /시장|기관|사업|예산|고객|수요/,
+    solution: /제공|방식|입력|추출|검증|판단/,
+    validation: /현재|검증|테스트|통과|처리시간|MVP/,
+    competition: /경쟁|대안|차별|비교|미완료/,
+    business_model: /가격|수익|매출|사용권|이용료/,
+    go_to_market: /고객|기관|채널|영업|파일럿/,
+    roadmap_budget: /개월|마일스톤|사업비|예산|산출물|KPI/,
+    team_partners: /대표|인력|채용|파트너|역량/,
+    vision: /목표|성과|계약|확장|재설계/,
+  };
+  const sentences = content
+    .replace(/\[[^\]]+\]/g, "")
+    .split(/\n+|(?<=[.!?다함임])\s+/)
+    .map((item) => item.replace(/^[-•·]\s*/, "").trim())
+    .filter(Boolean);
+  const preferred = sentences.filter((item) => stagePatterns[stage]?.test(item));
+  return Array.from(new Set([...preferred, ...sentences]))
+    .slice(0, 4)
+    .map((item) => item.slice(0, 120));
+}
+
+// 모델 응답이 잘리거나 형식이 깨져도 현재 사업계획서에서 검토용 발표자료를 만든다.
+// 근거가 부족한 문구는 원문 표시를 그대로 보존하며 새로운 실적·수치를 만들지 않는다.
+export function buildFallbackPresentationPack(args: {
+  title: string;
+  evidence: EvidencePack;
+  strategy: StrategyPack;
+  sections: PlanDocxSection[];
+  claims: PresentationClaim[];
+}): PresentationPack {
+  const stages: PresentationStageId[] = [
+    "cover",
+    "founder",
+    "problem",
+    "market",
+    "solution",
+    "validation",
+    "competition",
+    "business_model",
+    "go_to_market",
+    "roadmap_budget",
+    "team_partners",
+    "vision",
+  ];
+  const slides = stages.map((stage, index) => {
+    const section = fallbackSectionForStage(stage, args.sections);
+    const stageClaims = args.claims.filter((claim) => claim.stageId === stage);
+    const selectedClaims = stageClaims.length ? stageClaims : args.claims.slice(0, 2);
+    const bullets = fallbackBullets(section?.content ?? "", stage);
+    return {
+      id: `slide-${index + 1}`,
+      stageId: stage,
+      title: stage === "cover" ? args.title : stageLabel(stage),
+      headline:
+        stage === "cover"
+          ? args.strategy.solution || "신청자가 제공한 사업 설명을 바탕으로 만든 발표자료 초안"
+          : bullets[0] || `${stageLabel(stage)}의 실제 사실과 계획을 확인하는 단계`,
+      bullets:
+        bullets.length > 0
+          ? bullets
+          : ["현재 사업계획서에 있는 설명을 기준으로 우선 구성", "제출 전 실제 자료와 수치 확인 필요"],
+      visualBrief: "검토용 텍스트 중심 슬라이드. 확인 자료가 준비되면 표·도식으로 교체",
+      speakerNotes:
+        (section?.content || "현재 확보된 설명을 기준으로 발표하고, 확인되지 않은 내용은 향후 계획으로 구분함.")
+          .slice(0, 2_400),
+      claimIds: selectedClaims.map((claim) => claim.id),
+      sourceSectionHeadings: section ? [section.heading] : [],
+    };
+  });
+  const qaSeed = [
+    ["이 문제가 실제 고객에게 얼마나 자주 발생합니까?", args.strategy.problem],
+    ["기존 대안과 비교했을 때 확인된 차이는 무엇입니까?", args.strategy.competitiveAdvantage],
+    ["현재까지 실제로 검증한 내용은 무엇입니까?", args.evidence.summary],
+    ["어떤 방식으로 첫 고객을 확보할 계획입니까?", args.strategy.goToMarket],
+    ["지원기간 동안 무엇을 완성하고 측정합니까?", args.strategy.roadmap],
+  ];
+  const qa = qaSeed.map(([question, answer]) => ({
+    question,
+    answer: answer || "현재 사업계획서의 해당 내용을 기준으로 답변하되, 확인되지 않은 수치와 실적은 제출 전에 보충해야 함.",
+    risk: "확인되지 않은 현재 실적·수치를 확정 사실처럼 말하지 않음.",
+    claimIds: args.claims.slice(0, 2).map((claim) => claim.id),
+  }));
+  return normalizePresentationPack(
+    {
+      title: args.title,
+      subtitle: "현재 사업계획서 기준 검토용 발표자료",
+      audience: "정부지원사업 발표평가 심사위원",
+      durationMinutes: 7,
+      narrative: args.strategy.problem || args.strategy.solution,
+      slides,
+      qa,
+    },
+    {
+      evidence: args.evidence,
+      strategy: args.strategy,
+      sections: args.sections,
+      claims: args.claims,
+      fallbackTitle: args.title,
+    },
+  );
+}
+
 const REQUIRED_SLIDE_STAGES: PresentationStageId[] = [
   "cover",
   "problem",

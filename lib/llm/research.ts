@@ -70,6 +70,7 @@ export async function researchJson<T>(args: {
               {
                 type: "web_search_20260209" as const,
                 name: "web_search" as const,
+                allowed_callers: ["direct"] as const,
                 max_uses: remainingSearches,
                 user_location: { type: "approximate" as const, country: "KR", timezone: "Asia/Seoul" },
               },

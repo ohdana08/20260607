@@ -48,6 +48,10 @@ export interface EvidencePack {
   summary: string;
 }
 
+export function verifiedEvidenceIds(pack: EvidencePack): string[] {
+  return pack.sources.filter((source) => source.verified).map((source) => source.id);
+}
+
 export interface StrategyClaim {
   claim: string;
   evidenceIds: string[];
@@ -193,28 +197,32 @@ export function normalizeStrategyPack(raw: unknown, evidence: EvidencePack): Str
   const process = record(rawDiagrams.process);
   const comparison = record(rawDiagrams.comparison);
   const journey = record(rawDiagrams.journey);
+  const funnel = record(rawDiagrams.funnel);
   const revenue = record(rawDiagrams.revenue);
+  const validation = record(rawDiagrams.validation);
   const roadmap = record(rawDiagrams.roadmap);
   const diagrams: VizData = {};
 
   const tssIds = evidenceIds(tss.evidenceIds, validIds);
-  if (clean(tss.tam) && clean(tss.sam) && clean(tss.som) && tssIds.length > 0) {
+  if (clean(tss.evidenceStatus, 30) === "verified" && clean(tss.tam) && clean(tss.sam) && clean(tss.som) && tssIds.length > 0) {
     diagrams.tamSamSom = {
       tam: clean(tss.tam, 120),
       sam: clean(tss.sam, 120),
       som: clean(tss.som, 120),
       note: clean(tss.note, 300),
       evidenceIds: tssIds,
+      evidenceStatus: "verified",
       sourceNote: clean(tss.sourceNote, 500),
       targetSection: clean(tss.targetSection, 160),
     };
   }
   const processStages = normalizeStages(process.stages, 6);
   const processIds = evidenceIds(process.evidenceIds, validIds);
-  if (processStages.length >= 3 && processIds.length > 0) {
+  if (clean(process.evidenceStatus, 30) === "verified" && processStages.length >= 3 && processIds.length > 0) {
     diagrams.process = {
       stages: processStages,
       evidenceIds: processIds,
+      evidenceStatus: "verified",
       sourceNote: clean(process.sourceNote, 300),
       targetSection: clean(process.targetSection, 160),
     };
@@ -230,32 +238,69 @@ export function normalizeStrategyPack(raw: unknown, evidence: EvidencePack): Str
       evidenceIds: evidenceIds(item.evidenceIds, validIds),
     }))
     .filter((item) => item.criterion && item.ours && item.evidenceIds.length > 0);
-  if (compRows.length >= 2 && evidence.competitors.length === 2) {
+  if (clean(comparison.evidenceStatus, 30) === "verified" && compRows.length >= 2 && evidence.competitors.length === 2) {
     diagrams.comparison = {
       competitorNames: evidence.competitors.map((item) => item.name) as [string, string],
       rows: compRows,
+      evidenceStatus: "verified",
       sourceNote: clean(comparison.sourceNote, 500),
       targetSection: clean(comparison.targetSection, 160),
     };
   }
   const journeyStages = normalizeStages(journey.stages, 6);
   const journeyIds = evidenceIds(journey.evidenceIds, validIds);
-  if (journeyStages.length >= 3 && journeyIds.length > 0) {
+  if (clean(journey.evidenceStatus, 30) === "verified" && journeyStages.length >= 3 && journeyIds.length > 0) {
     diagrams.journey = {
       stages: journeyStages,
       evidenceIds: journeyIds,
+      evidenceStatus: "verified",
       sourceNote: clean(journey.sourceNote, 300),
       targetSection: clean(journey.targetSection, 160),
     };
   }
+  const funnelStages = normalizeStages(funnel.stages, 5);
+  const funnelIds = evidenceIds(funnel.evidenceIds, validIds);
+  if (clean(funnel.evidenceStatus, 30) === "verified" && funnelStages.length >= 3 && funnelIds.length > 0) {
+    diagrams.funnel = {
+      stages: funnelStages,
+      evidenceIds: funnelIds,
+      evidenceStatus: "verified",
+      sourceNote: clean(funnel.sourceNote, 300),
+      targetSection: clean(funnel.targetSection, 160),
+    };
+  }
   const revenueItems = normalizeStages(revenue.items, 4);
   const revenueIds = evidenceIds(revenue.evidenceIds, validIds);
-  if (revenueItems.length >= 2 && revenueIds.length > 0) {
+  if (clean(revenue.evidenceStatus, 30) === "verified" && revenueItems.length >= 2 && revenueIds.length > 0) {
     diagrams.revenue = {
       items: revenueItems,
       evidenceIds: revenueIds,
+      evidenceStatus: "verified",
       sourceNote: clean(revenue.sourceNote, 300),
       targetSection: clean(revenue.targetSection, 160),
+    };
+  }
+  const validationMetrics = (Array.isArray(validation.metrics) ? validation.metrics : [])
+    .map(record)
+    .slice(0, 6)
+    .map((item) => ({
+      label: clean(item.label, 100),
+      value: clean(item.value, 80),
+      note: clean(item.note, 120) || undefined,
+    }))
+    .filter((item) => item.label && item.value);
+  const validationIds = evidenceIds(validation.evidenceIds, validIds);
+  if (
+    clean(validation.evidenceStatus, 30) === "verified" &&
+    validationMetrics.length >= 2 &&
+    validationIds.length > 0
+  ) {
+    diagrams.validation = {
+      metrics: validationMetrics,
+      evidenceIds: validationIds,
+      evidenceStatus: "verified",
+      sourceNote: clean(validation.sourceNote, 300),
+      targetSection: clean(validation.targetSection, 160),
     };
   }
   const roadmapItems = (Array.isArray(roadmap.items) ? roadmap.items : [])
@@ -269,10 +314,11 @@ export function normalizeStrategyPack(raw: unknown, evidence: EvidencePack): Str
     }))
     .filter((item) => item.period && item.action && item.output && item.owner);
   const roadmapIds = evidenceIds(roadmap.evidenceIds, validIds);
-  if (roadmapItems.length >= 2 && roadmapIds.length > 0) {
+  if (clean(roadmap.evidenceStatus, 30) === "verified" && roadmapItems.length >= 2 && roadmapIds.length > 0) {
     diagrams.roadmap = {
       items: roadmapItems,
       evidenceIds: roadmapIds,
+      evidenceStatus: "verified",
       sourceNote: clean(roadmap.sourceNote, 300) || "사업자 입력 실행계획",
       targetSection: clean(roadmap.targetSection, 160),
     };
@@ -319,6 +365,38 @@ export function normalizeStrategyPack(raw: unknown, evidence: EvidencePack): Str
   };
 }
 
+// 외부 검색이나 전략 JSON 생성이 일시적으로 실패해도 첫 초안 자체를 막지 않는다.
+// 신청자가 직접 제공한 설명만 stated로 보존하고, 확인하지 못한 시장·경쟁 우위는 명시적으로 비운다.
+export function buildFallbackStrategyPack(evidence: EvidencePack): StrategyPack {
+  const userSource = evidence.sources.find(
+    (source) => source.sourceType === "user" && source.verified,
+  );
+  const statement = (userSource?.excerpt || evidence.summary || "신청자가 제공한 사업 설명")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 900);
+  const evidenceIds = userSource ? [userSource.id] : [];
+  return normalizeStrategyPack(
+    {
+      problem: `신청자 설명에서 확인한 문제 상황을 기준으로 정리함. ${statement}`,
+      customer: "신청자가 설명한 사용자·결제자 후보를 초안에 반영하고 제출 전 실제 고객 범위를 확인해야 함.",
+      solution: "신청자가 설명한 제품·서비스 제공 방식과 앞으로의 실행계획을 구분해 초안에 반영함.",
+      competitiveAdvantage:
+        "공식 경쟁조사를 완료하지 못했으므로 경쟁우위는 확정하지 않고 동일 기준 비교자료를 보충해야 함.",
+      advantageStatus: "none",
+      businessModel: "가격·결제시점·원가·반복구매 구조는 신청자 원답변 범위에서 작성하고 확인되지 않은 수치는 표시함.",
+      goToMarket: "첫 고객 확보 경로와 검증계획은 신청자 원답변을 기준으로 작성함.",
+      roadmap: "향후 일정은 현재 완료 실적과 구분하고 시점·담당·산출물·지표를 보충하도록 작성함.",
+      kpis: [],
+      claims: statement
+        ? [{ claim: statement, evidenceIds, status: "stated" }]
+        : [],
+      diagrams: {},
+    },
+    evidence,
+  );
+}
+
 function diagramSourceNote(ids: string[], evidence: EvidencePack): string {
   const unique = Array.from(new Set(ids));
   return unique
@@ -348,8 +426,14 @@ export function attachDiagramSourceNotes(strategy: StrategyPack, evidence: Evide
   if (diagrams.journey?.evidenceIds?.length) {
     diagrams.journey.sourceNote = diagramSourceNote(diagrams.journey.evidenceIds, evidence);
   }
+  if (diagrams.funnel?.evidenceIds?.length) {
+    diagrams.funnel.sourceNote = diagramSourceNote(diagrams.funnel.evidenceIds, evidence);
+  }
   if (diagrams.revenue?.evidenceIds?.length) {
     diagrams.revenue.sourceNote = diagramSourceNote(diagrams.revenue.evidenceIds, evidence);
+  }
+  if (diagrams.validation?.evidenceIds?.length) {
+    diagrams.validation.sourceNote = diagramSourceNote(diagrams.validation.evidenceIds, evidence);
   }
   if (diagrams.roadmap?.evidenceIds?.length) {
     diagrams.roadmap.sourceNote = diagramSourceNote(diagrams.roadmap.evidenceIds, evidence);

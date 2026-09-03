@@ -73,6 +73,28 @@ export async function GET(req: Request) {
       bundleConfigured: bundleConfigured(),
     });
   }
+  if (user.isAdmin) {
+    return Response.json({
+      paid: true,
+      loggedIn: true,
+      wordPaid: true,
+      admin: true,
+      configured: productConfigured(),
+      bundleConfigured: bundleConfigured(),
+      orderNo: null,
+      usedProgramId: null,
+      source: "admin",
+      consentedAt: null,
+      revision: {
+        max: 2,
+        used: 0,
+        remaining: 2,
+        deliveredAt: null,
+        expiresAt: null,
+        expired: false,
+      },
+    });
+  }
   const [word, paid, revision] = await Promise.all([
     getPaidRecord(user.id),
     getPresentationPaidRecord(user.id),
@@ -100,6 +122,9 @@ export async function POST(req: Request) {
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
   const user = await getAuthedUser(req);
   if (!user) return Response.json({ ok: false, error: "로그인이 필요해요." }, { status: 401 });
+  if (user.isAdmin) {
+    return Response.json({ ok: true, admin: true, orderNo: null, source: "admin" });
+  }
 
   let body: unknown;
   try {

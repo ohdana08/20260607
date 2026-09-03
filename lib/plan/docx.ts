@@ -42,7 +42,9 @@ const DARK = "18181B";
 const MUTED = "52525B";
 const AMBER = "92400E";
 const RED = "B91C1C";
-const BODY_FONT = "Malgun Gothic";
+// macOS와 LibreOffice 렌더러에 모두 포함된 한글 글꼴을 사용한다.
+// Malgun Gothic은 Windows 전용이라 macOS PDF 미리보기에서 한글이 누락될 수 있다.
+const BODY_FONT = "AppleGothic";
 
 function textParagraph(text: string, bullet = false): Paragraph {
   const missing = text.includes("[보완 필요");
@@ -88,6 +90,7 @@ function twoColumnTable(rows: Array<[string, string]>): Table {
     rows: rows.map(
       ([label, value]) =>
         new TableRow({
+          cantSplit: true,
           children: [tableCell(label, true), tableCell(value)],
         }),
     ),
@@ -139,6 +142,7 @@ function reviewTable(sections: PlanDocxSection[]): Table {
     const proof = countToken(section.content, "[증빙 필요");
     const status = missing > 0 ? "보완 필요" : proof > 0 ? "증빙 확인 필요" : "사용자 최종 확인";
     return new TableRow({
+      cantSplit: true,
       children: [
         tableCell(section.heading),
         tableCell(status),
@@ -152,6 +156,7 @@ function reviewTable(sections: PlanDocxSection[]): Table {
     rows: [
       new TableRow({
         tableHeader: true,
+        cantSplit: true,
         children: [
           tableCell("공식 항목", true),
           tableCell("검토 상태", true),
@@ -182,10 +187,12 @@ function renderChart(chart: PlanDocxChart): Paragraph[] {
   const height = Math.min(620, rawHeight);
   const paragraphs = [
     new Paragraph({
+      keepNext: true,
       spacing: { before: 180, after: 60 },
       children: [new TextRun({ text: chart.title, font: BODY_FONT, bold: true, color: DARK, size: 21 })],
     }),
     new Paragraph({
+      keepNext: Boolean(chart.sourceNote),
       alignment: AlignmentType.CENTER,
       spacing: { after: chart.sourceNote ? 40 : 120 },
       children: [
@@ -239,7 +246,7 @@ export async function buildPlanDocxBuffer(
       alignment: AlignmentType.CENTER,
       spacing: { after: 220 },
       children: [
-        new TextRun({ text: "정부지원사업 제출용 사업계획서", font: BODY_FONT, color: MUTED, size: 24 }),
+        new TextRun({ text: "정부지원사업 검증용 사업계획서 초안", font: BODY_FONT, color: MUTED, size: 24 }),
       ],
     }),
     new Paragraph({

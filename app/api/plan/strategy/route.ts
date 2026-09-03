@@ -7,8 +7,10 @@ import { checkDraftAccess, paymentRequiredResponse } from "@/lib/plan/paidAccess
 import { sanitizeFormToc } from "@/lib/plan/sections";
 import {
   attachDiagramSourceNotes,
+  buildFallbackStrategyPack,
   evidencePackPrompt,
   normalizeStrategyPack,
+  verifiedEvidenceIds,
   type EvidencePack,
   type StrategyPack,
 } from "@/lib/plan/strategy";
@@ -28,8 +30,10 @@ const SYSTEM = `당신은 정부지원사업 심사 논리에 맞춰 근거팩�
 - 현재 사실(stated/verified)과 향후 실행계획(plan)을 구분하세요.
 
 [도식 원칙]
-- 후보는 tamSamSom, process, comparison, journey, revenue, roadmap의 최대 6종입니다.
+- 후보는 tamSamSom, validation, process, comparison, journey, funnel, revenue, roadmap 중 최대 6종입니다.
 - 여섯 개를 채우는 것이 목표가 아닙니다. 심사 설득력이 있고 evidenceIds가 충분한 것만 출력하세요.
+- 사업계획서에 존재하며 근거팩의 verified 출처 id로 확인된 사실만 도식화하세요. 도식마다 evidenceStatus는 반드시 verified여야 합니다.
+- 가설·향후 계획·증빙 필요·보완 필요 내용은 도식화하지 말고 본문에 사실대로 남기세요.
 - TAM·SAM·SOM은 기준연도와 산식까지 확인된 근거가 없으면 생략하세요.
 - comparison은 근거팩의 선택 경쟁사 2곳이 모두 있고, 각 행의 세 칸을 같은 기준으로 비교할 수 있을 때만 출력하세요.
 - process, journey, revenue, roadmap도 사용자가 제공한 자료 또는 검증 출처 id를 연결해야 합니다.
@@ -49,12 +53,14 @@ const SYSTEM = `당신은 정부지원사업 심사 논리에 맞춰 근거팩�
   "kpis":["측정 가능한 KPI"],
   "claims":[{"claim":"핵심 주장", "evidenceIds":["source-1"], "status":"verified|stated|plan|missing"}],
   "diagrams":{
-    "tamSamSom":{"tam":"", "sam":"", "som":"", "note":"기준연도·산식", "evidenceIds":["source-1"], "targetSection":"공식 목차명"},
-    "process":{"stages":["3~6단계"], "evidenceIds":["source-1"], "targetSection":"공식 목차명"},
-    "comparison":{"rows":[{"criterion":"", "ours":"", "competitor1":"", "competitor2":"", "evidenceIds":["source-1"]}], "evidenceIds":["source-1"], "targetSection":"공식 목차명"},
-    "journey":{"stages":["3~6단계"], "evidenceIds":["source-1"], "targetSection":"공식 목차명"},
-    "revenue":{"items":["2~4개"], "evidenceIds":["source-1"], "targetSection":"공식 목차명"},
-    "roadmap":{"items":[{"period":"", "action":"", "output":"", "owner":""}], "evidenceIds":["source-1"], "targetSection":"공식 목차명"}
+    "tamSamSom":{"tam":"", "sam":"", "som":"", "note":"기준연도·산식", "evidenceIds":["source-1"], "evidenceStatus":"verified", "targetSection":"공식 목차명"},
+    "validation":{"metrics":[{"label":"검증 항목", "value":"확인값", "note":"측정 조건"}], "evidenceIds":["source-1"], "evidenceStatus":"verified", "targetSection":"공식 목차명"},
+    "process":{"stages":["3~6단계"], "evidenceIds":["source-1"], "evidenceStatus":"verified", "targetSection":"공식 목차명"},
+    "comparison":{"rows":[{"criterion":"", "ours":"", "competitor1":"", "competitor2":"", "evidenceIds":["source-1"]}], "evidenceIds":["source-1"], "evidenceStatus":"verified", "targetSection":"공식 목차명"},
+    "journey":{"stages":["3~6단계"], "evidenceIds":["source-1"], "evidenceStatus":"verified", "targetSection":"공식 목차명"},
+    "funnel":{"stages":["3~5단계"], "evidenceIds":["source-1"], "evidenceStatus":"verified", "targetSection":"공식 목차명"},
+    "revenue":{"items":["2~4개"], "evidenceIds":["source-1"], "evidenceStatus":"verified", "targetSection":"공식 목차명"},
+    "roadmap":{"items":[{"period":"", "action":"", "output":"", "owner":""}], "evidenceIds":["source-1"], "evidenceStatus":"verified", "targetSection":"공식 목차명"}
   }
 }`;
 
@@ -72,6 +78,7 @@ export async function POST(req: Request) {
       program?: { id?: string; title?: string; summary?: string; target?: string; supportField?: string };
       formToc?: unknown;
       evidence?: EvidencePack;
+      documentConfirmed?: boolean;
       provider?: unknown;
     };
 
@@ -86,7 +93,16 @@ export async function POST(req: Request) {
   if (!Array.isArray(messages)) {
     return Response.json({ error: "전략을 설계할 사업 정보가 필요해요." }, { status: 400 });
   }
-  const evidence = access.user ? await getEvidencePack(access.user.id) : clientEvidence;
+  const storedEvidence = access.user
+    ? await getEvidencePack(access.user.id, access.admin)
+    : null;
+  // 브라우저가 되돌려 보낸 근거팩은 변조 여부를 확인할 수 없으므로 시각화용 verified 상태를 신뢰하지 않는다.
+  const evidence = storedEvidence ?? (clientEvidence
+    ? {
+        ...clientEvidence,
+        sources: clientEvidence.sources.map((source) => ({ ...source, verified: false })),
+      }
+    : null);
   if (!evidence) {
     return Response.json(
       { error: "저장된 근거팩이 없어요. 시장·경쟁 근거 확인부터 다시 실행해 주세요." },
@@ -102,6 +118,7 @@ export async function POST(req: Request) {
     : [];
   const reservation = await reservePaidAiCall({
     userId: access.user?.id,
+    bypassBudget: access.admin,
     stage: "strategy",
     provider,
     tier: "balanced",
@@ -144,12 +161,25 @@ ${conversation}`;
       },
     });
     const strategy = attachDiagramSourceNotes(normalizeStrategyPack(raw, evidence), evidence);
-    const charts = await buildCharts(strategy.diagrams);
-    if (access.user) await saveStrategyPack(access.user.id, strategy);
+    const charts = await buildCharts(strategy.diagrams, verifiedEvidenceIds(evidence));
+    if (access.user) await saveStrategyPack(access.user.id, strategy, access.admin);
     return Response.json({ strategy, charts }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (!completed) await reservation.release();
     console.error("[/api/plan/strategy]", error);
-    return Response.json({ error: "전략과 도식 배치를 설계하지 못했어요." }, { status: 500 });
+    const strategy = buildFallbackStrategyPack(evidence);
+    if (access.user) {
+      await saveStrategyPack(access.user.id, strategy, access.admin).catch(() => undefined);
+    }
+    return Response.json(
+      {
+        strategy,
+        charts: [],
+        degraded: true,
+        warning:
+          "전략 자동 정리를 완료하지 못해 신청자가 제공한 사실과 계획만으로 초안을 이어갑니다. 시장·경쟁 자료는 제출 전에 보충해 주세요.",
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 }

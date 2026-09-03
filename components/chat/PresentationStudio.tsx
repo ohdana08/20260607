@@ -62,7 +62,8 @@ interface PresentationOrderStatus {
   wordPaid?: boolean;
   configured: boolean;
   usedProgramId?: string | null;
-  source?: "presentation" | "bundle" | "qa" | null;
+  source?: "presentation" | "bundle" | "qa" | "admin" | null;
+  admin?: boolean;
   consentedAt?: string | null;
   revision?: PresentationRevisionStatus;
 }
@@ -187,7 +188,7 @@ export default function PresentationStudio({
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const serviceConsentOk = purchaseConsent || Boolean(orderStatus?.consentedAt);
+  const serviceConsentOk = Boolean(orderStatus?.admin) || purchaseConsent || Boolean(orderStatus?.consentedAt);
 
   async function fetchOrderStatus(): Promise<PresentationOrderStatus | null> {
     const query = code ? `?code=${encodeURIComponent(code)}` : "";
@@ -364,7 +365,7 @@ export default function PresentationStudio({
 
   async function generate(request = "") {
     const revisionMode = Boolean(request.trim() && pack);
-    if ((!progress?.ready && !revisionMode) || generating) return;
+    if ((!progress && !revisionMode) || generating) return;
     setGenerating(true);
     setError("");
     track("presentation_outline_generate", { program: program.title });
@@ -413,7 +414,7 @@ export default function PresentationStudio({
   }
 
   async function downloadExport(format: "pptx" | "pdf") {
-    if (!pack || !review?.exportReady || exporting) return;
+    if (!pack || !review || exporting) return;
     setExporting(format);
     setError("");
     try {
@@ -447,7 +448,7 @@ export default function PresentationStudio({
   }
 
   function downloadMarkdown() {
-    if (!pack || !review?.exportReady) return;
+    if (!pack || !review) return;
     const markdown = buildMarkdown(pack, review, sections);
     const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -576,7 +577,9 @@ export default function PresentationStudio({
     return (
       <section className="rounded-2xl border border-violet-200 bg-violet-50/50 p-4">
         <p className="text-xs font-bold text-violet-700">
-          결제 확인 완료 · {orderStatus.source === "bundle" ? "Word+발표자료 묶음" : "발표자료 추가상품"}
+          {orderStatus.admin
+            ? "관리자 검증 모드 · 결제 생략"
+            : `결제 확인 완료 · ${orderStatus.source === "bundle" ? "Word+발표자료 묶음" : "발표자료 추가상품"}`}
         </p>
         <h3 className="mt-1 text-base font-extrabold text-zinc-900">사업계획서 다음은 발표자료 티키타카</h3>
         <p className="mt-2 text-sm leading-6 text-zinc-700">
@@ -588,7 +591,7 @@ export default function PresentationStudio({
           <div className="rounded-lg bg-white p-2.5">✓ 사실·가설·계획 분리</div>
           <div className="rounded-lg bg-white p-2.5">✓ 가짜 실적이면 확정 차단</div>
         </div>
-        <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] leading-5 text-zinc-700">
+        {!orderStatus.admin && <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-[11px] leading-5 text-zinc-700">
           <input
             type="checkbox"
             checked={purchaseConsent}
@@ -600,7 +603,7 @@ export default function PresentationStudio({
             개인화된 디지털콘텐츠 제공이 개시되며 관련 법령이 허용하는 범위에서 청약철회가 제한될 수 있음을 확인했습니다.{" "}
             <a href="/refund" target="_blank" rel="noopener noreferrer" className="underline">환불정책 보기</a>
           </span>
-        </label>
+        </label>}
         <button
           onClick={() => void start()}
           disabled={!serviceConsentOk || busy}
@@ -737,13 +740,17 @@ export default function PresentationStudio({
         </div>
       ) : null}
 
-      {progress?.ready && !pack && (
+      {progress && !pack && (
         <button
           onClick={() => void generate()}
           disabled={generating}
           className="mt-4 w-full rounded-xl bg-violet-700 py-3 text-sm font-bold text-white hover:bg-violet-800 disabled:opacity-50"
         >
-          {generating ? "아이디어·데이터를 슬라이드와 대본에 배치하는 중…" : "발표자료 원고 만들기 →"}
+          {generating
+            ? "아이디어·데이터를 슬라이드와 대본에 배치하는 중…"
+            : progress.ready
+              ? "발표자료 원고 만들기 →"
+              : "현재 내용으로 발표자료 초안 먼저 만들기 →"}
         </button>
       )}
 
@@ -818,21 +825,25 @@ export default function PresentationStudio({
             </button>
             <button
               onClick={() => void downloadExport("pptx")}
-              disabled={!review.exportReady || Boolean(exporting)}
+              disabled={Boolean(exporting)}
               className="rounded-xl bg-violet-700 py-2.5 text-xs font-bold text-white hover:bg-violet-800 disabled:opacity-50"
             >
-              {exporting === "pptx" ? "PPTX 만드는 중…" : review.exportReady ? "편집 가능한 발표자료 받기 (.pptx)" : "점검 통과 후 받을 수 있어요"}
+              {exporting === "pptx"
+                ? "PPTX 만드는 중…"
+                : review.exportReady
+                  ? "편집 가능한 발표자료 받기 (.pptx)"
+                  : "현재 내용으로 검토용 발표자료 받기 (.pptx)"}
             </button>
             <button
               onClick={() => void downloadExport("pdf")}
-              disabled={!review.exportReady || Boolean(exporting)}
+              disabled={Boolean(exporting)}
               className="rounded-xl border border-violet-300 bg-white py-2.5 text-xs font-bold text-violet-800 hover:bg-violet-50 disabled:opacity-50"
             >
               {exporting === "pdf" ? "PDF 만드는 중…" : "제출·공유용 PDF 받기"}
             </button>
             <button
               onClick={downloadMarkdown}
-              disabled={!review.exportReady || Boolean(exporting)}
+              disabled={Boolean(exporting)}
               className="rounded-xl border border-zinc-300 bg-white py-2.5 text-xs font-bold text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
             >
               발표 대본·근거 백업 (.md)

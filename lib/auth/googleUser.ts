@@ -5,6 +5,28 @@ import { isMasterCode } from "../plan/access.ts";
 export interface GoogleUser {
   id: string;
   email: string;
+  isAdmin: boolean;
+}
+
+function configuredAdminEmails(): Set<string> {
+  return new Set(
+    String(process.env.ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+function hasAdminMetadata(metadata: {
+  role?: unknown;
+  roles?: unknown;
+  is_admin?: unknown;
+}): boolean {
+  const role = String(metadata.role ?? "").trim().toLowerCase();
+  const roles = Array.isArray(metadata.roles)
+    ? metadata.roles.map((item) => String(item).trim().toLowerCase())
+    : [];
+  return metadata.is_admin === true || role === "admin" || roles.includes("admin");
 }
 
 export async function getGoogleUser(req: Request): Promise<GoogleUser | null> {
@@ -22,7 +44,12 @@ export async function getGoogleUser(req: Request): Promise<GoogleUser | null> {
     const user = (await response.json()) as {
       id?: string;
       email?: string;
-      app_metadata?: { providers?: string[] };
+      app_metadata?: {
+        providers?: string[];
+        role?: unknown;
+        roles?: unknown;
+        is_admin?: unknown;
+      };
       identities?: Array<{ provider?: string }>;
     };
     const providers = user.app_metadata?.providers;
@@ -30,7 +57,12 @@ export async function getGoogleUser(req: Request): Promise<GoogleUser | null> {
       (Array.isArray(providers) && providers.includes("google")) ||
       user.identities?.some((identity) => identity.provider === "google") === true;
 
-    return user.id && isGoogle ? { id: user.id, email: user.email ?? "" } : null;
+    if (!user.id || !isGoogle) return null;
+    const email = user.email ?? "";
+    const isAdmin =
+      hasAdminMetadata(user.app_metadata ?? {}) ||
+      configuredAdminEmails().has(email.trim().toLowerCase());
+    return { id: user.id, email, isAdmin };
   } catch {
     return null;
   }

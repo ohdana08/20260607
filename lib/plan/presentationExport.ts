@@ -33,6 +33,7 @@ function chartForSlide(slide: PresentationSlide, charts: Chart[]): Chart | null 
   const chartKeys: Partial<Record<PresentationStageId, string[]>> = {
     market: ["tamsamsom"],
     solution: ["process", "journey"],
+    validation: ["validation"],
     competition: ["comparison"],
     business_model: ["revenue"],
     go_to_market: ["funnel", "journey"],
@@ -40,6 +41,29 @@ function chartForSlide(slide: PresentationSlide, charts: Chart[]): Chart | null 
   };
   const preferred = chartKeys[slide.stageId] ?? [];
   return preferred.map((key) => charts.find((chart) => chart.key === key)).find(Boolean) ?? null;
+}
+
+function containedImageBox(chart: Chart, x: number, y: number, width: number, height: number) {
+  const sourceRatio = Math.max(0.01, chart.width / Math.max(1, chart.height));
+  const boxRatio = width / height;
+  if (sourceRatio >= boxRatio) {
+    const fittedHeight = width / sourceRatio;
+    return { x, y: y + (height - fittedHeight) / 2, w: width, h: fittedHeight };
+  }
+  const fittedWidth = height * sourceRatio;
+  return { x: x + (width - fittedWidth) / 2, y, w: fittedWidth, h: height };
+}
+
+function shouldExplainMissingVisual(stageId: PresentationStageId): boolean {
+  return [
+    "problem",
+    "market",
+    "validation",
+    "competition",
+    "business_model",
+    "go_to_market",
+    "roadmap_budget",
+  ].includes(stageId);
 }
 
 function notesForSlide(slide: PresentationSlide): string {
@@ -88,15 +112,16 @@ function addContentSlide(
   chart: Chart | null,
 ): void {
   const slide = pptx.addSlide();
+  const isCover = item.stageId === "cover";
   slide.background = { color: COLORS.paper };
   slide.addShape("rect", { x: 0, y: 0, w: 0.18, h: PPT_H, fill: { color: COLORS.violet }, line: { transparency: 100 } });
   slide.addText(short(item.title, 52), {
     x: 0.75,
     y: 0.55,
     w: 11.7,
-    h: 0.55,
+    h: isCover ? 0.92 : 0.72,
     fontFace: "Malgun Gothic",
-    fontSize: 26,
+    fontSize: isCover ? 50 : 35,
     bold: true,
     color: COLORS.ink,
     margin: 0,
@@ -105,11 +130,11 @@ function addContentSlide(
   });
   slide.addText(short(item.headline, 92), {
     x: 0.75,
-    y: 1.2,
+    y: isCover ? 1.62 : 1.38,
     w: chart ? 6.1 : 11.4,
-    h: 1.05,
+    h: isCover ? 1.22 : 0.98,
     fontFace: "Malgun Gothic",
-    fontSize: chart ? 20 : 23,
+    fontSize: chart ? 24 : 28,
     bold: true,
     color: COLORS.violet,
     margin: 0,
@@ -119,9 +144,9 @@ function addContentSlide(
   const bullets = item.bullets.slice(0, 5).map((bullet) => `• ${short(bullet, 86)}`).join("\n");
   slide.addText(bullets, {
     x: 0.8,
-    y: 2.42,
+    y: isCover ? 3.08 : 2.52,
     w: chart ? 5.65 : 10.9,
-    h: 3.85,
+    h: isCover ? 2.95 : 3.72,
     fontFace: "Malgun Gothic",
     fontSize: 18,
     color: COLORS.ink,
@@ -143,13 +168,10 @@ function addContentSlide(
     });
     slide.addImage({
       data: `data:image/png;base64,${chart.png}`,
-      x: 7.05,
-      y: 1.7,
-      w: 5.25,
-      h: 4.2,
+      ...containedImageBox(chart, 7.05, 1.7, 5.25, 4.2),
       transparency: 0,
     });
-  } else {
+  } else if (shouldExplainMissingVisual(item.stageId)) {
     slide.addShape("roundRect", {
       x: 0.8,
       y: 6.38,
@@ -158,13 +180,13 @@ function addContentSlide(
       fill: { color: COLORS.violetSoft },
       line: { transparency: 100 },
     });
-    slide.addText(short(item.visualBrief || "발표자의 실제 경험과 근거를 중심으로 설명", 110), {
+    slide.addText("검증 가능한 증빙이 없어 시각화에서 제외했습니다.", {
       x: 1.05,
-      y: 6.48,
+      y: 6.43,
       w: 11.2,
-      h: 0.17,
+      h: 0.3,
       fontFace: "Malgun Gothic",
-      fontSize: 9,
+      fontSize: 16,
       color: COLORS.violet,
       margin: 0,
       align: "center",
@@ -189,7 +211,7 @@ function addQaSlide(
     w: 11.7,
     h: 0.55,
     fontFace: "Malgun Gothic",
-    fontSize: 26,
+    fontSize: 35,
     bold: true,
     color: COLORS.ink,
     margin: 0,
@@ -202,7 +224,7 @@ function addQaSlide(
       w: 11.6,
       h: 0.48,
       fontFace: "Malgun Gothic",
-      fontSize: 18,
+      fontSize: 24,
       bold: true,
       color: COLORS.violet,
       margin: 0,
@@ -214,7 +236,7 @@ function addQaSlide(
       w: 11.15,
       h: 1.22,
       fontFace: "Malgun Gothic",
-      fontSize: 14,
+      fontSize: 16,
       color: COLORS.ink,
       margin: 0.04,
       fit: "shrink",
@@ -227,7 +249,7 @@ function addQaSlide(
         w: 11.15,
         h: 0.26,
         fontFace: "Malgun Gothic",
-        fontSize: 9,
+        fontSize: 16,
         color: "B54708",
         margin: 0,
       });

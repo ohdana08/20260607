@@ -90,7 +90,7 @@ export async function markPresentationCreditUsed(
 }
 
 export type PresentationAccess =
-  | { ok: true; user?: AuthedUser; paid?: PresentationPaidRecord }
+  | { ok: true; user?: AuthedUser; paid?: PresentationPaidRecord; admin: boolean }
   | {
       ok: false;
       reason:
@@ -106,9 +106,10 @@ export async function checkPresentationAccess(
   code?: unknown,
   programId?: string,
 ): Promise<PresentationAccess> {
-  if (isMasterCode(code)) return { ok: true };
+  if (isMasterCode(code)) return { ok: true, admin: true };
   const user = await getAuthedUser(req);
   if (!user) return { ok: false, reason: "login_required" };
+  if (user.isAdmin) return { ok: true, user, admin: true };
   const [word, presentation] = await Promise.all([
     getPaidRecord(user.id),
     getPresentationPaidRecord(user.id),
@@ -125,7 +126,7 @@ export async function checkPresentationAccess(
   ) {
     return { ok: false, reason: "presentation_credit_used" };
   }
-  return { ok: true, user, paid: presentation };
+  return { ok: true, user, paid: presentation, admin: false };
 }
 
 export function presentationPaymentRequiredResponse(

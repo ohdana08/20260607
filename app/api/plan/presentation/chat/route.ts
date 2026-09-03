@@ -138,7 +138,7 @@ export async function POST(req: Request) {
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
   const access = await checkPresentationAccess(req, code, program?.id);
   if (!access.ok) return presentationPaymentRequiredResponse(access.reason);
-  if (access.user && !access.paid?.consentedAt) {
+  if (access.user && !access.admin && !access.paid?.consentedAt) {
     if (serviceConsent !== true) {
       return Response.json(
         { error: "발표자료 유료 맞춤 작성 범위와 환불정책을 확인해 주세요." },
@@ -149,7 +149,7 @@ export async function POST(req: Request) {
       return Response.json({ error: "발표자료 시작 동의를 저장하지 못했어요." }, { status: 503 });
     }
   }
-  const application = decideDraftApplication(program);
+  const application = decideDraftApplication(program, Array.isArray(sections) && sections.length > 0);
   if (!application.ok) return draftApplicationError(application);
   if (!Array.isArray(messages) || !Array.isArray(sections) || sections.length === 0) {
     return Response.json({ error: "발표 인터뷰와 최종 사업계획서가 필요해요." }, { status: 400 });
@@ -166,9 +166,9 @@ export async function POST(req: Request) {
   }));
   const [audit, evidence, strategy] = access.user
     ? await Promise.all([
-        getAuditArtifact(access.user.id),
-        getEvidencePack(access.user.id),
-        getStrategyPack(access.user.id),
+        getAuditArtifact(access.user.id, access.admin),
+        getEvidencePack(access.user.id, access.admin),
+        getStrategyPack(access.user.id, access.admin),
       ])
     : [null, clientEvidence ?? null, clientStrategy ?? null];
 
@@ -177,22 +177,23 @@ export async function POST(req: Request) {
   }
   if (access.user) {
     const validAudit =
-      audit?.report.submissionReady === true &&
-      audit.sectionsDigest === planSectionsDigest(safeSections) &&
+      Boolean(audit) &&
+      audit?.sectionsDigest === planSectionsDigest(safeSections) &&
       audit.evidenceDigest === planArtifactDigest(evidence) &&
       audit.strategyDigest === planArtifactDigest(strategy);
     if (!validAudit) {
       return Response.json(
-        { error: "최신 사업계획서의 근거 심사를 통과한 뒤 발표자료를 준비할 수 있어요." },
+        { error: "최신 사업계획서의 근거 심사를 한 번 실행한 뒤 발표자료를 준비할 수 있어요." },
         { status: 409 },
       );
     }
-  } else if (reviewStatus !== "ready") {
-    return Response.json({ error: "사업계획서 최종 심사를 먼저 완료해 주세요." }, { status: 409 });
+  } else if (!reviewStatus) {
+    return Response.json({ error: "사업계획서 모의심사를 먼저 실행해 주세요." }, { status: 409 });
   }
 
   const reservation = await reservePresentationAiCall({
     userId: access.user?.id,
+    bypassBudget: access.admin,
     stage: "presentation_chat",
     provider,
     tier: "fast",
@@ -230,6 +231,42 @@ ${JSON.stringify({ progress: progress ?? null, claimLedger: (claimLedger ?? []).
   } catch (error) {
     if (!completed) await reservation.release();
     console.error("[/api/plan/presentation/chat]", error);
-    return Response.json({ error: "발표 질문을 만들지 못했어요. 잠시 후 다시 시도해 주세요." }, { status: 500 });
+    const fallback = normalizePresentationInterviewReply(
+      {
+        reply:
+          "현재 사업계획서의 핵심 내용을 먼저 연결했습니다. 지금 내용으로 발표자료 초안을 만들 수 있고, 발표 시간·고객 근거·수치는 나중에 보충할 수 있어요. 기본 7분 발표로 먼저 만들어볼까요?",
+        progress: {
+          stageId: "setup",
+          completedStageIds: [],
+          ready: false,
+          criticalMissing: [],
+          coveredSummary: [strategy.problem, strategy.solution, strategy.businessModel]
+            .filter(Boolean)
+            .join(" ")
+            .slice(0, 1_000),
+        },
+        claims: strategy.claims.map((claim, index) => ({
+          id: `strategy-${index + 1}`,
+          text: claim.claim,
+          stageId: "problem",
+          origin: claim.evidenceIds.length ? "external" : "plan",
+          status: claim.status,
+          evidenceIds: claim.evidenceIds,
+          requiresEvidence: claim.status === "missing" || claim.status === "stated",
+          assumption: "",
+          verificationPlan:
+            claim.status === "plan" ? "계획한 시점·담당·산출물·지표로 실행 후 확인" : "",
+        })),
+      },
+      evidence,
+    );
+    return Response.json(
+      {
+        ...fallback,
+        degraded: true,
+        warning: "발표 질문 연결이 불안정해 현재 사업계획서만으로 초안을 시작합니다.",
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 }

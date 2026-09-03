@@ -9,7 +9,7 @@ import {
 } from "@/lib/plan/artifacts";
 import { countDraftPlaceholders } from "@/lib/plan/reviewer";
 import { markFirstFinalDelivery } from "@/lib/plan/revisions";
-import type { EvidenceSource } from "@/lib/plan/strategy";
+import { verifiedEvidenceIds, type EvidenceSource } from "@/lib/plan/strategy";
 import { buildCharts } from "@/lib/viz/svg";
 
 export const runtime = "nodejs";
@@ -24,12 +24,11 @@ export async function POST(req: Request) {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
 
-  const { code, programId, title, sections, charts, reviewStatus, acknowledgements } = (body ?? {}) as {
+  const { code, programId, title, sections, reviewStatus, acknowledgements } = (body ?? {}) as {
     code?: string;
     programId?: string;
     title?: string;
     sections?: PlanDocxSection[];
-    charts?: PlanDocxChart[];
     reviewStatus?: string;
     acknowledgements?: {
       reviewedIssues?: boolean;
@@ -57,24 +56,20 @@ export async function POST(req: Request) {
     );
   }
   const placeholderCounts = countDraftPlaceholders(sections);
-  if (placeholderCounts.missing > 0 || placeholderCounts.proof > 0) {
-    return Response.json(
-      { error: "보완 필요 또는 증빙 필요 표시가 남아 있어 최종 Word를 만들 수 없어요." },
-      { status: 409 },
-    );
-  }
 
-  let safeCharts = (charts ?? []).slice(0, 6);
+  // 클라이언트가 보낸 PNG는 증빙 연결을 서버에서 확인할 수 없으므로 내보내지 않는다.
+  let safeCharts: PlanDocxChart[] = [];
   let evidenceSources: EvidenceSource[] = [];
+  let auditSubmissionReady = reviewStatus === "ready";
   if (access.user) {
     const [audit, evidence, strategy] = await Promise.all([
-      getAuditArtifact(access.user.id),
-      getEvidencePack(access.user.id),
-      getStrategyPack(access.user.id),
+      getAuditArtifact(access.user.id, access.admin),
+      getEvidencePack(access.user.id, access.admin),
+      getStrategyPack(access.user.id, access.admin),
     ]);
-    if (!audit || !evidence || !strategy || audit.report.status !== "ready" || !audit.report.submissionReady) {
+    if (!audit || !evidence || !strategy) {
       return Response.json(
-        { error: "최신 초안의 필수 근거 검토를 통과한 뒤 Word를 내려받을 수 있어요." },
+        { error: "최신 초안의 근거 검토를 한 번 실행한 뒤 Word를 내려받을 수 있어요." },
         { status: 409 },
       );
     }
@@ -93,14 +88,22 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
+    auditSubmissionReady = audit.report.submissionReady === true;
     evidenceSources = evidence.sources.filter((source) => source.verified);
-    safeCharts = await buildCharts(strategy.diagrams);
+    safeCharts = await buildCharts(strategy.diagrams, verifiedEvidenceIds(evidence));
   } else if (reviewStatus !== "ready") {
     return Response.json({ error: "최종 심사 결과가 제출 가능 상태가 아니에요." }, { status: 409 });
   }
 
   const buffer = await buildPlanDocxBuffer(title, sections, safeCharts, evidenceSources);
-  const revision = access.user ? await markFirstFinalDelivery(access.user.id) : null;
+  const documentStatus =
+    placeholderCounts.missing === 0 && placeholderCounts.proof === 0 &&
+    auditSubmissionReady
+      ? "final"
+      : "review-draft";
+  const revision = access.user && documentStatus === "final"
+    ? await markFirstFinalDelivery(access.user.id, access.admin)
+    : null;
 
   const filename = encodeURIComponent(`${title || "사업계획서"}.docx`);
   return new Response(new Uint8Array(buffer), {
@@ -109,6 +112,7 @@ export async function POST(req: Request) {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "Content-Disposition": `attachment; filename="plan.docx"; filename*=UTF-8''${filename}`,
       "Cache-Control": "no-store",
+      "X-Plan-Document-Status": documentStatus,
       ...(revision
         ? {
             "X-Revision-Remaining": String(revision.remaining),

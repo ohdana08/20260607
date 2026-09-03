@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { track } from "@/lib/ga";
 import { captureUtm } from "@/lib/utm";
+import { isReturningFromPayment } from "@/lib/paymentReturn";
 import {
   BUNDLE_PRICE_KRW,
   BUNDLE_PRICE_LABEL,
@@ -167,6 +168,16 @@ export default function LandingClient() {
   const demo = DEMOS[demoKey];
 
   useEffect(() => {
+    if (
+      isReturningFromPayment({
+        search: window.location.search,
+        referrer: document.referrer,
+        storage: window.localStorage,
+      })
+    ) {
+      window.location.replace("/embed?payment=complete");
+      return;
+    }
     captureUtm();
     track("view_landing");
   }, []);

@@ -16,6 +16,7 @@ import {
 } from "@/lib/plan/presentationExport";
 import { markFirstPresentationDelivery } from "@/lib/plan/presentationRevisions";
 import { buildCharts } from "@/lib/viz/svg";
+import { verifiedEvidenceIds } from "@/lib/plan/strategy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,7 +49,7 @@ export async function POST(req: Request) {
       { status: 409 },
     );
   }
-  if (!access.paid?.consentedAt) {
+  if (!access.admin && !access.paid?.consentedAt) {
     return Response.json(
       { error: "발표자료 유료 맞춤 작성 범위와 환불정책을 먼저 확인해 주세요." },
       { status: 409 },
@@ -56,19 +57,19 @@ export async function POST(req: Request) {
   }
 
   const [artifact, audit, evidence, strategy] = await Promise.all([
-    getPresentationArtifact(access.user.id),
-    getAuditArtifact(access.user.id),
-    getEvidencePack(access.user.id),
-    getStrategyPack(access.user.id),
+    getPresentationArtifact(access.user.id, access.admin),
+    getAuditArtifact(access.user.id, access.admin),
+    getEvidencePack(access.user.id, access.admin),
+    getStrategyPack(access.user.id, access.admin),
   ]);
-  if (!artifact || !artifact.review.exportReady || artifact.review.status !== "ready") {
+  if (!artifact) {
     return Response.json(
-      { error: "근거 검토를 통과한 발표자료를 먼저 완성해 주세요." },
+      { error: "발표자료 원고를 먼저 만들어 주세요." },
       { status: 409 },
     );
   }
   const fresh =
-    audit?.report.submissionReady === true &&
+    audit !== null &&
     evidence &&
     strategy &&
     artifact.sectionsDigest === audit.sectionsDigest &&
@@ -81,11 +82,13 @@ export async function POST(req: Request) {
     );
   }
 
-  const charts = await buildCharts(strategy.diagrams);
+  const charts = await buildCharts(strategy.diagrams, verifiedEvidenceIds(evidence));
   const buffer = selectedFormat === "pdf"
     ? await buildPresentationPdfBuffer(artifact.pack, charts)
     : await buildPresentationPptxBuffer(artifact.pack, charts);
-  const revision = await markFirstPresentationDelivery(access.user.id);
+  const revision = artifact.review.exportReady
+    ? await markFirstPresentationDelivery(access.user.id, access.admin)
+    : null;
   const title = safeFileName(artifact.pack.title);
   const filename = encodeURIComponent(`${title}.${selectedFormat}`);
   return new Response(new Uint8Array(buffer), {
@@ -96,8 +99,12 @@ export async function POST(req: Request) {
           : "application/vnd.openxmlformats-officedocument.presentationml.presentation",
       "Content-Disposition": `attachment; filename="presentation.${selectedFormat}"; filename*=UTF-8''${filename}`,
       "Cache-Control": "no-store",
-      "X-Presentation-Revision-Remaining": String(revision.remaining),
-      "X-Presentation-Revision-Expires-At": revision.expiresAt ?? "",
+      ...(revision
+        ? {
+            "X-Presentation-Revision-Remaining": String(revision.remaining),
+            "X-Presentation-Revision-Expires-At": revision.expiresAt ?? "",
+          }
+        : {}),
     },
   });
 }

@@ -10,7 +10,10 @@ const { isStillOpen, kstToday } = await import("../lib/data/openFilter.ts");
 const { SAMPLE_PROGRAMS } = await import("../lib/data/sample.ts");
 const { firstTrustedProgramUrl } = await import("../lib/data/trustedProgramUrl.ts");
 const { buildPlanDocxBuffer } = await import("../lib/plan/docx.ts");
-const { normalizeEvidencePack, normalizeStrategyPack } = await import("../lib/plan/strategy.ts");
+const { normalizeEvidencePack, normalizeStrategyPack, verifiedEvidenceIds } = await import(
+  "../lib/plan/strategy.ts"
+);
+const { buildCharts } = await import("../lib/viz/svg.ts");
 const {
   mergePresentationClaims,
   normalizePresentationClaims,
@@ -43,7 +46,11 @@ const { buildPublicEvidencePrompt, rankPublicEvidenceItems } = await import(
   "../lib/data/publicEvidence.ts"
 );
 const { isLocalReviewMatchRequest } = await import("../lib/auth/localReview.ts");
-const { paidGoogleLoginGate } = await import("../lib/auth/googleUser.ts");
+const { getGoogleUser, paidGoogleLoginGate } = await import("../lib/auth/googleUser.ts");
+const { CHECKOUT_STARTED_KEY, isReturningFromPayment } = await import(
+  "../lib/paymentReturn.ts"
+);
+const { parseRevisionOutput } = await import("../lib/plan/revisionText.ts");
 const { LOCAL_REVIEW_EVIDENCE_ROWS } = await import(
   "../lib/diagnosis/localReviewEvidence.ts"
 );
@@ -239,6 +246,77 @@ assert.equal(
   "permission-required",
 );
 assert.equal(REGIONAL_SOURCE_POLICIES.find((item) => item.id === "bizok")?.status, "permission-required");
+
+const originalFetch = globalThis.fetch;
+const originalAdminEmails = process.env.ADMIN_EMAILS;
+process.env.ADMIN_EMAILS = "operator@example.com";
+globalThis.fetch = async () =>
+  Response.json({
+    id: "operator-user",
+    email: "operator@example.com",
+    app_metadata: { providers: ["google"] },
+    identities: [{ provider: "google" }],
+  });
+const adminUser = await getGoogleUser(
+  new Request("https://example.com/api", { headers: { Authorization: "Bearer test-token" } }),
+);
+assert.equal(adminUser?.isAdmin, true, "등록된 관리자 Google 계정은 서버에서 결제 없이 식별되어야 함");
+globalThis.fetch = originalFetch;
+if (originalAdminEmails === undefined) delete process.env.ADMIN_EMAILS;
+else process.env.ADMIN_EMAILS = originalAdminEmails;
+
+const recentCheckoutStorage = {
+  getItem(key) {
+    return key === CHECKOUT_STARTED_KEY ? String(1_000) : null;
+  },
+};
+assert.equal(
+  isReturningFromPayment({ search: "?payment=complete", now: 10_000 }),
+  true,
+  "그로블 복귀 쿼리는 결제 확인 단계로 보내야 함",
+);
+assert.equal(
+  isReturningFromPayment({ search: "", referrer: "https://groble.im/orders/1", now: 10_000 }),
+  true,
+  "그로블 결제 완료 페이지 referrer를 인식해야 함",
+);
+assert.equal(
+  isReturningFromPayment({ search: "", referrer: "https://notgroble.im/orders/1", now: 10_000 }),
+  false,
+  "유사 도메인을 그로블로 오인하면 안 됨",
+);
+assert.equal(
+  isReturningFromPayment({ search: "", storage: recentCheckoutStorage, now: 2_000 }),
+  true,
+  "새 탭 결제 뒤 랜딩 복귀도 최근 결제 흔적으로 인식해야 함",
+);
+
+const revisionHeadings = ["1. 창업 아이템 개요", "2. 문제인식"];
+assert.deepEqual(
+  parseRevisionOutput(
+    '{"sections":[{"heading":"1. 창업 아이템 개요","content":"수정된 개요"}]}',
+    revisionHeadings,
+  ),
+  {
+    sections: [{ heading: "1. 창업 아이템 개요", content: "수정된 개요" }],
+    recoveredFromText: false,
+  },
+  "정상 JSON 수정 결과를 읽어야 함",
+);
+assert.deepEqual(
+  parseRevisionOutput(
+    "수정본입니다.\n\n## 1. 창업 아이템 개요\n근거를 구분한 개요\n\n## 2. 문제인식\n고객 문제를 보강한 본문",
+    revisionHeadings,
+  ),
+  {
+    sections: [
+      { heading: "1. 창업 아이템 개요", content: "근거를 구분한 개요" },
+      { heading: "2. 문제인식", content: "고객 문제를 보강한 본문" },
+    ],
+    recoveredFromText: true,
+  },
+  "AI가 JSON 대신 목차형 본문을 보내도 안전하게 복구해야 함",
+);
 const aiEvidence = rankPublicEvidenceItems("AI 공공데이터 기반 관광 서비스", "step6", 3);
 assert.ok(aiEvidence.some((item) => item.id === "public-data-portal"));
 assert.ok(aiEvidence.some((item) => item.id === "kogl-ai"));
@@ -402,8 +480,18 @@ const groundedStrategy = normalizeStrategyPack(
     advantageStatus: "verified",
     claims: [{ claim: "시장 주장", status: "verified", evidenceIds: ["web-1"] }],
     diagrams: {
-      tamSamSom: { tam: "10억", sam: "5억", som: "1억", evidenceIds: ["web-1"] },
-      journey: { stages: ["인지", "상담", "구매"], evidenceIds: ["missing-source"] },
+      tamSamSom: {
+        tam: "10억",
+        sam: "5억",
+        som: "1억",
+        evidenceIds: ["web-1"],
+        evidenceStatus: "verified",
+      },
+      journey: {
+        stages: ["인지", "상담", "구매"],
+        evidenceIds: ["missing-source"],
+        evidenceStatus: "verified",
+      },
     },
   },
   evidencePack,
@@ -427,11 +515,85 @@ const unverifiedEvidence = normalizeEvidencePack({
 const rejectedDiagramStrategy = normalizeStrategyPack(
   {
     diagrams: {
-      tamSamSom: { tam: "10억", sam: "5억", som: "1억", evidenceIds: ["invented-source"] },
+      tamSamSom: {
+        tam: "10억",
+        sam: "5억",
+        som: "1억",
+        evidenceIds: ["invented-source"],
+        evidenceStatus: "verified",
+      },
     },
   },
   unverifiedEvidence,
 );
+
+const groundedCharts = await buildCharts(
+  groundedStrategy.diagrams,
+  verifiedEvidenceIds(evidencePack),
+);
+assert.deepEqual(
+  groundedCharts.map((chart) => chart.key),
+  ["tamsamsom"],
+  "사업계획서 전략과 서버 검증 근거가 모두 연결된 도식만 생성해야 함",
+);
+const bypassedCharts = await buildCharts(
+  {
+    process: {
+      stages: ["입력", "분석", "출력"],
+      sourceNote: "출처 메모만 있음",
+      evidenceIds: ["missing-source"],
+      evidenceStatus: "verified",
+    },
+    revenue: {
+      items: ["월 구독", "연간 사용권"],
+      sourceNote: "출처 메모만 있음",
+      evidenceIds: ["web-1"],
+      evidenceStatus: "plan",
+    },
+  },
+  verifiedEvidenceIds(evidencePack),
+);
+assert.equal(
+  bypassedCharts.length,
+  0,
+  "출처 메모뿐이거나 plan 상태인 자료는 시각화하면 안 됨",
+);
+const unstampedStrategy = normalizeStrategyPack(
+  {
+    diagrams: {
+      process: {
+        stages: ["입력", "분석", "출력"],
+        evidenceIds: ["web-1"],
+      },
+    },
+  },
+  evidencePack,
+);
+assert.equal(
+  unstampedStrategy.diagrams.process,
+  undefined,
+  "명시적으로 verified 판정을 받지 않은 자료는 유효한 근거 id가 있어도 도식화하면 안 됨",
+);
+const validationStrategy = normalizeStrategyPack(
+  {
+    diagrams: {
+      validation: {
+        metrics: [
+          { label: "자동 테스트", value: "8/8" },
+          { label: "처리시간", value: "597ms" },
+        ],
+        evidenceIds: ["web-1"],
+        evidenceStatus: "verified",
+      },
+    },
+  },
+  evidencePack,
+);
+const validationCharts = await buildCharts(
+  validationStrategy.diagrams,
+  verifiedEvidenceIds(evidencePack),
+);
+assert.equal(validationCharts[0]?.key, "validation", "검증된 지표는 시각화할 수 있어야 함");
 assert.equal(
   rejectedDiagramStrategy.diagrams.tamSamSom,
   undefined,
@@ -660,6 +822,8 @@ assert.ok((documentXml.match(/<w:tbl>/g) ?? []).length >= 2, "검토표와 내�
 const landingSource = readFileSync(new URL("../app/landing/LandingClient.tsx", import.meta.url), "utf8");
 const wizardSource = readFileSync(new URL("../components/chat/DiagnosisWizard.tsx", import.meta.url), "utf8");
 const chatSource = readFileSync(new URL("../components/chat/Chat.tsx", import.meta.url), "utf8");
+const authGateSource = readFileSync(new URL("../components/auth/AuthGate.tsx", import.meta.url), "utf8");
+const planChatRouteSource = readFileSync(new URL("../app/api/plan/chat/route.ts", import.meta.url), "utf8");
 const evidenceRouteSource = readFileSync(new URL("../app/api/plan/evidence/route.ts", import.meta.url), "utf8");
 const strategyRouteSource = readFileSync(new URL("../app/api/plan/strategy/route.ts", import.meta.url), "utf8");
 const batchRouteSource = readFileSync(new URL("../app/api/plan/draft-batch/route.ts", import.meta.url), "utf8");
@@ -684,6 +848,10 @@ const presentationOrderRouteSource = readFileSync(
 );
 const presentationExportRouteSource = readFileSync(
   new URL("../app/api/plan/presentation/export/route.ts", import.meta.url),
+  "utf8",
+);
+const presentationExportSource = readFileSync(
+  new URL("../lib/plan/presentationExport.ts", import.meta.url),
   "utf8",
 );
 const orderVerifySource = readFileSync(
@@ -758,19 +926,56 @@ assert.ok(
 assert.match(chatSource, /requestedStart === "find"/);
 assert.match(chatSource, /requestedStart === "direct"/);
 assert.match(chatSource, /PublicEvidencePanel/);
-assert.match(chatSource, /근거 확인 후 사업계획서 만들기/);
+assert.match(chatSource, /현재 답변으로 초안 먼저 만들기/);
+assert.match(chatSource, /🛡️ 관리자 모드/);
+assert.match(chatSource, /관리자 권한 확인 완료/);
+assert.match(authGateSource, /setAdmin\(Boolean\(d\?\.admin\)\)/);
+assert.match(chatSource, /부족한 사실과 증거는 초안에/);
+assert.match(chatSource, /새 자료 반영해 초안 다시 만들기/);
+assert.match(chatSource, /첫 초안은 증거가 없어도 만들 수 있습니다/);
+assert.match(chatSource, /const reviewedDraftReady = Boolean\(review\) && !reviewNeedsRefresh/);
+assert.match(chatSource, /현재 내용으로 검토용 Word\(\.docx\) 받기/);
+assert.doesNotMatch(
+  chatSource,
+  /planUserTurns < PLAN_MIN_TURNS \|\|\s*!draftAnswersReady/,
+  "증거·완성도 점수 부족은 초안 생성 버튼을 막으면 안 됨",
+);
 assert.match(chatSource, /심사위원 관점 모의심사/);
 assert.match(chatSource, /지적·요청 한 번에 반영하기/);
 assert.match(chatSource, /필수 확인 4개/);
 assert.doesNotMatch(chatSource, /보완용 Word/);
 assert.match(evidenceRouteSource, /maxSearches: 4/);
 assert.match(evidenceRouteSource, /가까운 경쟁사 2곳/);
+assert.match(evidenceRouteSource, /userEvidenceFallback/);
+assert.match(
+  evidenceRouteSource,
+  /사용자 대화에서 받은 주장으로, 원문 증빙은 확인하지 않음[\s\S]*verified: false/,
+);
+assert.match(evidenceRouteSource, /degraded: true/);
+assert.match(evidenceRouteSource, /공식 시장·경쟁 검색을 완료하지 못해/);
+assert.match(chatSource, /evidenceData\.degraded/);
+assert.match(chatSource, /Math\.ceil\(items\.length \/ 2\)/);
+assert.match(chatSource, /PLAN_OUTPUT_KEY/);
+assert.match(chatSource, /loadSavedPlanOutput/);
+assert.match(chatSource, /convoId:?,?\s*selectedProgram|convoId,/);
+assert.match(batchRouteSource, /900~1,500자/);
+assert.match(batchRouteSource, /증거가 없다는 이유로 문단 전체를 비우지 마세요/);
+assert.match(planChatRouteSource, /증거가 없어도 현재 확인된 사실로 초안을 먼저 만들 수 있다고 안내하세요/);
+assert.doesNotMatch(planChatRouteSource, /직접 찾아서 가져오게/);
 assert.match(strategyRouteSource, /최대 6종/);
 assert.match(batchRouteSource, /draft_batch/);
 assert.match(auditRouteSource, /신청자 원답변과 작성 대화/);
 assert.match(auditRouteSource, /canAutoFix/);
 assert.match(auditRouteSource, /evidenceGuardIssues/);
+assert.match(auditRouteSource, /issues는 가장 중요한 것부터 최대 10개/);
+assert.match(auditRouteSource, /maxTokens: 6_500/);
+assert.match(auditRouteSource, /fallbackAudit/);
+assert.match(auditRouteSource, /향후 보안 설계를 현재 구현된 기능처럼/);
+assert.match(auditRouteSource, /degraded: true/);
 assert.match(reviseRouteSource, /revision_batch/);
+assert.match(reviseRouteSource, /parseRevisionOutput/);
+assert.match(orderVerifySource, /user\.isAdmin/);
+assert.match(presentationOrderRouteSource, /source: "admin"/);
 assert.match(reviseRouteSource, /묶음 수정 요청/);
 assert.match(docxRouteSource, /acknowledgements/);
 assert.match(docxRouteSource, /audit\.sectionsDigest/);
@@ -779,7 +984,7 @@ assert.match(presentationStudioSource, /기존 원답변 자동 연결/);
 assert.match(presentationStudioSource, /주장·근거 장부/);
 assert.match(presentationStudioSource, /원본 사업계획서 데이터 부록/);
 assert.match(presentationStudioSource, /사업계획서 29,900원에는 포함되지 않는 별도 상품/);
-assert.match(presentationStudioSource, /편집 가능한 발표자료 받기/);
+assert.match(presentationStudioSource, /현재 내용으로 검토용 발표자료 받기/);
 assert.match(presentationStudioSource, /제출·공유용 PDF 받기/);
 assert.match(presentationStudioSource, /묶음 AI 수정/);
 assert.match(presentationStudioSource, /serviceConsent/);
@@ -795,6 +1000,16 @@ assert.match(presentationExportRouteSource, /artifact\.review\.exportReady/);
 assert.match(presentationExportRouteSource, /buildPresentationPptxBuffer/);
 assert.match(presentationExportRouteSource, /buildPresentationPdfBuffer/);
 assert.match(presentationExportRouteSource, /consentedAt/);
+assert.match(
+  presentationExportSource,
+  /data: `data:image\/png;base64,\$\{chart\.png\}`/,
+  "PPTX에는 서버가 생성한 PNG 도식만 전달해야 함",
+);
+assert.doesNotMatch(
+  presentationExportSource,
+  /addImage\(\{[\s\S]{0,240}\bpath\s*:/,
+  "사용자 파일 경로를 pptxgenjs 이미지 파서에 직접 넘기면 안 됨",
+);
 assert.match(orderVerifySource, /사업계획서 Word 또는 묶음 상품의 주문번호/);
 assert.match(webhookSource, /PRESENTATION_PAID_KEY/);
 assert.match(termsSource, /발표자료는 사업계획서 상품과 별도/);

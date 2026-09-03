@@ -26,6 +26,7 @@ import {
 } from "@/lib/plan/presentationRevisions";
 import {
   mergePresentationClaims,
+  buildFallbackPresentationPack,
   normalizePresentationClaims,
   normalizePresentationPack,
   presentationContextPrompt,
@@ -62,8 +63,8 @@ export async function GET(req: Request) {
   if (!access.ok) return presentationPaymentRequiredResponse(access.reason);
   if (!access.user) return Response.json({ pack: null, review: null });
   const [artifact, revision] = await Promise.all([
-    getPresentationArtifact(access.user.id),
-    getPresentationRevisionStatus(access.user.id),
+    getPresentationArtifact(access.user.id, access.admin),
+    getPresentationRevisionStatus(access.user.id, access.admin),
   ]);
   return Response.json(
     {
@@ -206,7 +207,7 @@ export async function POST(req: Request) {
   if (!rl.ok) return tooManyRequests(rl.retryAfter);
   const access = await checkPresentationAccess(req, code, program?.id);
   if (!access.ok) return presentationPaymentRequiredResponse(access.reason);
-  if (access.user && !access.paid?.consentedAt) {
+  if (access.user && !access.admin && !access.paid?.consentedAt) {
     if (serviceConsent !== true) {
       return Response.json(
         { error: "발표자료 유료 맞춤 작성 범위와 환불정책을 확인해 주세요." },
@@ -217,7 +218,7 @@ export async function POST(req: Request) {
       return Response.json({ error: "발표자료 시작 동의를 저장하지 못했어요." }, { status: 503 });
     }
   }
-  const application = decideDraftApplication(program);
+  const application = decideDraftApplication(program, Array.isArray(sections) && sections.length > 0);
   if (!application.ok) return draftApplicationError(application);
   if (!Array.isArray(sections) || sections.length === 0) {
     return Response.json({ error: "최종 사업계획서가 필요해요." }, { status: 409 });
@@ -233,33 +234,35 @@ export async function POST(req: Request) {
   }));
   const [audit, evidence, strategy] = access.user
     ? await Promise.all([
-        getAuditArtifact(access.user.id),
-        getEvidencePack(access.user.id),
-        getStrategyPack(access.user.id),
+        getAuditArtifact(access.user.id, access.admin),
+        getEvidencePack(access.user.id, access.admin),
+        getStrategyPack(access.user.id, access.admin),
       ])
     : [null, clientEvidence ?? null, clientStrategy ?? null];
   if (!evidence || !strategy) {
     return Response.json({ error: "근거팩과 전략팩을 먼저 완성해 주세요." }, { status: 409 });
   }
-  const previous = access.user ? await getPresentationArtifact(access.user.id) : null;
+  const previous = access.user
+    ? await getPresentationArtifact(access.user.id, access.admin)
+    : null;
   const isRevision = Boolean(cleanRevisionRequest(revisionRequest) && previous?.review.exportReady);
-  if (!progress?.ready && !isRevision) {
-    return Response.json({ error: "발표 인터뷰의 필수 질문을 먼저 완료해 주세요." }, { status: 409 });
+  if (!progress && !isRevision) {
+    return Response.json({ error: "발표자료에 반영할 내용을 한 번 확인해 주세요." }, { status: 409 });
   }
   if (access.user) {
     const validAudit =
-      audit?.report.submissionReady === true &&
-      audit.sectionsDigest === planSectionsDigest(safeSections) &&
+      Boolean(audit) &&
+      audit?.sectionsDigest === planSectionsDigest(safeSections) &&
       audit.evidenceDigest === planArtifactDigest(evidence) &&
       audit.strategyDigest === planArtifactDigest(strategy);
     if (!validAudit) {
       return Response.json(
-        { error: "최신 사업계획서의 근거 심사를 다시 통과해 주세요." },
+        { error: "최신 사업계획서의 근거 심사를 다시 실행해 주세요." },
         { status: 409 },
       );
     }
-  } else if (reviewStatus !== "ready") {
-    return Response.json({ error: "사업계획서 최종 심사를 먼저 완료해 주세요." }, { status: 409 });
+  } else if (!reviewStatus) {
+    return Response.json({ error: "사업계획서 모의심사를 먼저 실행해 주세요." }, { status: 409 });
   }
 
   const claims = mergePresentationClaims(
@@ -273,10 +276,11 @@ export async function POST(req: Request) {
     return Response.json({ error: "슬라이드에 연결할 실제 주장과 데이터가 아직 없어요." }, { status: 409 });
   }
 
-  const revision = await reservePresentationRevision(access.user?.id);
+  const revision = await reservePresentationRevision(access.user?.id, access.admin);
   if (!revision.ok) return presentationRevisionUnavailableResponse(revision.status);
   const reservation = await reservePresentationAiCall({
     userId: access.user?.id,
+    bypassBudget: access.admin,
     stage: "presentation_generate",
     provider,
     tier: "balanced",
@@ -327,14 +331,24 @@ export async function POST(req: Request) {
     });
     const review = reviewPresentationPack(pack);
     if (access.user) {
-      await savePresentationArtifact(access.user.id, pack, review, safeSections, evidence, strategy);
+      await savePresentationArtifact(
+        access.user.id,
+        pack,
+        review,
+        safeSections,
+        evidence,
+        strategy,
+        access.admin,
+      );
       if (program?.id) await markPresentationCreditUsed(access.user.id, program.id);
     }
     return Response.json(
       {
         pack,
         review,
-        revision: access.user ? await getPresentationRevisionStatus(access.user.id) : revision.status,
+        revision: access.user
+          ? await getPresentationRevisionStatus(access.user.id, access.admin)
+          : revision.status,
       },
       { headers: { "Cache-Control": "no-store" } },
     );
@@ -342,7 +356,36 @@ export async function POST(req: Request) {
     if (!completed) await reservation.release();
     await revision.rollback();
     console.error("[/api/plan/presentation/generate]", error);
-    return Response.json({ error: "발표자료 원고를 만들지 못했어요. 잠시 후 다시 시도해 주세요." }, { status: 500 });
+    const pack = buildFallbackPresentationPack({
+      title: `${program?.title ?? "정부지원사업"} 발표자료`,
+      evidence,
+      strategy,
+      sections: safeSections,
+      claims,
+    });
+    const review = reviewPresentationPack(pack);
+    if (access.user) {
+      await savePresentationArtifact(
+        access.user.id,
+        pack,
+        review,
+        safeSections,
+        evidence,
+        strategy,
+        access.admin,
+      ).catch(() => undefined);
+    }
+    return Response.json(
+      {
+        pack,
+        review,
+        revision: revision.status,
+        degraded: true,
+        warning:
+          "발표자료 AI 응답을 끝까지 읽지 못해 현재 사업계획서 문장을 기준으로 검토용 슬라이드를 만들었습니다.",
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 }
 

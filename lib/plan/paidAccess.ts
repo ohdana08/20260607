@@ -50,6 +50,7 @@ export function isQaOrder(orderNo: string): boolean {
 export interface AuthedUser {
   id: string;
   email: string;
+  isAdmin: boolean;
 }
 
 // Authorization: Bearer <supabase JWT> 를 통합 회원 시스템에 물어봐 검증한다.
@@ -89,7 +90,7 @@ export async function getPaidRecord(userId: string): Promise<PaidRecord | null> 
 }
 
 export type DraftAccess =
-  | { ok: true; user?: AuthedUser }
+  | { ok: true; user?: AuthedUser; admin: boolean }
   | { ok: false; reason: "login_required" | "payment_required" | "credit_used" };
 
 // 초안(유료) 기능 관문 — 다음 중 하나면 통과:
@@ -101,15 +102,18 @@ export async function checkDraftAccess(
   code?: unknown,
   programId?: string,
 ): Promise<DraftAccess> {
-  if (isMasterCode(code)) return { ok: true };
+  if (isMasterCode(code)) return { ok: true, admin: true };
   const user = await getAuthedUser(req);
   if (!user) return { ok: false, reason: "login_required" };
+  // 관리자 계정은 운영 검증용 마스터 코드와 동일하게 주문·공고 바인딩 없이 통과한다.
+  // 사용자 정보를 함께 돌려줘야 관리자 전용 저장공간에 근거팩·심사·발표자료가 이어진다.
+  if (user.isAdmin) return { ok: true, user, admin: true };
   const paid = await getPaidRecord(user.id);
   if (!paid) return { ok: false, reason: "payment_required" };
   if (paid.usedProgramId && programId && paid.usedProgramId !== programId) {
     return { ok: false, reason: "credit_used" };
   }
-  return { ok: true, user };
+  return { ok: true, user, admin: false };
 }
 
 export function paymentRequiredResponse(

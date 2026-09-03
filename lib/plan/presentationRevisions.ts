@@ -44,7 +44,9 @@ function emptyStatus(): PresentationRevisionStatus {
 
 export async function getPresentationRevisionStatus(
   userId: string,
+  admin = false,
 ): Promise<PresentationRevisionStatus> {
+  if (admin) return emptyStatus();
   const paid = await getPresentationPaidRecord(userId);
   const r = getRedis();
   if (!paid || !r) return emptyStatus();
@@ -66,7 +68,9 @@ export async function getPresentationRevisionStatus(
 
 export async function markFirstPresentationDelivery(
   userId: string,
+  admin = false,
 ): Promise<PresentationRevisionStatus> {
+  if (admin) return emptyStatus();
   const paid = await getPresentationPaidRecord(userId);
   const r = getRedis();
   if (!paid || !r) return emptyStatus();
@@ -91,7 +95,9 @@ export interface PresentationRevisionReservation {
 
 export async function reservePresentationRevision(
   userId?: string,
+  admin = false,
 ): Promise<PresentationRevisionReservation> {
+  if (admin) return { ok: true, counted: false, status: emptyStatus(), rollback: async () => {} };
   if (!userId) return { ok: true, counted: false, status: emptyStatus(), rollback: async () => {} };
   const paid = await getPresentationPaidRecord(userId);
   const r = getRedis();
