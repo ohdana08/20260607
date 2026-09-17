@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "app/api/queues/operations-alert/route.ts": {
+      "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "operations-alerts-v1", "retryAfterSeconds": 30 }]
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/collect-programs",

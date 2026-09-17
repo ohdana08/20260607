@@ -161,13 +161,14 @@ test("async observer rejection cannot change a committed write or cause a retry"
   assert.equal(writes, 1);
 });
 
-function hostedRoute(outcome: "sent" | "skipped" | "failed", isAdmin = true) {
-  let alerts = 0;
+function hostedRoute(outcome: "queued" | "skipped" | "failed" | "unknown", isAdmin = true) {
+  let alerts = 0, fallbacks = 0;
   const imports: Record<string, unknown> = {
     "@/lib/auth/googleUser": { getGoogleUser: async () => ({ id: "synthetic-secret-user", isAdmin }) },
     "@/lib/operations/http": { operationsRequest, isLocalOperationsRequest: () => false },
     "@/lib/operations/storage": { createOperationsStore: () => { throw new Error("synthetic-secret-storage"); } },
-    "@/lib/operations/alert": { sendOperationsAlert: async () => { alerts++; return outcome; } },
+    "@/lib/operations/alert": { sendOperationsAlert: async () => { fallbacks++; return "sent"; } },
+    "@/lib/operations/alertQueue": { enqueueOperationsAlert: async () => { alerts++; return outcome; } },
   };
   const loaded = { exports: {} as { GET: (req: Request) => Promise<Response> } };
   const source = readFileSync(new URL("../app/api/operations/route.ts", import.meta.url), "utf8");
@@ -176,22 +177,25 @@ function hostedRoute(outcome: "sent" | "skipped" | "failed", isAdmin = true) {
     assert.ok(Object.hasOwn(imports, name), `Unexpected route import: ${name}`);
     return imports[name];
   } });
-  return { get: loaded.exports.GET, alertCount: () => alerts };
+  return { get: loaded.exports.GET, alertCount: () => alerts, fallbackCount: () => fallbacks };
 }
 
-test("hosted route logs each 5xx alert outcome separately with four safe fields", async (t) => {
+test("hosted route logs queue ACK and fallback Slack ACK separately without changing 503", async (t) => {
   const logs: string[] = [];
   t.mock.method(console, "error", (value: string) => { logs.push(value); });
   t.mock.method(console, "info", (value: string) => { logs.push(value); });
-  for (const outcome of ["sent", "skipped", "failed"] as const) {
+  for (const outcome of ["queued", "skipped", "failed", "unknown"] as const) {
     logs.length = 0;
     const route = hostedRoute(outcome);
     const response = await route.get(new Request("https://preview.invalid/api/operations?payload=synthetic-secret", { headers: { Authorization: "Bearer synthetic-secret-token" } }));
     assert.equal(response.status, 503);
     assert.equal(route.alertCount(), 1);
-    assert.equal(logs.length, 2);
+    const fallback = outcome === "failed" || outcome === "unknown";
+    assert.equal(logs.length, fallback ? 3 : 2);
+    assert.equal(route.fallbackCount(), fallback ? 1 : 0);
     assert.equal(JSON.parse(logs[0]).event, "operations_request");
-    assert.deepEqual(JSON.parse(logs[1]), { event: "operations_alert", requestId: response.headers.get("x-request-id"), status: 503, outcome });
+    assert.deepEqual(JSON.parse(logs[1]), { event: "operations_alert", requestId: response.headers.get("x-request-id"), status: 503, queue_ack: outcome });
+    if (fallback) assert.deepEqual(JSON.parse(logs[2]), { event: "operations_alert", requestId: response.headers.get("x-request-id"), status: 503, fallback_slack_ack: "sent" });
     assert.doesNotMatch(logs.join("\n"), /secret|token|channel|payload|user|https/);
   }
 });

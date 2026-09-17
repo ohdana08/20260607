@@ -7,6 +7,19 @@ export interface GoogleUser {
   email: string;
   isAdmin: boolean;
 }
+export class GoogleAuthDependencyError extends Error {
+  constructor(readonly reason: "timeout" | "rate_limited" | "upstream_error" | "network" | "invalid_response") {
+    super("Authentication service unavailable");
+    this.name = "GoogleAuthDependencyError";
+  }
+}
+export class GoogleAuthTimeoutError extends GoogleAuthDependencyError {
+  constructor() {
+    super("timeout");
+    this.name = "GoogleAuthTimeoutError";
+  }
+}
+const AUTH_TIMEOUT_MS = 2_000;
 
 function configuredAdminEmails(): Set<string> {
   return new Set(
@@ -30,15 +43,32 @@ function hasAdminMetadata(metadata: {
 }
 
 async function verifyGoogleToken(token: string): Promise<GoogleUser | null> {
+  const started = Date.now();
+  const signal = AbortSignal.timeout(AUTH_TIMEOUT_MS);
   try {
     const response = await fetch(`${AUTH_URL}/auth/v1/user`, {
       headers: { apikey: AUTH_ANON_KEY, Authorization: `Bearer ${token}` },
       cache: "no-store",
-      signal: AbortSignal.timeout(2_000),
+      signal,
     });
+    if (response.status === 429) throw new GoogleAuthDependencyError("rate_limited");
+    if (response.status >= 500) throw new GoogleAuthDependencyError("upstream_error");
     if (!response.ok) return null;
 
-    const user = (await response.json()) as {
+    let body: unknown;
+    try { body = await response.json(); }
+    catch { throw new GoogleAuthDependencyError("invalid_response"); }
+    if (!body || typeof body !== "object" || Array.isArray(body) ||
+      !("id" in body) || typeof body.id !== "string" || !body.id ||
+      ("email" in body && body.email !== undefined && typeof body.email !== "string")) {
+      throw new GoogleAuthDependencyError("invalid_response");
+    }
+    if (("app_metadata" in body && (!body.app_metadata || typeof body.app_metadata !== "object" || Array.isArray(body.app_metadata))) ||
+      ("identities" in body && (!Array.isArray(body.identities) || body.identities.some((identity) =>
+        !identity || typeof identity !== "object" || ("provider" in identity && typeof identity.provider !== "string"))))) {
+      throw new GoogleAuthDependencyError("invalid_response");
+    }
+    const user = body as {
       id?: string;
       email?: string;
       app_metadata?: {
@@ -60,8 +90,16 @@ async function verifyGoogleToken(token: string): Promise<GoogleUser | null> {
       hasAdminMetadata(user.app_metadata ?? {}) ||
       configuredAdminEmails().has(email.trim().toLowerCase());
     return { id: user.id, email, isAdmin };
-  } catch {
-    return null;
+  } catch (error) {
+    const failure = signal.aborted ? new GoogleAuthTimeoutError()
+      : error instanceof GoogleAuthDependencyError ? error : new GoogleAuthDependencyError("network");
+    try {
+      console.error(JSON.stringify({
+        event: "auth_verification", outcome: failure.reason, timeoutMs: AUTH_TIMEOUT_MS,
+        durationMs: Math.min(300_000, Math.max(0, Date.now() - started)),
+      }));
+    } catch { /* A metric sink cannot change authentication semantics. */ }
+    throw failure;
   }
 }
 
@@ -75,7 +113,10 @@ const requestUsers = new WeakMap<Request, {
 }>();
 const REQUEST_AUTH_WINDOW_MS = 5_000;
 
-export async function getGoogleUser(req: Request): Promise<GoogleUser | null> {
+export async function getGoogleUser(
+  req: Request,
+  options: { dependencyErrors?: boolean } = {},
+): Promise<GoogleUser | null> {
   const authorization = req.headers.get("authorization") ?? "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
   if (!token) { requestUsers.delete(req); return null; }
@@ -84,7 +125,14 @@ export async function getGoogleUser(req: Request): Promise<GoogleUser | null> {
     entry = { token, until: Date.now() + REQUEST_AUTH_WINDOW_MS, user: verifyGoogleToken(token) };
     requestUsers.set(req, entry);
   }
-  const user = await entry.user;
+  let user: GoogleUser | null;
+  try {
+    user = await entry.user;
+  } catch (error) {
+    if (requestUsers.get(req) === entry) requestUsers.delete(req);
+    if (options.dependencyErrors && error instanceof GoogleAuthDependencyError) throw error;
+    return null;
+  }
   // Do not retain transient errors or rejected sessions; the next check may retry.
   if (!user && requestUsers.get(req) === entry) requestUsers.delete(req);
   return user ? { ...user } : null;

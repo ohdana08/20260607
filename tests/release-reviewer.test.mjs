@@ -260,7 +260,7 @@ test("Redis release invariant: prestage retries persist after a temporary databa
 
 test("release invariant: operations refuses unauthenticated or non-admin access before touching storage", async () => {
   const domain = evaluate("lib/operations/domain.ts");
-  const { operationsRequest } = evaluate("lib/operations/http.ts", { imports: { "./domain.ts": domain, "node:crypto": { randomUUID } } });
+  const { operationsRequest } = evaluate("lib/operations/http.ts", { imports: { "./domain.ts": domain, "./storage.ts": { OperationsStorageAccessError: class extends Error {} }, "node:crypto": { randomUUID } } });
   for (const actor of [null, user]) for (const method of ["GET", "PUT"]) {
     const req = new Request("https://release.invalid/api/operations", { method });
     const response = await operationsRequest(req, {
@@ -274,7 +274,7 @@ test("release invariant: operations refuses unauthenticated or non-admin access 
 
 test("release invariant: operations local bypass is closed for production and hostile host", () => {
   const domain = evaluate("lib/operations/domain.ts");
-  const { isLocalOperationsRequest } = evaluate("lib/operations/http.ts", { imports: { "./domain.ts": domain, "node:crypto": { randomUUID } } });
+  const { isLocalOperationsRequest } = evaluate("lib/operations/http.ts", { imports: { "./domain.ts": domain, "./storage.ts": { OperationsStorageAccessError: class extends Error {} }, "node:crypto": { randomUUID } } });
   assert.equal(isLocalOperationsRequest(new Request("http://localhost/api/operations"), { NODE_ENV: "production", OPS_LOCAL_MODE: "on" }), false);
   assert.equal(isLocalOperationsRequest(new Request("http://localhost/api/operations", { headers: { host: "attacker.invalid" } }), { NODE_ENV: "development", OPS_LOCAL_MODE: "on" }), false);
   assert.equal(isLocalOperationsRequest(new Request("http://127.0.0.1/api/operations"), { NODE_ENV: "development", OPS_LOCAL_MODE: "on" }), true);

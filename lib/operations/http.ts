@@ -188,7 +188,7 @@ async function handleOperationsRequest(
       {
         error:
           "운영 기록을 저장하거나 불러오지 못했습니다. 입력을 유지한 채 다시 시도해 주세요.",
-        code: "storage_unavailable",
+        code: context.phase === "auth" ? "authentication_unavailable" : "storage_unavailable",
       },
       503,
     );
