@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { connection, encryptBackup, decryptBackup, keyFromEnv, makeBackup, privateWrite, readArchive,
-  snapshotSql, sqlLiteral, validateSnapshot, verifyOffsite, psql, processEnvironment, MIGRATION, ROOT } from '../scripts/operations-backup.mjs';
+  snapshotSql, sqlLiteral, validateSnapshot, verifyOffsite, psql, processEnvironment, MIGRATION, ROOT, SUPABASE_ROOT_CERT } from '../scripts/operations-backup.mjs';
 import { restoreDrill, restoreSql, canonical, stateDigest, LOCAL_AUTH_SHIM } from '../scripts/operations-backup-drill.mjs';
 import { reportBackupFailure } from '../scripts/operations-backup-notify.mjs';
 
@@ -73,7 +73,8 @@ test('actual psql subprocess receives neither unrelated secrets nor local sslroo
     assert.match(local, /^PGHOSTADDR=127\.0\.0\.1$/m); assert.match(local, /^PGSSLMODE=disable$/m);
     assert.doesNotMatch(local, /PGSSLROOTCERT=|OPS_BACKUP_|synthetic-secret/);
     const remote = await psql('select 1;', { url: 'postgresql://reader:synthetic@db.example/postgres?sslmode=verify-full', readOnly: true });
-    assert.match(remote, /^PGSSLROOTCERT=system$/m); assert.match(remote, /^PGSSLMODE=verify-full$/m);
+    assert.match(remote, new RegExp(`^PGSSLROOTCERT=${SUPABASE_ROOT_CERT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
+    assert.match(remote, /^PGSSLMODE=verify-full$/m);
     assert.doesNotMatch(remote, /PGHOSTADDR=|OPS_BACKUP_|synthetic-secret/);
     assert.match(remote, /default_transaction_read_only=on/);
   } finally {

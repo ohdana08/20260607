@@ -50,7 +50,6 @@ jobs:
           OPS_BACKUP_DATABASE_URL: ${{ secrets.OPS_BACKUP_DATABASE_URL }}
           OPS_BACKUP_SCOPE: ${{ secrets.OPS_BACKUP_SCOPE }}
           OPS_BACKUP_KEY_BASE64: ${{ secrets.OPS_BACKUP_KEY_BASE64 }}
-          PGSSLROOTCERT: system
       - name: Upload encrypted offsite copy
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

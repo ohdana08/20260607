@@ -10,6 +10,7 @@ const MAGIC = Buffer.from('DDOPS001');
 export const MAX_BYTES = 64 * 1024 * 1024;
 export const MIGRATION = 'supabase/migrations/20260917124905_operations_postgres_rpc.sql';
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+export const SUPABASE_ROOT_CERT = resolve(ROOT, 'infra/supabase/prod-ca-2021.crt');
 const SCOPE = /^[a-z][a-z0-9_-]{0,63}$/;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export class BackupError extends Error { constructor(code) { super(code); this.name = 'BackupError'; } }
@@ -117,7 +118,7 @@ export async function psql(sql, { url, docker = false, database, readOnly = fals
   try {
     const child = exec(command, args, { cwd: ROOT, encoding: 'utf8', maxBuffer: MAX_BYTES, timeout: 45_000,
       env: { ...processEnvironment(), ...pg, PGOPTIONS: options, PGCONNECT_TIMEOUT: '10',
-        ...(pg.PGSSLMODE === 'verify-full' ? { PGSSLROOTCERT: 'system' } : {}),
+        ...(pg.PGSSLMODE === 'verify-full' ? { PGSSLROOTCERT: SUPABASE_ROOT_CERT } : {}),
         PGPASSFILE: '/dev/null', PGSERVICE: '', PGSERVICEFILE: '/dev/null' } });
     child.child.stdin.on('error', () => {}); child.child.stdin.end(sql);
     return (await child).stdout.trim();
