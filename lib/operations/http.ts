@@ -8,7 +8,7 @@ import {
   validMonth,
   type OperationsMonth,
 } from "./domain.ts";
-import type { OperationsStore } from "./storage.ts";
+import { OperationsStorageAccessError, type OperationsStore } from "./storage.ts";
 import { randomUUID } from "node:crypto";
 export interface Operator {
   id: string;
@@ -167,13 +167,8 @@ async function handleOperationsRequest(
       );
     const next = applyCommand(current, mutation.command, user.id, now);
     context.phase = "write";
-    if (
-      !(await store.compareAndSet(
-        mutation.month,
-        mutation.expectedRevision,
-        next,
-      ))
-    )
+    const stored = await store.compareAndSet(mutation.month, mutation.expectedRevision, next);
+    if (stored === null)
       return reply(
         {
           error:
@@ -182,10 +177,12 @@ async function handleOperationsRequest(
         },
         409,
       );
-    return reply(view(next, now, Boolean(deps.local)));
+    return reply(view(stored, now, Boolean(deps.local)));
   } catch (error) {
     if (error instanceof InputError)
       return reply({ error: error.message, code: "invalid_input" }, 400);
+    if (error instanceof OperationsStorageAccessError)
+      return reply({ error: "운영 기록 접근 권한을 확인해 주세요.", code: "storage_forbidden" }, 403);
     return reply(
       {
         error:

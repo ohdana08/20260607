@@ -14,7 +14,7 @@ test("operations failure is correlated and records phase without secrets or cust
   const events: OperationsEvent[] = [];
   const response = await operationsRequest(new Request("https://release.invalid/api/operations?secret=PRIVATE", { headers: { authorization: "Bearer PRIVATE", "x-request-id": "attacker" } }), {
     authenticate: async () => ({ id: "PRIVATE", isAdmin: true }),
-    store: () => ({ read: async () => { throw new Error("PRIVATE database credential"); }, compareAndSet: async () => false }),
+    store: () => ({ read: async () => { throw new Error("PRIVATE database credential"); }, compareAndSet: async () => null }),
     observe: (event) => { events.push(event); },
   });
   assert.equal(response.status, 503);
@@ -34,7 +34,7 @@ test("observability failure does not change the success of an atomic mutation", 
     body: JSON.stringify({ month: "2026-09", expectedRevision: 0, command: { kind: "goal", value: { ...stored.goal, targetKrw: 2000000 } } }),
   }), {
     authenticate: async () => ({ id: "operator", isAdmin: true }),
-    store: () => ({ read: async () => stored, compareAndSet: async (_month, _revision, next) => { stored = next; return true; } }),
+    store: () => ({ read: async () => stored, compareAndSet: async (_month, _revision, next) => { stored = next; return structuredClone(stored); } }),
     observe() { throw new Error("offline sink"); },
   });
   assert.equal(response.status, 200);

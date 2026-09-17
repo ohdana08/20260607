@@ -13,7 +13,7 @@ function handle(req: Request) {
     authenticate: local
       ? async () => ({ id: "local-operator", isAdmin: true })
       : getGoogleUser,
-    store: () => createOperationsStore(local),
+    store: () => createOperationsStore(local, req.headers.get("authorization")),
   });
 }
 export const GET = handle;

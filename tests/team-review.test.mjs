@@ -22,7 +22,7 @@ function evaluate(file, { before = false, imports = {}, globals = {}, env = {} }
   }).outputText;
   vm.runInNewContext(code, {
     module: loaded, exports: loaded.exports, require, process: { env },
-    Request, Response, Headers, Date, AbortController, structuredClone,
+    Request, Response, Headers, Date, AbortController, AbortSignal, structuredClone,
     setTimeout, clearTimeout, console,
     fetch: () => { throw new Error("Reviewer tests forbid network"); }, ...globals,
   }, { filename: sourcePath });

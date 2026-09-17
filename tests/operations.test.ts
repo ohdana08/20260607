@@ -22,9 +22,12 @@ import {
 } from "../lib/operations/http.ts";
 import {
   LocalOperationsStore,
-  CAS_SCRIPT,
+  PostgresOperationsStore,
+  OPERATIONS_RPC_TIMEOUT_MS,
+  OperationsStorageAccessError,
   type OperationsStore,
 } from "../lib/operations/storage.ts";
+import { AUTH_ANON_KEY, AUTH_URL } from "../lib/auth/config.ts";
 
 const now = new Date("2026-09-17T00:00:00Z");
 const zero: Snapshot = {
@@ -47,9 +50,9 @@ class MemoryStore implements OperationsStore {
     return structuredClone(this.values.get(month) ?? null);
   }
   async compareAndSet(month: string, revision: number, next: OperationsMonth) {
-    if ((this.values.get(month)?.revision ?? 0) !== revision) return false;
+    if ((this.values.get(month)?.revision ?? 0) !== revision) return null;
     this.values.set(month, structuredClone(next));
-    return true;
+    return structuredClone(next);
   }
 }
 const mutation = (value: unknown = zero, revision = 0) => ({
@@ -424,7 +427,8 @@ test("local adapter persists across instances and performs atomic compare-and-se
     first.compareAndSet("2026-09", 0, state),
     new LocalOperationsStore(dir).compareAndSet("2026-09", 0, state),
   ]);
-  assert.deepEqual(results.sort(), [false, true]);
+  assert.equal(results.filter((value) => value === null).length, 1);
+  assert.deepEqual(results.find((value) => value !== null), state);
   assert.equal(
     (await new LocalOperationsStore(dir).read("2026-09"))?.revision,
     1,
@@ -435,9 +439,140 @@ test("local adapter persists across instances and performs atomic compare-and-se
     1,
   );
 });
-test("Redis compare-and-set script checks revision before writing", () => {
-  assert.match(CAS_SCRIPT, /revision ~= tonumber\(ARGV\[1\]\)/);
-  assert.ok(
-    CAS_SCRIPT.indexOf("return 0") < CAS_SCRIPT.indexOf("redis.call('SET'"),
-  );
+const testCapability = "synthetic-capability-only-".padEnd(43, "x");
+const rpcState = () => applyCommand(initialMonth("2026-09"), { kind: "snapshot", value: zero }, "operator-1", now);
+test("Postgres reads forward each request JWT and public key with server-only scope capability", async () => {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const transport: typeof fetch = async (url, init) => {
+    calls.push({ url: String(url), init: init! });
+    return Response.json(calls.length === 1 ? null : rpcState());
+  };
+  assert.equal(await new PostgresOperationsStore("Bearer jwt-one", "preview", testCapability, transport).read("2026-09"), null);
+  assert.deepEqual(await new PostgresOperationsStore("Bearer jwt-two", "preview", testCapability, transport).read("2026-09"), rpcState());
+  for (const [index, { url, init }] of calls.entries()) {
+    assert.equal(url, `${AUTH_URL}/rest/v1/rpc/ddakfit_operations_read`);
+    assert.deepEqual(init.headers, { apikey: AUTH_ANON_KEY, Authorization: `Bearer jwt-${index === 0 ? "one" : "two"}`, "Content-Type": "application/json" });
+    assert.deepEqual(JSON.parse(String(init.body)), { p_month: "2026-09", p_scope: "preview", p_capability: testCapability });
+    assert.equal(init.method, "POST");
+    assert.equal(init.cache, "no-store");
+    assert.equal(init.redirect, "error");
+    assert.ok(init.signal instanceof AbortSignal);
+  }
+  assert.equal(OPERATIONS_RPC_TIMEOUT_MS, 3_000);
+});
+test("Postgres CAS returns canonical state or conflict null and binds expected revision", async () => {
+  let count = 0;
+  const state = rpcState();
+  const store = new PostgresOperationsStore("Bearer test-jwt", "preview", testCapability, async (url, init) => {
+    count++;
+    assert.equal(String(url), `${AUTH_URL}/rest/v1/rpc/ddakfit_operations_compare_and_set`);
+    assert.deepEqual(JSON.parse(String(init?.body)), { p_month: "2026-09", p_expected_revision: 0, p_next: state, p_scope: "preview", p_capability: testCapability });
+    return Response.json(count === 1 ? state : null);
+  });
+  assert.deepEqual(await store.compareAndSet("2026-09", 0, state), state);
+  assert.equal(await store.compareAndSet("2026-09", 0, state), null);
+  assert.equal(count, 2);
+});
+test("Postgres rejects absent identity, capability and invalid revisions before network access", async () => {
+  for (const authorization of ["", "Basic token", "Bearer ", "Bearer a b"]) {
+    assert.throws(() => new PostgresOperationsStore(authorization, "preview", testCapability), /authentication required/);
+  }
+  for (const [scope, capability] of [["../production", testCapability], ["preview", ""], ["preview", "too-short"]]) {
+    assert.throws(() => new PostgresOperationsStore("Bearer test-jwt", scope, capability), /not configured/);
+  }
+  const store = new PostgresOperationsStore("Bearer test-jwt", "preview", testCapability, async () => { throw new Error("network must not be called"); });
+  await assert.rejects(store.read("../2026-09"), /Invalid operations month/);
+  for (const revision of [-1, 0.5, Number.MAX_SAFE_INTEGER, 1]) {
+    await assert.rejects(store.compareAndSet("2026-09", revision, rpcState()), /Invalid operations revision/);
+  }
+  await assert.rejects(store.compareAndSet("2026-08", 0, rpcState()), /Invalid operations revision/);
+});
+test("Postgres RPC failures are redacted and writes are never automatically retried", async () => {
+  for (const response of [
+    () => new Response("secret upstream detail and test-jwt", { status: 503 }),
+    () => new Response("not-json", { status: 200 }),
+    () => Response.json({ result: true }),
+  ]) {
+    let calls = 0;
+    const store = new PostgresOperationsStore("Bearer test-jwt", "preview", testCapability, async () => { calls++; return response(); });
+    await assert.rejects(store.compareAndSet("2026-09", 0, rpcState()), { message: "Operations storage unavailable" });
+    assert.equal(calls, 1);
+  }
+});
+test("Postgres rejects malformed or cross-month read envelopes", async () => {
+  for (const value of [false, {}, { ...rpcState(), revision: 0 }, { ...rpcState(), goal: { ...rpcState().goal, month: "2026-08" } }, { ...rpcState(), snapshots: null }]) {
+    const store = new PostgresOperationsStore("Bearer test-jwt", "preview", testCapability, async () => Response.json(value));
+    await assert.rejects(store.read("2026-09"), { message: "Operations storage unavailable" });
+  }
+});
+test("Postgres aborts stalled writes without a retry or leaking transport errors", async () => {
+  let calls = 0;
+  let signal: AbortSignal | null | undefined;
+  const store = new PostgresOperationsStore("Bearer test-jwt", "preview", testCapability, async (_url, init) => {
+    calls++;
+    signal = init?.signal;
+    return new Promise<Response>((_resolve, reject) => signal!.addEventListener("abort", () => reject(new Error("secret transport failure")), { once: true }));
+  }, 15);
+  const keepAlive = setTimeout(() => {}, 1_000);
+  try {
+    await assert.rejects(store.compareAndSet("2026-09", 0, rpcState()), { message: "Operations storage unavailable" });
+    assert.equal(signal?.aborted, true);
+    assert.equal(calls, 1);
+  } finally {
+    clearTimeout(keepAlive);
+  }
+});
+test("Postgres conflict maps to HTTP 409 while outage maps to safe HTTP 503", async () => {
+  for (const fail of [false, true]) {
+    let writes = 0;
+    const store = new PostgresOperationsStore("Bearer test-jwt", "preview", testCapability, async (url) => {
+      if (String(url).endsWith("_read")) return Response.json(null);
+      writes++;
+      return fail ? new Response("synthetic-secret", { status: 503 }) : Response.json(null);
+    });
+    const res = await operationsRequest(put(), deps(store));
+    assert.equal(res.status, fail ? 503 : 409);
+    assert.doesNotMatch(await res.text(), /synthetic-secret|test-jwt|capability/);
+    assert.ok(res.headers.get("x-request-id"));
+    assert.equal(writes, 1);
+  }
+});
+
+test("Postgres 401/403 become typed storage denial and safe API 403", async () => {
+  for (const status of [401, 403]) {
+    const store = new PostgresOperationsStore("Bearer test-jwt", "preview", testCapability, async () => new Response("secret policy detail", { status }));
+    await assert.rejects(store.read("2026-09"), OperationsStorageAccessError);
+    for (const req of [new Request("http://localhost/api/operations?month=2026-09"), put()]) {
+      const response = await operationsRequest(req, deps(store));
+      assert.equal(response.status, 403);
+      assert.deepEqual(await response.json(), { error: "운영 기록 접근 권한을 확인해 주세요.", code: "storage_forbidden" });
+    }
+  }
+});
+test("database input contract errors stay redacted server failures", async () => {
+  const store = new PostgresOperationsStore("Bearer test-jwt", "preview", testCapability, async () => new Response("private SQL contract", { status: 400 }));
+  const response = await operationsRequest(put(), deps(store));
+  assert.equal(response.status, 503);
+  assert.doesNotMatch(await response.text(), /SQL|private/);
+});
+test("PUT returns the canonical database audit and matches the next GET without extra RPC", async () => {
+  let stored: OperationsMonth | null = null;
+  let calls = 0;
+  const store = new PostgresOperationsStore("Bearer test-jwt", "preview", testCapability, async (url, init) => {
+    calls++;
+    if (String(url).endsWith("_read")) return Response.json(stored);
+    stored = JSON.parse(String(init?.body)).p_next;
+    stored!.audit[0].at = "2026-09-17T00:00:00.789Z";
+    stored!.audit[0].actorId = "database-verified-operator";
+    return Response.json(stored);
+  });
+  const written = await operationsRequest(put(), deps(store));
+  assert.equal(written.status, 200);
+  assert.equal(calls, 2);
+  const saved = (await written.json()).state;
+  assert.equal(saved.audit[0].at, "2026-09-17T00:00:00.789Z");
+  assert.equal(saved.audit[0].actorId, "database-verified-operator");
+  const read = await operationsRequest(new Request("http://localhost/api/operations?month=2026-09"), deps(store));
+  assert.deepEqual((await read.json()).state, saved);
+  assert.equal(calls, 3);
 });

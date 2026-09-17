@@ -34,6 +34,7 @@ async function verifyGoogleToken(token: string): Promise<GoogleUser | null> {
     const response = await fetch(`${AUTH_URL}/auth/v1/user`, {
       headers: { apikey: AUTH_ANON_KEY, Authorization: `Bearer ${token}` },
       cache: "no-store",
+      signal: AbortSignal.timeout(2_000),
     });
     if (!response.ok) return null;
 
