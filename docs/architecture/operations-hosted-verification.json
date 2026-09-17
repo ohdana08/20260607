@@ -1,0 +1,49 @@
+{
+  "verifiedAt": "2026-09-18T05:55:56+09:00",
+  "commit": "1f0c291",
+  "environment": "isolated Vercel Preview",
+  "productionModified": false,
+  "healthy": {
+    "deploymentId": "dpl_4RxN2feKLiwbhifzfAG7eTEmiRLv",
+    "deploymentUrl": "https://20260607-kqzypzdf0-jinjoos-projects.vercel.app",
+    "stableAlias": "https://ddakfit-operations-preview.vercel.app",
+    "adminUiLoaded": true,
+    "restoredRevision": 2
+  },
+  "nonAdminGate": {
+    "deploymentId": "dpl_8soa7zumEzKzSGpEQcA6ESbhjfCQ",
+    "requestId": "7f28e4d5-4bd9-4325-b9fc-1c0f983e3a00",
+    "status": 403,
+    "phase": "auth",
+    "durationMs": 386,
+    "alertQueued": false
+  },
+  "durableAlert": {
+    "deploymentId": "dpl_BZmeoi6nb2uPkgjACbLJC3irbDGz",
+    "requestId": "20a29c29-e6ab-4720-a390-31ad08a5ede8",
+    "status": 503,
+    "phase": "read",
+    "durationMs": 684,
+    "queueAck": "queued",
+    "workerAttempt": 1,
+    "workerOutcome": "sent",
+    "workerHttpStatus": 200,
+    "slackHistoryApiOk": true,
+    "slackMessageFound": true,
+    "slackReceivedAt": "2026-09-17T20:55:55.972Z"
+  },
+  "localVerification": {
+    "release": { "passed": 249, "skippedOptInBackupIntegration": 1 },
+    "releaseIntegration": { "passed": 36 },
+    "postgres17BackupRestore": { "passed": 11 },
+    "productionWebpackBuild": "passed",
+    "typescriptAfterBuild": "passed",
+    "eslint": "passed"
+  },
+  "remainingBeforeProduction": [
+    "Activate the GitHub Actions backup with a least-privilege database reader and independently escrowed encryption key",
+    "Prove a real GitHub artifact upload, re-download and isolated restore, plus missing-run freshness monitoring",
+    "Configure Auth dependency rate and latency alert thresholds and prove recovery",
+    "Run production-domain OAuth, 401, 403, admin, CAS and rollback regression without injecting failures into production"
+  ]
+}

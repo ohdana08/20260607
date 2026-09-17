@@ -1,6 +1,6 @@
 # Operations Auth 장애와 내구성 있는 알림
 
-2026-09-18 구현 후보. 이 문서는 로컬 코드·합성 검증 계약을 설명한다. Queue/DLQ의 hosted 송수신, 배포, 실제 알림 재전달은 아직 실행하지 않았다.
+2026-09-18 구현 및 격리 Preview 검증 결과. 로컬 계약과 hosted Queue 전달 증거를 함께 설명한다. 운영 배포는 수행하지 않았다.
 
 ## 인증 실패 분류
 
@@ -30,8 +30,12 @@ Operations는 `getGoogleUser(request, { dependencyErrors: true })`를 사용한�
 
 ## 검증 경계
 
-합성 테스트는 실제 어댑터·route·HTTP handler를 실행해 인증 분류, 큐 payload 제한, 24시간 TTL/requestId, 재시작 후 재전달, 늦은 ACK와 중복 fallback, 8회 한도, 긴 Retry-After, 실패 큐 handoff 실패 시 미ACK, 비밀값 비노출을 검증한다. SDK 및 Vercel의 실제 보존·내부 callback 격리·OIDC·배포 간 전달은 배포 후 hosted 검증 대상이다. `durationMs`는 큐·Slack 대기 전 요청 처리시간이며 전체 응답 지연이 아니다.
+합성 테스트는 실제 어댑터·route·HTTP handler를 실행해 인증 분류, 큐 payload 제한, 24시간 TTL/requestId, 재시작 후 재전달, 늦은 ACK와 중복 fallback, 8회 한도, 긴 Retry-After, 실패 큐 handoff 실패 시 미ACK, 비밀값 비노출을 검증한다. `durationMs`는 큐·Slack 대기 전 요청 처리시간이며 전체 응답 지연이 아니다.
 
-최종 로컬 검증: `test:operations` 78/78, `test:release` 250개 중 249 통과·별도 opt-in PostgreSQL 백업 통합 1개 skip, release-reviewer의 operations 접근 경계 2/2 통과. 수정 파일 ESLint, `git diff --check`, Next.js webpack 프로덕션 빌드와 빌드 타입 검사를 통과했다. `test:backup`을 별도 제공하고 백업 단위 테스트를 `test:release`에도 포함했다. 실제 PG17 백업 통합 검증은 별도 실행 결과로 구분한다.
+커밋 `1f0c291`의 격리 Preview에서 503 requestId `20a29c29-e6ab-4720-a390-31ad08a5ede8`이 `queue_ack=queued`로 확인됐고, 발행 deployment에 고정된 내부 callback이 attempt 1에서 Slack `outcome=sent`와 HTTP 200을 기록했다. BCC Slack history에서도 같은 requestId가 실제 확인됐다. 비관리자 배포는 requestId `7f28e4d5-4bd9-4325-b9fc-1c0f983e3a00`, `403/phase=auth`였고 큐 이벤트가 없었다. Preview 별칭은 정상 배포 `dpl_4RxN2feKLiwbhifzfAG7eTEmiRLv`로 복구했다. 세부 증거는 `operations-hosted-verification.json`에 있다.
+
+실제 장시간 재시도, worker 재시작, 8회 실패 후 DLQ 적재와 24시간 보존 만료는 장애를 길게 유지해야 하므로 hosted에서 주입하지 않았다. 해당 경계는 합성 계약 테스트와 Vercel Queue SDK 계약으로 검증했으며, 운영 전에는 적체·최대 메시지 나이 경보와 구버전 deployment drain 정책이 필요하다.
+
+최종 로컬 검증: `test:operations` 78/78, `test:release` 250개 중 249 통과·별도 opt-in PostgreSQL 백업 통합 1개 skip, `test:release:integration` 36/36, 실제 PostgreSQL 17 백업·복원 11/11을 통과했다. 수정 파일 ESLint, `git diff --check`, Next.js webpack 프로덕션 빌드와 빌드 후 타입 검사를 통과했다. `test:backup`을 별도 제공하고 백업 단위 테스트를 `test:release`에도 포함했다.
 
 공식 근거: [Vercel Queue SDK](https://vercel.com/docs/queues/sdk), [Queue concepts](https://vercel.com/docs/queues/concepts), [Slack chat.postMessage](https://docs.slack.dev/reference/methods/chat.postMessage/). SDK의 현재 최대 TTL과 별개로 이 구현은 승인된 24시간만 사용한다.
