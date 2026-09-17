@@ -19,7 +19,7 @@ interface Dependencies {
   store: () => OperationsStore;
   now?: () => Date;
   local?: boolean;
-  observe?: (event: OperationsEvent) => void;
+  observe?: (event: OperationsEvent) => void | Promise<void>;
 }
 export interface OperationsEvent {
   event: "operations_request";
@@ -27,6 +27,7 @@ export interface OperationsEvent {
   method: string;
   phase: "method" | "auth" | "origin" | "input" | "read" | "write";
   status: number;
+  // Request handling time before optional alert delivery; excludes Slack wait.
   durationMs: number;
 }
 export function isLocalOperationsRequest(
@@ -208,11 +209,15 @@ export async function operationsRequest(req: Request, deps: Dependencies): Promi
   };
   // Only bounded metadata. Never log user identifiers, payloads, URLs or error text.
   try {
-    if (deps.observe) deps.observe(event);
-    else if (event.status >= 500) console.error(JSON.stringify(event));
+    if (event.status >= 500) console.error(JSON.stringify(event));
     else console.info(JSON.stringify(event));
   } catch {
     // A log sink cannot change a completed write into a reported failure.
+  }
+  try {
+    await deps.observe?.(event);
+  } catch {
+    // An optional alert failure cannot alter the original response either.
   }
   return response;
 }
