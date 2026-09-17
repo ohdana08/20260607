@@ -10,7 +10,7 @@ import {
   planArtifactDigest,
   planSectionsDigest,
 } from "@/lib/plan/artifacts";
-import type { PlanDocxSection } from "@/lib/plan/docx";
+import type { PlanDocxSection } from "@/lib/plan/documentTypes";
 import {
   checkPresentationAccess,
   markPresentationCreditUsed,
@@ -43,6 +43,9 @@ interface ProgramInput {
 }
 
 const SYSTEM_RULES = `당신은 정부지원사업 발표평가 자료를 신청자와 티키타카로 만드는 수석 코치입니다.
+
+[출력 분량]
+reply 250자, coveredSummary 200자, claims는 이번 대화에서 새로 확인한 것만 최대 3개. 기존 주장 장부를 반복 출력하지 마세요. claim text 150자, assumption/verificationPlan 각각 100자 이하. 개인 경험이나 실적이 없다는 진술은 그 자체로 missing이 아닙니다.
 
 [대화 목표]
 - 이미 완성된 사업계획서, 신청자 원답변, 근거팩, 전략팩을 먼저 읽고 이미 아는 것을 다시 묻지 마세요.
@@ -135,7 +138,7 @@ export async function POST(req: Request) {
   const loginGate = await paidGoogleLoginGate(req, code);
   if (loginGate) return loginGate;
   const rl = await checkRateLimit(req, "planPresentationChat");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
   const access = await checkPresentationAccess(req, code, program?.id);
   if (!access.ok) return presentationPaymentRequiredResponse(access.reason);
   if (access.user && !access.admin && !access.paid?.consentedAt) {
@@ -145,7 +148,7 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
-    if (!(await markPresentationServiceConsent(access.user.id))) {
+    if (!(await markPresentationServiceConsent(access.user.id, access.paid?.orderNo))) {
       return Response.json({ error: "발표자료 시작 동의를 저장하지 못했어요." }, { status: 503 });
     }
   }
@@ -191,6 +194,9 @@ export async function POST(req: Request) {
     return Response.json({ error: "사업계획서 모의심사를 먼저 실행해 주세요." }, { status: 409 });
   }
 
+  if (access.user && !access.admin && (!program?.id || !(await markPresentationCreditUsed(access.user.id, program.id, access.paid?.orderNo)))) {
+    return presentationPaymentRequiredResponse("presentation_credit_used");
+  }
   const reservation = await reservePresentationAiCall({
     userId: access.user?.id,
     bypassBudget: access.admin,
@@ -198,7 +204,7 @@ export async function POST(req: Request) {
     provider,
     tier: "fast",
     estimatedInputTokens: 55_000,
-    maxOutputTokens: 2600,
+    maxOutputTokens: 4500,
   });
   if (!reservation.ok) return aiBudgetExceededResponse(reservation);
 
@@ -217,14 +223,13 @@ ${JSON.stringify({ progress: progress ?? null, claimLedger: (claimLedger ?? []).
       system: `${SYSTEM_RULES}\n\n${context}\n\n${currentState}`,
       messages: messages.slice(-36),
       schema: {},
-      maxTokens: 2600,
+      maxTokens: 4500,
       onUsage: async (usage) => {
         await reservation.complete(usage);
         completed = true;
       },
     });
     const reply = normalizePresentationInterviewReply(raw, evidence);
-    if (access.user && program?.id) await markPresentationCreditUsed(access.user.id, program.id);
     return Response.json(reply, {
       headers: { "Cache-Control": "no-store" },
     });

@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { extractJson } from "./json";
-import type { ChatMsg, LlmUsage } from "./provider";
+import type { ChatMsg, LlmUsage } from "./types";
 import type { EvidenceSource } from "@/lib/plan/strategy";
 
 let singleton: Anthropic | null = null;
@@ -125,9 +125,29 @@ export async function researchJson<T>(args: {
         }
       }
     }
-    if (response.stop_reason !== "pause_turn" || remainingSearches === 0) break;
     history.push({ role: "assistant", content: response.content as Anthropic.ContentBlockParam[] });
+    if (response.stop_reason !== "pause_turn" || remainingSearches === 0) break;
   }
-  await args.onUsage?.(totals);
-  return { data: extractJson<T>(finalText), searchedSources: [...searched.values()] };
+  try {
+    let data: T;
+    try {
+      data = extractJson<T>(finalText);
+    } catch {
+      // Search can stop on a tool turn, or return prose instead of the required envelope.
+      // One bounded synthesis pass uses only collected material and cannot search again.
+      const response = await client().messages.create({
+        model, max_tokens: args.maxTokens,
+        system: args.system + "\n검색을 마쳤습니다. 이미 확인한 자료와 사용자 설명만 사용해 요구된 JSON을 간결하게 완성하세요. 확인하지 못한 외부 사실은 gaps에 남기세요. 설명이나 검색 도구 호출 없이 JSON만 출력하세요.",
+        messages: [...history, { role: "user", content: "위에서 확보한 내용으로 최종 JSON을 작성하세요. sources 최대 6개, gaps 최대 4개, 설명은 각 100자 이하. 검색 결과가 없으면 sources는 빈 배열로 두세요." }],
+      });
+      totals.inputTokens += response.usage.input_tokens ?? 0;
+      totals.outputTokens += response.usage.output_tokens ?? 0;
+      if (response.stop_reason === "max_tokens") throw new Error("research synthesis truncated");
+      const result = response.content.filter((block): block is Anthropic.TextBlock => block.type === "text").map(block => block.text).join("");
+      data = extractJson<T>(result);
+    }
+    return { data, searchedSources: [...searched.values()] };
+  } finally {
+    await args.onUsage?.(totals);
+  }
 }

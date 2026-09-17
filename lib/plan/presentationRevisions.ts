@@ -1,3 +1,8 @@
+import { createRevisionService } from "./revisionService";
+import type {
+  RevisionStatus as PresentationRevisionStatus,
+  RevisionReservation as PresentationRevisionReservation,
+} from "./revisionTypes";
 import { Redis } from "@upstash/redis";
 import { getPresentationPaidRecord } from "./presentationAccess";
 import {
@@ -14,122 +19,40 @@ function getRedis(): Redis | null {
   return redis;
 }
 
-const DELIVERY_KEY = (orderNo: string) => `gp:presentation-delivery:${orderNo}`;
-const REVISION_COUNT_KEY = (orderNo: string) => `gp:presentation-revision-count:${orderNo}`;
-
-interface DeliveryRecord {
-  deliveredAt: string;
-  expiresAt: string;
-}
-
-export interface PresentationRevisionStatus {
-  max: number;
-  used: number;
-  remaining: number;
-  deliveredAt: string | null;
-  expiresAt: string | null;
-  expired: boolean;
-}
-
-function emptyStatus(): PresentationRevisionStatus {
-  return {
+const service = createRevisionService(
+  {
     max: PRESENTATION_MAX_REVISIONS,
-    used: 0,
-    remaining: PRESENTATION_MAX_REVISIONS,
-    deliveredAt: null,
-    expiresAt: null,
-    expired: false,
-  };
-}
+    windowDays: PRESENTATION_REVISION_WINDOW_DAYS,
+    deliveryKey: (orderNo) => `gp:presentation-delivery:${orderNo}`,
+    countKey: (orderNo) => `gp:presentation-revision-count:${orderNo}`,
+  },
+  { getPaidRecord: getPresentationPaidRecord, getStore: getRedis },
+);
 
-export async function getPresentationRevisionStatus(
+export type {
+  RevisionStatus as PresentationRevisionStatus,
+  RevisionReservation as PresentationRevisionReservation,
+} from "./revisionTypes";
+
+export function getPresentationRevisionStatus(
   userId: string,
   admin = false,
 ): Promise<PresentationRevisionStatus> {
-  if (admin) return emptyStatus();
-  const paid = await getPresentationPaidRecord(userId);
-  const r = getRedis();
-  if (!paid || !r) return emptyStatus();
-  const [delivery, rawUsed] = await Promise.all([
-    r.get<DeliveryRecord>(DELIVERY_KEY(paid.orderNo)),
-    r.get<number>(REVISION_COUNT_KEY(paid.orderNo)),
-  ]);
-  const used = Math.max(0, Math.min(PRESENTATION_MAX_REVISIONS, Number(rawUsed ?? 0)));
-  const expired = Boolean(delivery && Date.parse(delivery.expiresAt) < Date.now());
-  return {
-    max: PRESENTATION_MAX_REVISIONS,
-    used,
-    remaining: expired ? 0 : Math.max(0, PRESENTATION_MAX_REVISIONS - used),
-    deliveredAt: delivery?.deliveredAt ?? null,
-    expiresAt: delivery?.expiresAt ?? null,
-    expired,
-  };
+  return service.getStatus(userId, admin);
 }
 
-export async function markFirstPresentationDelivery(
+export function markFirstPresentationDelivery(
   userId: string,
   admin = false,
 ): Promise<PresentationRevisionStatus> {
-  if (admin) return emptyStatus();
-  const paid = await getPresentationPaidRecord(userId);
-  const r = getRedis();
-  if (!paid || !r) return emptyStatus();
-  const deliveredAt = new Date();
-  const expiresAt = new Date(
-    deliveredAt.getTime() + PRESENTATION_REVISION_WINDOW_DAYS * 24 * 60 * 60 * 1000,
-  );
-  await r.set(
-    DELIVERY_KEY(paid.orderNo),
-    { deliveredAt: deliveredAt.toISOString(), expiresAt: expiresAt.toISOString() } satisfies DeliveryRecord,
-    { nx: true },
-  );
-  return getPresentationRevisionStatus(userId);
+  return service.markFirstDelivery(userId, admin);
 }
 
-export interface PresentationRevisionReservation {
-  ok: boolean;
-  counted: boolean;
-  status: PresentationRevisionStatus;
-  rollback: () => Promise<void>;
-}
-
-export async function reservePresentationRevision(
+export function reservePresentationRevision(
   userId?: string,
   admin = false,
 ): Promise<PresentationRevisionReservation> {
-  if (admin) return { ok: true, counted: false, status: emptyStatus(), rollback: async () => {} };
-  if (!userId) return { ok: true, counted: false, status: emptyStatus(), rollback: async () => {} };
-  const paid = await getPresentationPaidRecord(userId);
-  const r = getRedis();
-  if (!paid || !r) return { ok: false, counted: false, status: emptyStatus(), rollback: async () => {} };
-  const before = await getPresentationRevisionStatus(userId);
-  if (!before.deliveredAt) {
-    return { ok: true, counted: false, status: before, rollback: async () => {} };
-  }
-  if (before.expired || before.remaining <= 0) {
-    return { ok: false, counted: false, status: before, rollback: async () => {} };
-  }
-  const used = await r.incr(REVISION_COUNT_KEY(paid.orderNo));
-  if (used > PRESENTATION_MAX_REVISIONS) {
-    await r.decr(REVISION_COUNT_KEY(paid.orderNo));
-    return {
-      ok: false,
-      counted: false,
-      status: await getPresentationRevisionStatus(userId),
-      rollback: async () => {},
-    };
-  }
-  let settled = false;
-  return {
-    ok: true,
-    counted: true,
-    status: await getPresentationRevisionStatus(userId),
-    async rollback() {
-      if (settled) return;
-      settled = true;
-      await r.decr(REVISION_COUNT_KEY(paid.orderNo));
-    },
-  };
+  return service.reserve(userId, admin);
 }
 
 export function presentationRevisionUnavailableResponse(

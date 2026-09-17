@@ -9,7 +9,7 @@ import {
 } from "@/lib/config";
 import { track } from "@/lib/ga";
 import type { Program } from "@/lib/match/types";
-import type { PlanDocxSection } from "@/lib/plan/docx";
+import type { PlanDocxSection } from "@/lib/plan/documentTypes";
 import {
   mergePresentationClaims,
   PRESENTATION_STAGE_DEFS,
@@ -481,7 +481,7 @@ export default function PresentationStudio({
       <section className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white p-5">
         <p className="text-xs font-bold text-violet-700">선택 추가상품 · 사업계획서와 별도 결제</p>
         <h3 className="mt-1 text-lg font-extrabold leading-7 text-zinc-900">
-          사업계획서는 완성됐어요.<br />발표평가도 준비해야 하나요?
+          작성한 사업계획서로<br />발표평가도 준비해야 하나요?
         </h3>
         <p className="mt-2 text-sm leading-6 text-zinc-700">
           지금까지 작성한 Word·원답변·근거를 그대로 이어받아 부족한 부분만 한 질문씩 확인합니다.
@@ -491,7 +491,7 @@ export default function PresentationStudio({
           <div className="px-4 py-3">
             <p className="text-sm font-extrabold text-zinc-900">발표자료 추가 · {PRESENTATION_PRICE_LABEL}</p>
             <ul className="mt-2 space-y-1 text-xs leading-5 text-zinc-700">
-              <li>✓ 편집 가능한 PPTX와 제출·공유용 PDF</li>
+              <li>✓ 편집 가능한 PPTX와 발표자료 PDF</li>
               <li>✓ 슬라이드별 발표 대본과 출처 노트</li>
               <li>✓ 근거 기반 예상 질문·대표자 답변 5개 이상</li>
               <li>✓ 사실·사용자 정보·외부 근거·가설·향후 계획 분리</li>
@@ -839,7 +839,7 @@ export default function PresentationStudio({
               disabled={Boolean(exporting)}
               className="rounded-xl border border-violet-300 bg-white py-2.5 text-xs font-bold text-violet-800 hover:bg-violet-50 disabled:opacity-50"
             >
-              {exporting === "pdf" ? "PDF 만드는 중…" : "제출·공유용 PDF 받기"}
+              {exporting === "pdf" ? "PDF 만드는 중…" : "발표자료 PDF 받기"}
             </button>
             <button
               onClick={downloadMarkdown}
@@ -850,7 +850,7 @@ export default function PresentationStudio({
             </button>
           </div>
           <p className="mt-2 text-center text-[10px] leading-4 text-zinc-500">
-            PPTX에는 슬라이드별 발표자 노트와 출처가 들어갑니다. PDF는 제출·공유용이며, 원문 데이터 전체는 백업 파일에 보존됩니다.
+            PPTX에는 슬라이드별 발표자 노트와 출처가 들어갑니다. PDF에는 같은 발표 내용이 들어가며, 원문 데이터 전체는 백업 파일에 보존됩니다.
           </p>
           {orderStatus.revision?.deliveredAt && (
             <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/60 p-3">

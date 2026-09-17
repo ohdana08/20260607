@@ -1,4 +1,4 @@
-import type { PlanDocxSection } from "./docx";
+import type { PlanDocxSection } from "./documentTypes";
 import type { EvidencePack, EvidenceSource, StrategyPack } from "./strategy";
 
 export const PRESENTATION_STAGE_DEFS = [
@@ -165,6 +165,15 @@ function normalizeClaim(
   const origin = (["plan", "user", "upload", "external"].includes(receivedOrigin)
     ? receivedOrigin
     : "user") as PresentationClaimOrigin;
+  // A trailing uncertainty label must not downgrade another sentence's outcomes.
+  // These exceptions apply only to a single applicant statement, never an external claim.
+  const singleStatement = !/[;!?。！？；，]|\.(?!\d)|,(?!\d)|지만|으나|이며|이고/.test(text.replace(/[.。]$/, ""));
+  const applicantStatement = origin !== "external" && singleStatement;
+  const personalExperience = applicantStatement && /본인|신청자|직접|사무직/.test(text) && /비교한? 경험|비교.*경험|엑셀.*(?:가능|역량|정리)/.test(text)
+    && !/\d|매출|고객|계약|인증|수상|특허|학위|억|만원/.test(text);
+  const openlyUnknown = applicantStatement && !/\d/.test(text) && /(?:미조사|조사 전|미수집|미확인|미정|확인 필요|확인 전|확인되지 않았다|확인하지 않았다|아직 없다|없음|초보|부족)(?:이다|입니다| 상태)?[.。]?$/.test(text)
+    && !/최초|유일|달성|체결|보유|확보|돌파|증가/.test(text);
+  const explicitHypothesis = applicantStatement && /가설(?:이다|입니다| 단계)?[.。]?$/.test(text);
   const receivedStatus = clean(source.status, 30);
   let status = (["verified", "stated", "hypothesis", "plan", "missing"].includes(receivedStatus)
     ? receivedStatus
@@ -172,6 +181,8 @@ function normalizeClaim(
   const evidenceIds = strings(source.evidenceIds, 8, 80).filter((id) => validEvidenceIds.has(id));
   if (status === "verified" && evidenceIds.length === 0) status = "stated";
   if (origin === "external" && evidenceIds.length === 0) status = "missing";
+  if (personalExperience || openlyUnknown) status = "stated";
+  if (explicitHypothesis) status = "hypothesis";
   return {
     id: clean(source.id, 80) || claimId(text, index),
     text,
@@ -180,9 +191,9 @@ function normalizeClaim(
     status,
     evidenceIds,
     requiresEvidence:
-      source.requiresEvidence === true ||
+      !(personalExperience || openlyUnknown || explicitHypothesis) && (source.requiresEvidence === true ||
       status === "missing" ||
-      (status === "stated" && /\d|매출|고객|계약|협약|특허|인증|수상|팀원|경력|MVP|프로토타입/i.test(text)),
+      (status === "stated" && /\d|매출|고객|계약|협약|특허|인증|수상|팀원|경력|MVP|프로토타입/i.test(text))),
     assumption: clean(source.assumption, 500),
     verificationPlan: clean(source.verificationPlan, 500),
   };
@@ -548,7 +559,11 @@ export function reviewPresentationPack(pack: PresentationPack): PresentationRevi
       });
     }
   }
+  const technicalFailure = /자동 작성이 완료되지|현재 사업계획서에 있는 설명을 기준으로 우선 구성|공개검색이 일시적으로 실패|대체 근거팩/;
   for (const slide of pack.slides) {
+    if (technicalFailure.test([slide.headline, ...slide.bullets, slide.speakerNotes].join(" "))) {
+      issues.push({ severity: "critical", slideId: slide.id, issue: "작성 오류 또는 임시 문구가 발표 내용에 남아 있습니다.", action: "사용자 답변으로 해당 장표를 다시 생성하세요." });
+    }
     if (!slide.headline || slide.bullets.length === 0 || !slide.speakerNotes) {
       issues.push({
         severity: "major",
@@ -575,6 +590,7 @@ export function reviewPresentationPack(pack: PresentationPack): PresentationRevi
     });
   }
   for (const item of pack.qa) {
+    if (technicalFailure.test(item.answer)) issues.push({ severity: "critical", slideId: item.id, issue: "시스템 오류 설명이 예상 답변에 남아 있습니다.", action: "대표자의 실제 현황과 계획으로 다시 작성하세요." });
     if (!item.question || !item.answer || item.claimIds.length === 0) {
       issues.push({
         severity: "major",

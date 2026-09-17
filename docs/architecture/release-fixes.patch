@@ -1,0 +1,2316 @@
+--- a/app/api/groble/webhook/route.ts
++++ b/app/api/groble/webhook/route.ts
+@@ -1,15 +1,12 @@
+ import { Redis } from "@upstash/redis";
+ import { isMasterCode } from "@/lib/plan/access";
+-import { isBundleProductId, isPlanProductId, isPresentationProductId } from "@/lib/config";
+ import {
+   GROBLE_RAW_EVENTS,
+   ORDER_NO_RE,
+-  ORDER_USED_KEY,
+-  PAID_KEY,
+   VALID_ORDER_KEY,
+   type ValidOrder,
+ } from "@/lib/plan/paidAccess";
+-import { PRESENTATION_PAID_KEY } from "@/lib/plan/presentationAccess";
++import { cancelOrder, registerOrder } from "@/lib/plan/paymentState";
+ 
+ export const runtime = "nodejs";
+ export const dynamic = "force-dynamic";
+@@ -83,6 +80,7 @@
+ 
+   const response = await fetch(url, {
+     method: "POST",
++    signal: AbortSignal.timeout(10_000),
+     headers: {
+       "Content-Type": "application/json",
+       "X-BCC-Groble-Secret": secret,
+@@ -90,8 +88,7 @@
+     body: JSON.stringify(payload),
+   });
+   if (!response.ok) {
+-    const detail = await response.text().catch(() => "");
+-    throw new Error(`BCC Groble forward failed (${response.status}): ${detail.slice(0, 180)}`);
++    throw new Error(`BCC Groble forward failed (${response.status})`);
+   }
+ }
+ 
+@@ -155,44 +152,44 @@
+     // 결제 취소/해지: 원장에서 취소 표시 + 이미 인증에 쓰였다면 해당 계정 is_paid 회수
+     const existing = await r.get<ValidOrder>(VALID_ORDER_KEY(orderNo));
+     const productId = findProductId(payload) ?? existing?.productId;
+-    await r.set(VALID_ORDER_KEY(orderNo), {
++    const revoked = await cancelOrder(r, {
+       orderNo,
+       registeredAt: existing?.registeredAt ?? new Date().toISOString(),
+       via: existing?.via ?? "webhook",
+       status: "cancelled",
+       ...(productId ? { productId } : {}),
+     } satisfies ValidOrder);
+-    const usedBy = await r.get<string>(ORDER_USED_KEY(orderNo));
+-    if (usedBy) {
+-      if (!productId || isPlanProductId(productId) || isBundleProductId(productId)) {
+-        await r.del(PAID_KEY(usedBy));
+-      }
+-      if (isPresentationProductId(productId) || isBundleProductId(productId)) {
+-        await r.del(PRESENTATION_PAID_KEY(usedBy));
+-      }
+-    }
++    console.info(JSON.stringify({ event: "payment_cancel", result: "applied", revoked }));
+     try {
+       await forwardClaude101Event(payload);
+-    } catch (error) {
+-      console.error("[groble webhook] Claude101 forwarding failed", error);
++    } catch {
++      console.error(JSON.stringify({ event: "payment_forward", result: "failed" }));
+       return Response.json({ error: "downstream unavailable" }, { status: 502 });
+     }
+     return Response.json({ ok: true, orderNo, action: "cancelled" });
+   }
+ 
+-  // 결제 완료: 유효 주문번호 원장에 등록 (productId 확인되면 함께 기록 — 재구매 상품 필터용)
++  const type = payload && typeof payload === "object" ? String((payload as Record<string, unknown>).type ?? "").toLowerCase() : "";
++  if (!type.endsWith(".completed")) {
++    console.info(JSON.stringify({ event: "payment_event", result: "ignored_unknown_type" }));
++    return Response.json({ ok: true, action: "ignored" });
++  }
++  // Delayed completion events must not resurrect a cancelled order.
+   const productId = findProductId(payload);
+-  await r.set(VALID_ORDER_KEY(orderNo), {
++  const registered = await registerOrder<ValidOrder>(r, {
+     orderNo,
+     registeredAt: new Date().toISOString(),
+     via: "webhook",
+     status: "valid",
+     ...(productId ? { productId } : {}),
+   } satisfies ValidOrder);
++  if (registered.status === "cancelled") {
++    return Response.json({ ok: true, orderNo, action: "cancelled" });
++  }
+   try {
+     await forwardClaude101Event(payload);
+-  } catch (error) {
+-    console.error("[groble webhook] Claude101 forwarding failed", error);
++  } catch {
++    console.error(JSON.stringify({ event: "payment_forward", result: "failed" }));
+     return Response.json({ error: "downstream unavailable" }, { status: 502 });
+   }
+   return Response.json({ ok: true, orderNo, action: "registered" });
+--- a/app/api/lead/prestage/route.ts
++++ b/app/api/lead/prestage/route.ts
+@@ -2,6 +2,7 @@
+ import { createAdminClient } from "@/lib/supabase/admin";
+ import { getAuthedUser } from "@/lib/plan/paidAccess";
+ import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
++import { reservePrestage } from "@/lib/leads/prestageReservation";
+ 
+ export const runtime = "nodejs";
+ export const dynamic = "force-dynamic";
+@@ -12,7 +13,7 @@
+   const url = process.env.UPSTASH_REDIS_REST_URL;
+   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+   if (!url || !token) return null;
+-  return new Redis({ url, token });
++  return new Redis({ url, token, retry: { retries: 0 }, signal: () => AbortSignal.timeout(750) });
+ }
+ 
+ export async function POST(req: Request) {
+@@ -22,12 +23,17 @@
+   const user = await getAuthedUser(req);
+   if (!user) return Response.json({ ok: false, error: "로그인이 필요해요." }, { status: 401 });
+ 
+-  // 같은 계정의 중복 기록 방지 (재진단해도 leads 행은 1개만)
+-  const r = getRedis();
+-  if (r) {
+-    const first = await r.set(`gp:prestage:${user.id}`, Date.now(), { nx: true });
+-    if (first === null) return Response.json({ ok: true, dup: true });
++  let reservation: Awaited<ReturnType<typeof reservePrestage>>;
++  try {
++    const r = getRedis();
++    if (!r) throw new Error("prestage storage unavailable");
++    reservation = await reservePrestage(r, user.id);
++  } catch {
++    console.error(JSON.stringify({ component: "lead_prestage", event: "reservation_unavailable" }));
++    return Response.json({ ok: false }, { status: 503, headers: { "Retry-After": "5" } });
+   }
++  if (reservation.state === "completed") return Response.json({ ok: true, dup: true });
++  if (reservation.state === "busy") return Response.json({ ok: false }, { status: 503, headers: { "Retry-After": "5" } });
+ 
+   const row = {
+     name: `[진단-pre] ${user.email || user.id}`,
+@@ -41,16 +47,26 @@
+ 
+   try {
+     const db = createAdminClient();
+-    const { error } = await db.from("leads").insert({ ...row, stage: "pre" });
++    const { error } = await db.from("leads").insert({ ...row, stage: "pre" }).abortSignal(AbortSignal.timeout(10_000));
+     if (error) {
+       // stage 컬럼 미생성(03-evidence-map.sql 미실행) 대비 — 컬럼 없이라도 리드는 남긴다
+-      const retry = await db.from("leads").insert(row);
++      if (!["42703", "PGRST204"].includes(error.code) || !/stage/i.test(error.message)) throw error;
++      const retry = await db.from("leads").insert(row).abortSignal(AbortSignal.timeout(10_000));
+       if (retry.error) throw new Error(retry.error.message);
+-      console.warn("[lead/prestage] stage 컬럼 없이 저장됨 — supabase/03-evidence-map.sql 실행 필요");
++      console.warn(JSON.stringify({ component: "lead_prestage", event: "stage_column_missing" }));
+     }
+-  } catch (err) {
+-    console.error("[lead/prestage] leads 저장 실패:", err);
+-    return Response.json({ ok: false }, { status: 503 });
++  } catch {
++    await reservation.release().catch(() => {
++      console.error(JSON.stringify({ component: "lead_prestage", event: "reservation_release_failed" }));
++    });
++    console.error(JSON.stringify({ component: "lead_prestage", event: "insert_failed" }));
++    return Response.json({ ok: false }, { status: 503, headers: { "Retry-After": "5" } });
++  }
++  // DB success is authoritative. If Redis finalization fails, acknowledge the
++  // persisted row and expose a retryable deduplication gap rather than lose it.
++  if (!await reservation.complete().catch(() => false)) {
++    console.warn(JSON.stringify({ component: "lead_prestage", event: "dedup_finalize_failed" }));
++    return Response.json({ ok: true, deduplicationPending: true });
+   }
+   return Response.json({ ok: true });
+ }
+--- a/app/api/order/verify/route.ts
++++ b/app/api/order/verify/route.ts
+@@ -10,14 +10,13 @@
+   MAX_ORDER_TRIES,
+   ORDER_NO_RE,
+   ORDER_TRIES_KEY,
+-  ORDER_USED_KEY,
+   PAID_KEY,
+   VALID_ORDER_KEY,
+   type AuthedUser,
+   type PaidRecord,
+   type ValidOrder,
+ } from "@/lib/plan/paidAccess";
+-import { grantPresentationAccess } from "@/lib/plan/presentationAccess";
++import { claimOrder, registerOrder } from "@/lib/plan/paymentState";
+ 
+ interface RawPaymentEvent {
+   saved: Record<string, unknown>;
+@@ -92,8 +91,7 @@
+       status: cancelled ? "cancelled" : "valid",
+       ...(productId ? { productId } : {}),
+     };
+-    await r.set(VALID_ORDER_KEY(orderNo), recovered);
+-    return recovered;
++    return registerOrder(r, recovered);
+   }
+   return null;
+ }
+@@ -122,29 +120,25 @@
+     const productId = typeof content?.id === "string" ? content.id : undefined;
+     if (!isPlanProductId(productId)) continue;
+ 
+-    const bound = await r.set(ORDER_USED_KEY(orderNo), user.id, { nx: true });
+-    if (bound === null && (await r.get<string>(ORDER_USED_KEY(orderNo))) !== user.id) continue;
+-
+     const registeredAt =
+       typeof item.saved.at === "string" ? item.saved.at : new Date().toISOString();
+-    await r.set(VALID_ORDER_KEY(orderNo), {
++    const valid = await registerOrder(r, {
+       orderNo,
+       registeredAt,
+       via: "webhook",
+       status: "valid",
+       productId,
+     } satisfies ValidOrder);
++    if (valid.status !== "valid" || !isPlanProductId(valid.productId)) continue;
+     const record: PaidRecord = {
+       orderNo,
+       email: user.email,
+       verifiedAt: new Date().toISOString(),
+     };
+-    await r.set(PAID_KEY(user.id), record);
+-    if (isBundleProductId(productId)) {
+-      await grantPresentationAccess({ user, orderNo, source: "bundle" });
+-    }
+-    console.log(`[order/verify] 결제 이메일 자동 연결: ${orderNo} (user: ${user.id})`);
+-    return record;
++    const granted = await claimOrder(r, { userId: user.id, record, mode: "word", productId: valid.productId, bundle: isBundleProductId(valid.productId) });
++    if (granted.status < 0) continue;
++    console.info(JSON.stringify({ event: "payment_claim", mode: "email", result: granted.status === 0 ? "granted" : "existing" }));
++    return JSON.parse(granted.record) as PaidRecord;
+   }
+   return null;
+ }
+@@ -193,23 +187,17 @@
+     );
+   }
+ 
+-  // 주문번호 재사용 차단 — 최초 1계정에만 묶인다 (동시요청 대비 NX)
+-  const bound = await r.set(ORDER_USED_KEY(orderNo), user.id, { nx: true });
+-  if (bound === null) {
+-    const owner = await r.get<string>(ORDER_USED_KEY(orderNo));
+-    if (owner !== user.id) {
+-      return Response.json(
+-        { ok: false, error: "이미 사용된 주문번호예요. 본인 결제가 맞다면 문의하기로 연락 주세요." },
+-        { status: 409 },
+-      );
+-    }
+-  }
+-
+-  // 새 레코드로 통째로 덮어쓴다 — 재구매면 이전 usedProgramId 는 자동으로 사라진다(=소진 해제).
++  // One atomic decision: current ledger + owner + current credit. Historical
++  // orders cannot become new credits, and a retry preserves the bound program.
+   const record = { orderNo, email: user.email, verifiedAt: new Date().toISOString() };
+-  await r.set(PAID_KEY(user.id), record);
+-  if (isBundleProductId(valid.productId)) {
+-    await grantPresentationAccess({ user, orderNo, source: "bundle" });
++  const granted = await claimOrder(r, { userId: user.id, record, mode: "word", productId: valid.productId, bundle: isBundleProductId(valid.productId) });
++  if (granted.status < 0) {
++    console.warn(JSON.stringify({ event: "payment_claim", mode: "manual", result: "rejected", code: granted.status }));
++    return Response.json({ ok: false, error: "이미 사용되었거나 결제 상태가 변경된 주문번호예요. 현재 이용권을 확인해 주세요." }, { status: 409 });
++  }
++  if (granted.status === 1) {
++    const existing = JSON.parse(granted.record) as PaidRecord;
++    return Response.json({ ok: true, orderNo: existing.orderNo, usedProgramId: existing.usedProgramId ?? null });
+   }
+ 
+   // 감사 기록 → BCC CRM(bcc-admin) leads 테이블 (그로블 판매 리스트 대조용).
+@@ -230,7 +218,7 @@
+     /* CRM 기록 실패는 무시 (Redis 가 원본) */
+   }
+ 
+-  console.log(`[order/verify] ${opts.repurchase ? "재구매 갱신" : "최초 인증"}: ${orderNo} (user: ${user.id})`);
++  console.info(JSON.stringify({ event: "payment_claim", mode: "manual", result: "granted", repurchase: opts.repurchase }));
+   return Response.json({ ok: true, orderNo, ...(opts.repurchase ? { renewed: true } : {}) });
+ }
+ 
+--- a/app/api/plan/draft-batch/route.ts
++++ b/app/api/plan/draft-batch/route.ts
+@@ -113,7 +113,6 @@
+   if (safeSections.length === 0) {
+     return Response.json({ error: "작성할 목차명이 필요해요." }, { status: 400 });
+   }
+-  if (access.user && program?.id) await markCreditUsed(access.user.id, program.id);
+   const [storedEvidence, storedStrategy] = access.user
+     ? await Promise.all([
+         getEvidencePack(access.user.id, access.admin),
+@@ -127,6 +126,9 @@
+   const provider = parseProvider(rawProvider);
+   if (!isProviderConfigured(provider)) {
+     return Response.json({ error: "선택한 AI 키가 설정되지 않았어요." }, { status: 503 });
++  }
++  if (access.user && !access.admin && (!program?.id || !(await markCreditUsed(access.user.id, program.id, access.orderNo)))) {
++    return paymentRequiredResponse("credit_used");
+   }
+   const reservation = await reservePaidAiCall({
+     userId: access.user?.id,
+--- a/app/api/plan/evidence/route.ts
++++ b/app/api/plan/evidence/route.ts
+@@ -195,7 +195,9 @@
+   if (!process.env.ANTHROPIC_API_KEY) {
+     return Response.json({ error: "경쟁정보 출처 확인용 AI 키가 설정되지 않았어요." }, { status: 503 });
+   }
+-  if (access.user && program?.id) await markCreditUsed(access.user.id, program.id);
++  if (access.user && !access.admin && (!program?.id || !(await markCreditUsed(access.user.id, program.id, access.orderNo)))) {
++    return paymentRequiredResponse("credit_used");
++  }
+ 
+   const reservation = await reservePaidAiCall({
+     userId: access.user?.id,
+--- a/app/api/plan/presentation/chat/route.ts
++++ b/app/api/plan/presentation/chat/route.ts
+@@ -148,7 +148,7 @@
+         { status: 409 },
+       );
+     }
+-    if (!(await markPresentationServiceConsent(access.user.id))) {
++    if (!(await markPresentationServiceConsent(access.user.id, access.paid?.orderNo))) {
+       return Response.json({ error: "발표자료 시작 동의를 저장하지 못했어요." }, { status: 503 });
+     }
+   }
+@@ -194,6 +194,9 @@
+     return Response.json({ error: "사업계획서 모의심사를 먼저 실행해 주세요." }, { status: 409 });
+   }
+ 
++  if (access.user && !access.admin && (!program?.id || !(await markPresentationCreditUsed(access.user.id, program.id, access.paid?.orderNo)))) {
++    return presentationPaymentRequiredResponse("presentation_credit_used");
++  }
+   const reservation = await reservePresentationAiCall({
+     userId: access.user?.id,
+     bypassBudget: access.admin,
+@@ -227,7 +230,6 @@
+       },
+     });
+     const reply = normalizePresentationInterviewReply(raw, evidence);
+-    if (access.user && program?.id) await markPresentationCreditUsed(access.user.id, program.id);
+     return Response.json(reply, {
+       headers: { "Cache-Control": "no-store" },
+     });
+--- a/app/api/plan/presentation/generate/route.ts
++++ b/app/api/plan/presentation/generate/route.ts
+@@ -221,7 +221,7 @@
+         { status: 409 },
+       );
+     }
+-    if (!(await markPresentationServiceConsent(access.user.id))) {
++    if (!(await markPresentationServiceConsent(access.user.id, access.paid?.orderNo))) {
+       return Response.json({ error: "발표자료 시작 동의를 저장하지 못했어요." }, { status: 503 });
+     }
+   }
+@@ -286,6 +286,9 @@
+     return Response.json({ error: "슬라이드에 연결할 실제 주장과 데이터가 아직 없어요." }, { status: 409 });
+   }
+ 
++  if (access.user && !access.admin && (!program?.id || !(await markPresentationCreditUsed(access.user.id, program.id, access.paid?.orderNo)))) {
++    return presentationPaymentRequiredResponse("presentation_credit_used");
++  }
+   const revision = await reservePresentationRevision(access.user?.id, access.admin);
+   if (!revision.ok) return presentationRevisionUnavailableResponse(revision.status);
+   const reservation = await reservePresentationAiCall({
+@@ -350,7 +353,6 @@
+         strategy,
+         access.admin,
+       );
+-      if (program?.id) await markPresentationCreditUsed(access.user.id, program.id);
+     }
+     return Response.json(
+       {
+--- a/app/api/plan/presentation/order/route.ts
++++ b/app/api/plan/presentation/order/route.ts
+@@ -15,7 +15,6 @@
+   getPaidRecord,
+   MAX_ORDER_TRIES,
+   ORDER_NO_RE,
+-  ORDER_USED_KEY,
+   VALID_ORDER_KEY,
+   type ValidOrder,
+ } from "@/lib/plan/paidAccess";
+@@ -26,6 +25,7 @@
+   PRESENTATION_ORDER_TRIES_KEY,
+ } from "@/lib/plan/presentationAccess";
+ import { getPresentationRevisionStatus } from "@/lib/plan/presentationRevisions";
++import { claimOrder } from "@/lib/plan/paymentState";
+ 
+ export const runtime = "nodejs";
+ export const dynamic = "force-dynamic";
+@@ -196,16 +196,20 @@
+     );
+   }
+ 
+-  const bound = await r.set(ORDER_USED_KEY(orderNo), user.id, { nx: true });
+-  if (bound === null && (await r.get<string>(ORDER_USED_KEY(orderNo))) !== user.id) {
+-    return Response.json(
+-      { ok: false, error: "이미 다른 계정에 연결된 주문번호예요." },
++  const source = isBundleProductId(valid.productId) ? "bundle" : "presentation";
++  const granted = await claimOrder(r, {
++    userId: user.id,
++    record: { orderNo, email: user.email, verifiedAt: new Date().toISOString(), source },
++    mode: "presentation", productId: valid.productId,
++  });
++  if (granted.status < 0) {
++    return Response.json(
++      { ok: false, error: "이미 사용되었거나 결제 상태가 변경된 주문번호예요. 현재 이용권을 확인해 주세요." },
+       { status: 409 },
+     );
+   }
+-  const source = isBundleProductId(valid.productId) ? "bundle" : "presentation";
+-  const granted = await grantPresentationAccess({ user, orderNo, source });
+-  if (!granted) return Response.json({ ok: false, error: "권한 저장에 실패했어요." }, { status: 503 });
++  if (granted.status === 1) return Response.json({ ok: true, orderNo, source });
++  const grantedRecord = JSON.parse(granted.record) as { verifiedAt: string };
+ 
+   try {
+     const db = createAdminClient();
+@@ -217,7 +221,7 @@
+       source: `groble_presentation_order:${orderNo}`,
+       message: `발표자료 주문번호 인증 (userId: ${user.id}, source: ${source})`,
+       consent: true,
+-      consent_at: granted.verifiedAt,
++      consent_at: grantedRecord.verifiedAt,
+     });
+   } catch {
+     /* Redis 권한이 원본이며 CRM 기록은 best effort */
+--- a/app/operations/OperationsDashboard.tsx
++++ b/app/operations/OperationsDashboard.tsx
+@@ -202,7 +202,7 @@
+                 저장하면 기존 기록을 수정합니다.
+               </p>
+               <form
+-                key={`snapshot-${state.revision}`}
++                key={`snapshot-${JSON.stringify(latest)}`}
+                 onSubmit={snapshotSubmit}
+               >
+                 <div className="ops-fields">
+@@ -429,7 +429,7 @@
+             <details className="ops-details">
+               <summary>영상 추가</summary>
+               <VideoForm
+-                key={`new-${state.revision}`}
++                key={`new-${state.videos.map((video) => video.id).join(",")}`}
+                 date={state.goal.startDate}
+                 submit={videoSubmit}
+                 busy={busy}
+@@ -439,7 +439,7 @@
+           <details className="ops-panel ops-details">
+             <summary>목표와 계산 기준</summary>
+             <GoalForm
+-              key={state.revision}
++              key={JSON.stringify(state.goal)}
+               goal={state.goal}
+               submit={goalSubmit}
+               busy={busy}
+--- a/app/operations/useOperationsDashboard.ts
++++ b/app/operations/useOperationsDashboard.ts
+@@ -1,5 +1,5 @@
+ "use client";
+-import { useCallback, useEffect, useState } from "react";
++import { useCallback, useEffect, useRef, useState } from "react";
+ import { authedHeaders } from "@/components/auth/AuthGate";
+ import type {
+   Command,
+@@ -21,12 +21,22 @@
+     [busy, setBusy] = useState(false),
+     [error, setError] = useState(""),
+     [notice, setNotice] = useState("");
++  const generation = useRef(0);
++  const reading = useRef<AbortController | null>(null);
++  const saving = useRef(false);
++  const invalidate = useCallback(() => {
++    generation.current += 1;
++    reading.current?.abort();
++    reading.current = null;
++  }, []);
+   const request = useCallback(
+-    async (method: "GET" | "PUT", body?: unknown) => {
++    async (method: "GET" | "PUT", body?: unknown, signal?: AbortSignal) => {
+       const headers = local ? {} : await authedHeaders();
++      signal?.throwIfAborted();
+       const response = await fetch(`/api/operations?month=${month}`, {
+         method,
+         cache: "no-store",
++        signal,
+         headers: {
+           ...headers,
+           ...(body ? { "Content-Type": "application/json" } : {}),
+@@ -40,39 +50,44 @@
+     },
+     [local, month],
+   );
+-  const load = useCallback(async () => {
+-    setLoading(true);
+-    setError("");
+-    try {
+-      setView(await request("GET"));
+-    } catch (e) {
+-      setView(null);
+-      setError(e instanceof Error ? e.message : "불러오지 못했습니다.");
+-    } finally {
+-      setLoading(false);
+-    }
+-  }, [request]);
+-  useEffect(() => {
+-    let active = true;
+-    request("GET")
++  const read = useCallback(() => {
++    if (saving.current) return Promise.resolve();
++    invalidate();
++    const current = generation.current;
++    const controller = new AbortController();
++    reading.current = controller;
++    return request("GET", undefined, controller.signal)
+       .then((result) => {
+-        if (active) setView(result);
++        if (current === generation.current) setView(result);
+       })
+       .catch((e) => {
+-        if (active) {
++        if (current === generation.current) {
+           setView(null);
+           setError(e instanceof Error ? e.message : "불러오지 못했습니다.");
+         }
+       })
+       .finally(() => {
+-        if (active) setLoading(false);
++        if (current === generation.current) {
++          reading.current = null;
++          setLoading(false);
++        }
+       });
+-    return () => {
+-      active = false;
+-    };
+-  }, [request]);
++  }, [request, invalidate]);
++  const load = useCallback(async () => {
++    if (saving.current) return;
++    setLoading(true);
++    setError("");
++    await read();
++  }, [read]);
++  useEffect(() => {
++    void read();
++    return invalidate;
++  }, [read, invalidate]);
+   async function save(command: Command) {
+-    if (!view || busy) return;
++    if (!view || loading || saving.current || view.state.goal.month !== month) return;
++    saving.current = true;
++    invalidate();
++    const current = generation.current;
+     setBusy(true);
+     setError("");
+     setNotice("");
+@@ -82,17 +97,22 @@
+         expectedRevision: view.state.revision,
+         command,
+       });
+-      setView(updated);
+-      setNotice("저장했습니다. 다음 행동과 남은 목표를 확인하세요.");
++      if (current === generation.current) {
++        setView(updated);
++        setNotice("저장했습니다. 다음 행동과 남은 목표를 확인하세요.");
++      }
+     } catch (e) {
+-      setError(e instanceof Error ? e.message : "저장하지 못했습니다.");
++      if (current === generation.current)
++        setError(e instanceof Error ? e.message : "저장하지 못했습니다.");
+     } finally {
+-      setBusy(false);
++      saving.current = false;
++      if (current === generation.current) setBusy(false);
+     }
+   }
+ 
+   function selectMonth(next: string) {
+-    if (!next || next === month) return;
++    if (!next || next === month || saving.current) return;
++    invalidate();
+     setLoading(true);
+     setView(null);
+     setError("");
+--- a/components/chat/Chat.tsx
++++ b/components/chat/Chat.tsx
+@@ -2310,6 +2310,7 @@
+         });
+         const repaired = await repair.json().catch(() => null) as { sections?: DraftSection[]; error?: string; degraded?: boolean } | null;
+         if (repair.ok && repaired?.sections?.length === completedSections.length && !repaired.degraded) {
++          setPlanReview(null);
+           setDraft({ title, sections: repaired.sections });
+           await auditDraftSections(repaired.sections, artifacts);
+         } else {
+--- /dev/null
++++ b/lib/leads/prestageReservation.ts
+@@ -0,0 +1,40 @@
++import { randomUUID } from "node:crypto";
++
++interface PrestageStore {
++  get<T>(key: string): Promise<T | null>;
++  set(key: string, value: string, options: { nx: true; px: number }): Promise<unknown>;
++  eval(script: string, keys: string[], args: (string | number)[]): Promise<unknown>;
++}
++
++export const PRESTAGE_FINALIZE = `
++if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
++redis.call('SET', KEYS[1], ARGV[2])
++return 1`;
++export const PRESTAGE_RELEASE = `
++if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
++return redis.call('DEL', KEYS[1])`;
++
++type Reservation =
++  | { state: "completed" }
++  | { state: "busy" }
++  | { state: "reserved"; complete(): Promise<boolean>; release(): Promise<void> };
++
++// The marker is committed only after a successful DB insert. Token checks fence
++// cleanup from an expired owner; a lease cannot make Redis + Postgres atomic.
++export async function reservePrestage(store: PrestageStore, userId: string): Promise<Reservation> {
++  const key = `gp:prestage:${userId}`;
++  const token = `pending:${randomUUID()}`;
++  if (await store.set(key, token, { nx: true, px: 30_000 }) !== "OK") {
++    const marker = await store.get<unknown>(key);
++    const completed = (typeof marker === "number" && Number.isFinite(marker)) ||
++      (typeof marker === "string" && /^\d+$/.test(marker));
++    return { state: completed ? "completed" : "busy" };
++  }
++  return {
++    state: "reserved",
++    async complete() {
++      return await store.eval(PRESTAGE_FINALIZE, [key], [token, Date.now()]) === 1;
++    },
++    async release() { await store.eval(PRESTAGE_RELEASE, [key], [token]); },
++  };
++}
+--- a/lib/operations/domain.ts
++++ b/lib/operations/domain.ts
+@@ -223,8 +223,10 @@
+   if (!validDate(v.plannedDate) || !v.plannedDate.startsWith(month))
+     throw new InputError("영상 날짜는 선택한 월 안에 있어야 합니다.");
+   if (
+-    !["word", "bundle", "presentation"].includes(String(v.product)) ||
+-    !["planned", "ready", "published"].includes(String(v.status))
++    typeof v.product !== "string" ||
++    !["word", "bundle", "presentation"].includes(v.product) ||
++    typeof v.status !== "string" ||
++    !["planned", "ready", "published"].includes(v.status)
+   )
+     throw new InputError("상품 또는 영상 상태를 확인해 주세요.");
+   const url = text(v.url, "게시 주소", 500);
+--- a/lib/operations/http.ts
++++ b/lib/operations/http.ts
+@@ -9,6 +9,7 @@
+   type OperationsMonth,
+ } from "./domain.ts";
+ import type { OperationsStore } from "./storage.ts";
++import { randomUUID } from "node:crypto";
+ export interface Operator {
+   id: string;
+   isAdmin: boolean;
+@@ -18,6 +19,15 @@
+   store: () => OperationsStore;
+   now?: () => Date;
+   local?: boolean;
++  observe?: (event: OperationsEvent) => void;
++}
++export interface OperationsEvent {
++  event: "operations_request";
++  requestId: string;
++  method: string;
++  phase: "method" | "auth" | "origin" | "input" | "read" | "write";
++  status: number;
++  durationMs: number;
+ }
+ export function isLocalOperationsRequest(
+   req: Request,
+@@ -96,9 +106,10 @@
+     automaticCollection: false,
+   };
+ }
+-export async function operationsRequest(
++async function handleOperationsRequest(
+   req: Request,
+   deps: Dependencies,
++  context: { phase: OperationsEvent["phase"] },
+ ): Promise<Response> {
+   try {
+     if (!["GET", "PUT"].includes(req.method))
+@@ -106,6 +117,7 @@
+         { error: "지원하지 않는 요청입니다.", code: "method_not_allowed" },
+         405,
+       );
++    context.phase = "auth";
+     const user = await deps.authenticate(req);
+     if (!user)
+       return reply(
+@@ -117,6 +129,7 @@
+         { error: "관리자만 사용할 수 있습니다.", code: "forbidden" },
+         403,
+       );
++    context.phase = "origin";
+     const origin = req.headers.get("origin");
+     if (req.method === "PUT" && origin && !sameOrigin(req, origin))
+       return reply(
+@@ -128,14 +141,18 @@
+       );
+     const now = deps.now?.() ?? new Date();
+     if (req.method === "GET") {
++      context.phase = "input";
+       const month =
+         new URL(req.url).searchParams.get("month") ?? kstDate(now).slice(0, 7);
+       if (!validMonth(month))
+         throw new InputError("월은 YYYY-MM 형식이어야 합니다.");
++      context.phase = "read";
+       const state = (await deps.store().read(month)) ?? initialMonth(month);
+       return reply(view(state, now, Boolean(deps.local)));
+     }
++    context.phase = "input";
+     const mutation = parseMutation(await readJson(req), kstDate(now));
++    context.phase = "read";
+     const store = deps.store();
+     const current =
+       (await store.read(mutation.month)) ?? initialMonth(mutation.month);
+@@ -149,6 +166,7 @@
+         409,
+       );
+     const next = applyCommand(current, mutation.command, user.id, now);
++    context.phase = "write";
+     if (
+       !(await store.compareAndSet(
+         mutation.month,
+@@ -168,11 +186,6 @@
+   } catch (error) {
+     if (error instanceof InputError)
+       return reply({ error: error.message, code: "invalid_input" }, 400);
+-    // Never include credentials, payloads or customer documents in the response/log.
+-    console.error(
+-      "[operations] request failed",
+-      error instanceof Error ? error.name : "UnknownError",
+-    );
+     return reply(
+       {
+         error:
+@@ -183,3 +196,26 @@
+     );
+   }
+ }
++
++export async function operationsRequest(req: Request, deps: Dependencies): Promise<Response> {
++  const started = Date.now();
++  const requestId = randomUUID();
++  const context: { phase: OperationsEvent["phase"] } = { phase: "method" };
++  const response = await handleOperationsRequest(req, deps, context);
++  response.headers.set("X-Request-ID", requestId);
++  const event: OperationsEvent = {
++    event: "operations_request", requestId,
++    method: ["GET", "PUT"].includes(req.method) ? req.method : "OTHER",
++    phase: context.phase, status: response.status,
++    durationMs: Math.max(0, Date.now() - started),
++  };
++  // Only bounded metadata. Never log user identifiers, payloads, URLs or error text.
++  try {
++    if (deps.observe) deps.observe(event);
++    else if (event.status >= 500) console.error(JSON.stringify(event));
++    else console.info(JSON.stringify(event));
++  } catch {
++    // A log sink cannot change a completed write into a reported failure.
++  }
++  return response;
++}
+--- a/lib/plan/paidAccess.ts
++++ b/lib/plan/paidAccess.ts
+@@ -1,6 +1,8 @@
+ import { Redis } from "@upstash/redis";
+ import { isMasterCode } from "./access";
+ import { getGoogleUser } from "@/lib/auth/googleUser";
++import { PAID_KEY, updateEntitlement } from "./paymentState";
++export { PAID_KEY, ORDER_USED_KEY, VALID_ORDER_KEY } from "./paymentState";
+ 
+ // ── 유료 전환 파이프 (2026-07-09 ③ 결정: 셀프서비스 주문번호 인증) ─────────
+ // 코드 체계(ACCESS_CODES)를 대체한다. 흐름:
+@@ -19,11 +21,8 @@
+   return redis;
+ }
+ 
+-export const PAID_KEY = (userId: string) => `gp:paid:${userId}`;
+-export const ORDER_USED_KEY = (orderNo: string) => `gp:orderused:${orderNo}`;
+ export const ORDER_TRIES_KEY = (userId: string) => `gp:ordertries:${userId}`;
+ // 그로블 웹훅이 등록하는 "실결제 주문번호 원장" — 여기 있어야만 인증 통과 (실제 결제 검증)
+-export const VALID_ORDER_KEY = (orderNo: string) => `gp:validorder:${orderNo}`;
+ export const GROBLE_RAW_EVENTS = "gp:groble_raw"; // 최근 웹훅 원본 (스펙 확인/디버깅용)
+ 
+ export interface ValidOrder {
+@@ -71,16 +70,10 @@
+ }
+ 
+ // 이용권 소진 — 첫 draft 호출 시 공고 1건에 바인딩 (이미 바인딩돼 있으면 유지)
+-export async function markCreditUsed(userId: string, programId: string): Promise<void> {
++export async function markCreditUsed(userId: string, programId: string, expectedOrderNo?: string): Promise<boolean> {
+   const r = getRedis();
+-  if (!r || !programId) return;
+-  const paid = await r.get<PaidRecord>(PAID_KEY(userId));
+-  if (!paid || paid.usedProgramId) return; // 미결제 또는 이미 바인딩됨
+-  await r.set(PAID_KEY(userId), {
+-    ...paid,
+-    usedProgramId: programId,
+-    usedAt: new Date().toISOString(),
+-  });
++  if (!r || !programId) return false;
++  return updateEntitlement(r, PAID_KEY(userId), expectedOrderNo, "bind", programId);
+ }
+ 
+ export async function getPaidRecord(userId: string): Promise<PaidRecord | null> {
+@@ -90,7 +83,7 @@
+ }
+ 
+ export type DraftAccess =
+-  | { ok: true; user?: AuthedUser; admin: boolean }
++  | { ok: true; user?: AuthedUser; admin: boolean; orderNo?: string }
+   | { ok: false; reason: "login_required" | "payment_required" | "credit_used" };
+ 
+ // 초안(유료) 기능 관문 — 다음 중 하나면 통과:
+@@ -113,7 +106,7 @@
+   if (paid.usedProgramId && programId && paid.usedProgramId !== programId) {
+     return { ok: false, reason: "credit_used" };
+   }
+-  return { ok: true, user, admin: false };
++  return { ok: true, user, admin: false, orderNo: paid.orderNo };
+ }
+ 
+ export function paymentRequiredResponse(
+--- /dev/null
++++ b/lib/plan/paymentState.ts
+@@ -0,0 +1,143 @@
++import type { Redis } from "@upstash/redis";
++
++// These keys retain the existing production contract. Scripts run on one Redis
++// database; migration to Redis Cluster requires co-locating the account keys.
++export const PAID_KEY = (userId: string) => `gp:paid:${userId}`;
++export const PRESENTATION_PAID_KEY = (userId: string) => `gp:presentation-paid:${userId}`;
++export const ORDER_USED_KEY = (orderNo: string) => `gp:orderused:${orderNo}`;
++export const VALID_ORDER_KEY = (orderNo: string) => `gp:validorder:${orderNo}`;
++
++// Return 0=new, 1=idempotent, -1=invalid/cancelled/product changed,
++// -2=historical/other owner's order, -3=another unused entitlement, -4=no Word.
++export const CLAIM_ORDER_SCRIPT = `
++local raw = redis.call('GET', KEYS[1])
++if not raw then return {-1, ''} end
++local valid = cjson.decode(raw)
++local product = type(valid.productId) == 'string' and valid.productId or ''
++if valid.status ~= 'valid' or product ~= ARGV[4] then return {-1, ''} end
++local record = cjson.decode(ARGV[2])
++local key = ARGV[3] == 'word' and KEYS[3] or KEYS[4]
++local currentRaw = redis.call('GET', key)
++local current = currentRaw and cjson.decode(currentRaw) or nil
++local owner = redis.call('GET', KEYS[2])
++local grantKey = ARGV[3] == 'word' and KEYS[5] or KEYS[6]
++local presentationRaw = redis.call('GET', KEYS[4])
++local presentation = presentationRaw and cjson.decode(presentationRaw) or nil
++local crossLane = false
++if owner then
++  if owner ~= ARGV[1] then return {-2, ''} end
++  if current and current.orderNo == record.orderNo then
++    redis.call('SET', grantKey, '1')
++    return {1, currentRaw}
++  end
++  crossLane = ARGV[3] == 'word' and ARGV[5] == '1'
++    and not redis.call('GET', KEYS[5]) and redis.call('GET', KEYS[6])
++    and presentation and presentation.orderNo == record.orderNo
++  if not crossLane then return {-2, ''} end
++end
++if current and current.orderNo == record.orderNo then
++  redis.call('SET', KEYS[2], ARGV[1])
++  redis.call('SET', grantKey, '1')
++  return {1, currentRaw}
++end
++if current and not current.usedProgramId then return {-3, ''} end
++if ARGV[3] == 'word' and ARGV[5] == '1' and not crossLane
++  and presentation and presentation.orderNo ~= record.orderNo
++  and not presentation.usedProgramId then return {-3, ''} end
++if ARGV[3] == 'presentation' and not redis.call('GET', KEYS[3]) then return {-4, ''} end
++redis.call('SET', KEYS[2], ARGV[1])
++if crossLane and presentation.usedProgramId then
++  record.usedProgramId = presentation.usedProgramId
++  record.usedAt = presentation.usedAt
++end
++local grantedRaw = cjson.encode(record)
++redis.call('SET', key, grantedRaw)
++redis.call('SET', grantKey, '1')
++if ARGV[3] == 'word' and ARGV[5] == '1' then
++  if not crossLane then
++    record.source = 'bundle'
++    redis.call('SET', KEYS[4], cjson.encode(record))
++  end
++  redis.call('SET', KEYS[6], '1')
++end
++return {0, grantedRaw}`;
++
++export async function claimOrder(
++  redis: Redis,
++  args: {
++    userId: string;
++    record: { orderNo: string; email: string; verifiedAt: string; source?: string };
++    mode: "word" | "presentation";
++    productId?: string;
++    bundle?: boolean;
++  },
++): Promise<{ status: number; record: string }> {
++  const result = await redis.eval(CLAIM_ORDER_SCRIPT,
++    [VALID_ORDER_KEY(args.record.orderNo), ORDER_USED_KEY(args.record.orderNo), PAID_KEY(args.userId), PRESENTATION_PAID_KEY(args.userId), `gp:ordergrant:${args.record.orderNo}:word`, `gp:ordergrant:${args.record.orderNo}:presentation`],
++    [args.userId, JSON.stringify(args.record), args.mode, args.productId ?? "", args.bundle ? "1" : "0"]) as [number, unknown];
++  return { status: Number(result[0]), record: typeof result[1] === "string" ? result[1] : JSON.stringify(result[1]) };
++}
++
++// Cancellation is terminal for automated completed-event retries and recovery.
++export const REGISTER_ORDER_SCRIPT = `
++local raw = redis.call('GET', KEYS[1])
++if raw then return raw end
++redis.call('SET', KEYS[1], ARGV[1])
++return ARGV[1]`;
++export async function registerOrder<T extends { orderNo: string }>(redis: Redis, record: T): Promise<T> {
++  const result = await redis.eval(REGISTER_ORDER_SCRIPT, [VALID_ORDER_KEY(record.orderNo)], [JSON.stringify(record)]);
++  return (typeof result === "string" ? JSON.parse(result) : result) as T;
++}
++
++export const CANCEL_ORDER_SCRIPT = `
++local incoming = cjson.decode(ARGV[1])
++local raw = redis.call('GET', KEYS[1])
++if raw then
++  local existing = cjson.decode(raw)
++  incoming.registeredAt = existing.registeredAt
++  incoming.via = existing.via
++  if not incoming.productId then incoming.productId = existing.productId end
++end
++incoming.status = 'cancelled'
++redis.call('SET', KEYS[1], cjson.encode(incoming))
++local owner = redis.call('GET', KEYS[2])
++local revoked = 0
++if owner then
++  for _, prefix in ipairs({'gp:paid:', 'gp:presentation-paid:'}) do
++    local key = prefix .. owner
++    local paid = redis.call('GET', key)
++    if paid and cjson.decode(paid).orderNo == incoming.orderNo then
++      redis.call('DEL', key)
++      revoked = revoked + 1
++    end
++  end
++end
++return revoked`;
++export async function cancelOrder(redis: Redis, record: { orderNo: string; registeredAt: string; via: string; status: string; productId?: string }): Promise<number> {
++  return Number(await redis.eval(CANCEL_ORDER_SCRIPT, [VALID_ORDER_KEY(record.orderNo), ORDER_USED_KEY(record.orderNo)], [JSON.stringify(record)]));
++}
++
++// Bind/consent only the entitlement observed by the caller. A refund or a
++// repurchase between the access check and this operation cannot be overwritten.
++export const UPDATE_ENTITLEMENT_SCRIPT = `
++local raw = redis.call('GET', KEYS[1])
++if not raw then return 0 end
++local paid = cjson.decode(raw)
++if ARGV[1] ~= '' and paid.orderNo ~= ARGV[1] then return 0 end
++if not paid.isQa then
++  local validRaw = redis.call('GET', 'gp:validorder:' .. paid.orderNo)
++  if not validRaw or cjson.decode(validRaw).status ~= 'valid' then return 0 end
++end
++if ARGV[2] == 'bind' then
++  if paid.usedProgramId then return paid.usedProgramId == ARGV[3] and 1 or 0 end
++  paid.usedProgramId = ARGV[3]
++  paid.usedAt = ARGV[4]
++else
++  if paid.consentedAt then return 1 end
++  paid.consentedAt = ARGV[4]
++end
++redis.call('SET', KEYS[1], cjson.encode(paid))
++return 1`;
++export async function updateEntitlement(redis: Redis, key: string, expectedOrderNo: string | undefined, kind: "bind" | "consent", programId = ""): Promise<boolean> {
++  return (await redis.eval(UPDATE_ENTITLEMENT_SCRIPT, [key], [expectedOrderNo ?? "", kind, programId, new Date().toISOString()])) === 1;
++}
+--- a/lib/plan/presentation.ts
++++ b/lib/plan/presentation.ts
+@@ -165,11 +165,15 @@
+   const origin = (["plan", "user", "upload", "external"].includes(receivedOrigin)
+     ? receivedOrigin
+     : "user") as PresentationClaimOrigin;
+-  const personalExperience = /본인|신청자|직접|사무직/.test(text) && /비교한? 경험|비교.*경험|엑셀.*(?:가능|역량|정리)/.test(text)
+-    && !/매출|계약|인증|수상|특허|학위|\d+년|\d+명|억|만원/.test(text);
+-  const openlyUnknown = /(?:미조사|조사 전|미수집|미확인|미정|확인 필요|확인 전|확인되지 않았다|확인하지 않았다|아직 없다|없음|초보|부족)(?:이다|입니다| 상태)?[.。]?$/.test(text)
++  // A trailing uncertainty label must not downgrade another sentence's outcomes.
++  // These exceptions apply only to a single applicant statement, never an external claim.
++  const singleStatement = !/[;!?。！？；，]|\.(?!\d)|,(?!\d)|지만|으나|이며|이고/.test(text.replace(/[.。]$/, ""));
++  const applicantStatement = origin !== "external" && singleStatement;
++  const personalExperience = applicantStatement && /본인|신청자|직접|사무직/.test(text) && /비교한? 경험|비교.*경험|엑셀.*(?:가능|역량|정리)/.test(text)
++    && !/\d|매출|고객|계약|인증|수상|특허|학위|억|만원/.test(text);
++  const openlyUnknown = applicantStatement && !/\d/.test(text) && /(?:미조사|조사 전|미수집|미확인|미정|확인 필요|확인 전|확인되지 않았다|확인하지 않았다|아직 없다|없음|초보|부족)(?:이다|입니다| 상태)?[.。]?$/.test(text)
+     && !/최초|유일|달성|체결|보유|확보|돌파|증가/.test(text);
+-  const explicitHypothesis = /가설(?:이다|입니다| 단계)?[.。]?$/.test(text);
++  const explicitHypothesis = applicantStatement && /가설(?:이다|입니다| 단계)?[.。]?$/.test(text);
+   const receivedStatus = clean(source.status, 30);
+   let status = (["verified", "stated", "hypothesis", "plan", "missing"].includes(receivedStatus)
+     ? receivedStatus
+@@ -178,7 +182,7 @@
+   if (status === "verified" && evidenceIds.length === 0) status = "stated";
+   if (origin === "external" && evidenceIds.length === 0) status = "missing";
+   if (personalExperience || openlyUnknown) status = "stated";
+-  if (explicitHypothesis && origin !== "external") status = "hypothesis";
++  if (explicitHypothesis) status = "hypothesis";
+   return {
+     id: clean(source.id, 80) || claimId(text, index),
+     text,
+@@ -189,7 +193,7 @@
+     requiresEvidence:
+       !(personalExperience || openlyUnknown || explicitHypothesis) && (source.requiresEvidence === true ||
+       status === "missing" ||
+-      (status === "stated" && /매출|계약|협약|특허|인증|수상|팀원|경력|MVP|프로토타입/i.test(text))),
++      (status === "stated" && /\d|매출|고객|계약|협약|특허|인증|수상|팀원|경력|MVP|프로토타입/i.test(text))),
+     assumption: clean(source.assumption, 500),
+     verificationPlan: clean(source.verificationPlan, 500),
+   };
+--- a/lib/plan/presentationAccess.ts
++++ b/lib/plan/presentationAccess.ts
+@@ -1,6 +1,8 @@
+ import { Redis } from "@upstash/redis";
+ import { isMasterCode } from "./access";
+ import { getAuthedUser, getPaidRecord, type AuthedUser } from "./paidAccess";
++import { PRESENTATION_PAID_KEY, updateEntitlement } from "./paymentState";
++export { PRESENTATION_PAID_KEY } from "./paymentState";
+ 
+ let redis: Redis | null = null;
+ function getRedis(): Redis | null {
+@@ -11,7 +13,6 @@
+   return redis;
+ }
+ 
+-export const PRESENTATION_PAID_KEY = (userId: string) => `gp:presentation-paid:${userId}`;
+ export const PRESENTATION_ORDER_TRIES_KEY = (userId: string) =>
+   `gp:presentation-ordertries:${userId}`;
+ 
+@@ -60,33 +61,24 @@
+   return record;
+ }
+ 
+-export async function markPresentationServiceConsent(userId: string): Promise<string | null> {
++export async function markPresentationServiceConsent(userId: string, expectedOrderNo?: string): Promise<string | null> {
+   const r = getRedis();
+   if (!r) return null;
+   const paid = await r.get<PresentationPaidRecord>(PRESENTATION_PAID_KEY(userId));
+-  if (!paid) return null;
+-  if (paid.consentedAt) return paid.consentedAt;
+-  const consentedAt = new Date().toISOString();
+-  await r.set(PRESENTATION_PAID_KEY(userId), {
+-    ...paid,
+-    consentedAt,
+-  } satisfies PresentationPaidRecord);
+-  return consentedAt;
++  if (!paid || (expectedOrderNo && paid.orderNo !== expectedOrderNo)) return null;
++  if (!(await updateEntitlement(r, PRESENTATION_PAID_KEY(userId), paid.orderNo, "consent"))) return null;
++  const current = await r.get<PresentationPaidRecord>(PRESENTATION_PAID_KEY(userId));
++  return current?.orderNo === paid.orderNo ? current.consentedAt ?? null : null;
+ }
+ 
+ export async function markPresentationCreditUsed(
+   userId: string,
+   programId: string,
+-): Promise<void> {
++  expectedOrderNo?: string,
++): Promise<boolean> {
+   const r = getRedis();
+-  if (!r || !programId) return;
+-  const paid = await r.get<PresentationPaidRecord>(PRESENTATION_PAID_KEY(userId));
+-  if (!paid || paid.usedProgramId) return;
+-  await r.set(PRESENTATION_PAID_KEY(userId), {
+-    ...paid,
+-    usedProgramId: programId,
+-    usedAt: new Date().toISOString(),
+-  } satisfies PresentationPaidRecord);
++  if (!r || !programId) return false;
++  return updateEntitlement(r, PRESENTATION_PAID_KEY(userId), expectedOrderNo, "bind", programId);
+ }
+ 
+ export type PresentationAccess =
+--- a/lib/plan/presentationExport.ts
++++ b/lib/plan/presentationExport.ts
+@@ -105,15 +105,20 @@
+     slide.addText(item.bullets.map(bullet => `• ${bullet}`).join("\n"), { x: 0.8, y: 2.6, w: 5.65, h: 3.5, fontFace: "Malgun Gothic", fontSize: 18, color: COLORS.ink, margin: 0.06, paraSpaceAfter: 14, fit: "shrink" });
+     slide.addImage({ data: `data:image/png;base64,${chart.png}`, ...containedImageBox(chart, 7.05, 1.7, 5.25, 4.7) });
+   } else {
+-    const cards = planning ?? item.bullets.slice(0, 3).map((body, i) => ({ label: String(i + 1).padStart(2, "0"), body }));
++    const cards = planning ?? item.bullets.slice(0, 5).map((body, i) => ({ label: String(i + 1).padStart(2, "0"), body }));
+     const gap = 0.22;
+-    const width = (11.8 - gap * (cards.length - 1)) / Math.max(1, cards.length);
++    const columns = Math.max(1, Math.min(3, cards.length));
++    const rows = Math.max(1, Math.ceil(cards.length / columns));
++    const compact = rows > 1;
++    const width = (11.8 - gap * (columns - 1)) / columns;
++    const height = (3.73 - 0.18 * (rows - 1)) / rows;
+     cards.forEach((card, i) => {
+-      const x = 0.8 + i * (width + gap);
+-      slide.addShape("roundRect", { x, y: 2.75, w: width, h: 3.73, fill: { color: COLORS.white }, line: { color: COLORS.line, width: 1 } });
+-      slide.addShape("rect", { x: x + 0.2, y: 2.98, w: 0.48, h: 0.06, fill: { color: COLORS.violet }, line: { transparency: 100 } });
+-      slide.addText(card.label, { x: x + 0.22, y: 3.18, w: width - 0.44, h: planning ? 0.63 : 0.6, fontFace: "Malgun Gothic", fontSize: planning ? 18 : 34, bold: true, color: COLORS.violet, margin: 0, fit: "shrink" });
+-      slide.addText(card.body, { x: x + 0.22, y: 3.95, w: width - 0.44, h: 2.27, fontFace: "Malgun Gothic", fontSize: planning ? 14 : 22, color: COLORS.ink, margin: 0, valign: "top", fit: "shrink", breakLine: false });
++      const x = 0.8 + (i % columns) * (width + gap);
++      const y = 2.75 + Math.floor(i / columns) * (height + 0.18);
++      slide.addShape("roundRect", { x, y, w: width, h: height, fill: { color: COLORS.white }, line: { color: COLORS.line, width: 1 } });
++      slide.addShape("rect", { x: x + 0.2, y: y + (compact ? 0.12 : 0.23), w: 0.48, h: 0.06, fill: { color: COLORS.violet }, line: { transparency: 100 } });
++      slide.addText(card.label, { x: x + 0.22, y: y + (compact ? 0.24 : 0.43), w: width - 0.44, h: compact ? 0.3 : planning ? 0.63 : 0.6, fontFace: "Malgun Gothic", fontSize: planning || compact ? 18 : 34, bold: true, color: COLORS.violet, margin: 0, fit: "shrink" });
++      slide.addText(card.body, { x: x + 0.22, y: y + (compact ? 0.68 : 1.2), w: width - 0.44, h: height - (compact ? 0.82 : 1.46), fontFace: "Malgun Gothic", fontSize: planning ? 14 : compact ? 16 : 22, color: COLORS.ink, margin: 0, valign: "top", fit: "shrink", breakLine: false });
+     });
+     if (planning) slide.addText("검토안 · 현재 상태와 향후 계획을 구분한 자료이며 검증된 성과가 아닙니다.", { x: 0.8, y: 6.66, w: 11.8, h: 0.2, fontFace: "Malgun Gothic", fontSize: 9, color: COLORS.muted, margin: 0 });
+   }
+@@ -259,16 +264,21 @@
+     const bullets = slide.bullets.slice(0, 5).flatMap(bullet => wrapLines(`• ${bullet}`, 24, 3));
+     content = `${svgText(bullets, 105, 360, 26, COLORS.ink, 500, 1.45)}<image href="data:image/png;base64,${chart.png}" x="850" y="200" width="620" height="550" preserveAspectRatio="xMidYMid meet"/>`;
+   } else {
+-    const cards = planning ?? slide.bullets.slice(0, 3).map((body, i) => ({ label: String(i + 1).padStart(2, "0"), body }));
+-    const gap = 28, width = (1410 - gap * (cards.length - 1)) / Math.max(1, cards.length);
++    const cards = planning ?? slide.bullets.slice(0, 5).map((body, i) => ({ label: String(i + 1).padStart(2, "0"), body }));
++    const columns = Math.max(1, Math.min(3, cards.length));
++    const rows = Math.max(1, Math.ceil(cards.length / columns));
++    const compact = rows > 1;
++    const gap = 28, width = (1410 - gap * (columns - 1)) / columns;
++    const height = (460 - 20 * (rows - 1)) / rows;
+     content = cards.map((card, i) => {
+-      const x = 95 + i * (width + gap);
++      const x = 95 + (i % columns) * (width + gap);
++      const y = 320 + Math.floor(i / columns) * (height + 20);
+       const labels = wrapLines(card.label, Math.floor((width - 52) / (planning ? 25 : 40)), 5);
+-      const bodyY = planning ? 408 + labels.length * 31 : 475;
+-      const bodySize = planning ? 23 : 31;
++      const bodyY = compact ? y + 80 : planning ? y + 88 + labels.length * 31 : y + 155;
++      const bodySize = planning ? 23 : compact ? 24 : 31;
+       const bodyLines = wrapLines(card.body, Math.floor((width - 52) / bodySize), 30);
+-      const fittedSize = Math.min(bodySize, (745 - bodyY) / Math.max(1, bodyLines.length) / 1.3);
+-      return `<rect x="${x}" y="320" width="${width}" height="460" rx="20" fill="#FFFFFF" stroke="#${COLORS.line}"/><rect x="${x + 26}" y="349" width="58" height="7" fill="#${COLORS.violet}"/>${svgText(labels, x + 26, 406, planning ? 25 : 40, COLORS.violet, 700)}${svgText(bodyLines, x + 26, bodyY, fittedSize, COLORS.ink, 500, 1.3)}`;
++      const fittedSize = Math.min(bodySize, (y + height - 35 - bodyY) / Math.max(1, bodyLines.length) / 1.3);
++      return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="20" fill="#FFFFFF" stroke="#${COLORS.line}"/><rect x="${x + 26}" y="${y + (compact ? 16 : 29)}" width="58" height="7" fill="#${COLORS.violet}"/>${svgText(labels, x + 26, y + (compact ? 46 : 86), planning ? 25 : compact ? 26 : 40, COLORS.violet, 700)}${svgText(bodyLines, x + 26, bodyY, fittedSize, COLORS.ink, 500, 1.3)}`;
+     }).join("");
+     if (planning) content += svgText(["검토안 · 현재 상태와 향후 계획을 구분한 자료이며 검증된 성과가 아닙니다."], 95, 810, 16, COLORS.muted);
+   }
+--- a/lib/ratelimit.ts
++++ b/lib/ratelimit.ts
+@@ -74,11 +74,11 @@
+   req: Request,
+   kind: Kind,
+ ): Promise<{ ok: boolean; retryAfter?: number; unavailable?: boolean }> {
+-  const limiter = getLimiter(kind);
+-  if (!limiter) return process.env.NODE_ENV === "production"
+-    ? { ok: false, retryAfter: 5, unavailable: true }
+-    : { ok: true };
+   try {
++    const limiter = getLimiter(kind);
++    if (!limiter) return process.env.NODE_ENV === "production"
++      ? { ok: false, retryAfter: 5, unavailable: true }
++      : { ok: true };
+     const res = await limiter.limit(ipOf(req));
+     // Upstash's timeout response deliberately has success=true. Treat this as
+     // unavailable so an outage cannot bypass the application's spending boundary.
+--- a/lib/supabase/programs.ts
++++ b/lib/supabase/programs.ts
+@@ -1,4 +1,5 @@
+ import type { Program } from "@/lib/match/types";
++import { kstToday } from "@/lib/data/openFilter";
+ import { createAdminClient } from "./admin";
+ 
+ // programs 테이블 read/write — 배치 수집기(scripts/collect-programs.mts)와
+@@ -69,7 +70,9 @@
+ // EGBIZ also lacks a reliable completeness signal: its live count and returned
+ // pages can disagree. Successful HTTP responses cannot authorize deletion by
+ // absence. Preserve prior rows; the read path still filters expired apply_end.
+-const NON_EXHAUSTIVE_SOURCES = new Set<Program["source"]>(["bojo", "egbiz"]);
++// K-Startup and Bizinfo also accept partial page successes and cap pagination.
++// Without a completeness signal, a missing notice is not evidence of closure.
++const NON_EXHAUSTIVE_SOURCES = new Set<Program["source"]>(["bojo", "egbiz", "kstartup", "bizinfo"]);
+ 
+ // 소스 하나를 upsert하고 diff(신규/마감변경/종료)를 계산한다.
+ // mark-and-sweep: 이번 배치의 last_seen_at(runAt)보다 과거인, 아직 안 닫힌 같은 소스 행은
+@@ -142,6 +145,9 @@
+     .from("programs")
+     .select("id,source,title,summary,target,support_field,region,apply_end,url,form_url")
+     .is("closed_at", null)
++    // Non-exhaustive sources retain unseen rows. Exclude expired dates before
++    // LIMIT so those preserved rows cannot crowd current notices out of the page.
++    .or(`apply_end.is.null,apply_end.gte.${kstToday()}`)
+     .order("apply_end", { ascending: true, nullsFirst: false })
+     .limit(limit);
+   if (signal) query = query.abortSignal(signal);
+--- a/package.json
++++ b/package.json
+@@ -18,6 +18,8 @@
+     "benchmark:scale": "node scripts/scale-benchmark.mjs",
+     "test:performance": "node --test tests/performance.test.mjs",
+     "test:team": "node --test tests/performance.test.mjs tests/team-review.test.mjs tests/team-sre.test.mjs",
++    "test:release": "node --experimental-transform-types --test tests/operations.test.ts tests/refactor-contracts.test.mjs tests/form-headings.test.mjs tests/collection-rca.test.mjs tests/scale-unit.test.mjs tests/performance.test.mjs tests/team-review.test.mjs tests/team-sre.test.mjs tests/release-operations.test.ts tests/release-operations-hook.test.mjs tests/release-plan.test.mjs tests/release-sre.test.mjs",
++    "test:release:integration": "node --test tests/scale-integration.test.mjs tests/release-payment-state.test.mjs tests/release-reviewer.test.mjs",
+     "benchmark:team": "node --expose-gc scripts/performance-team-benchmark.mjs",
+     "benchmark:performance:before": "node --expose-gc scripts/performance-benchmark.mjs --before",
+     "benchmark:performance": "node --expose-gc scripts/performance-benchmark.mjs",
+--- a/scripts/verify-product-guards.mjs
++++ b/scripts/verify-product-guards.mjs
+@@ -1021,7 +1021,10 @@
+   "사용자 파일 경로를 pptxgenjs 이미지 파서에 직접 넘기면 안 됨",
+ );
+ assert.match(orderVerifySource, /사업계획서 Word 또는 묶음 상품의 주문번호/);
+-assert.match(webhookSource, /PRESENTATION_PAID_KEY/);
++assert.match(webhookSource, /await cancelOrder\(r,/);
++const paymentStateSource = readFileSync(new URL("../lib/plan/paymentState.ts", import.meta.url), "utf8");
++assert.match(paymentStateSource, /gp:presentation-paid:/);
++assert.match(paymentStateSource, /cjson\.decode\(paid\)\.orderNo == incoming\.orderNo/);
+ assert.match(termsSource, /발표자료는 사업계획서 상품과 별도/);
+ assert.match(refundSource, /최대 2회의 묶음 AI 수정/);
+ assert.match(evidencePanelSource, /계획서에 쓸 공식 근거 찾기/);
+--- a/tests/collection-rca.test.mjs
++++ b/tests/collection-rca.test.mjs
+@@ -204,12 +204,12 @@
+ });
+ 
+ test("existing exhaustive sources retain their closure behavior", async () => {
+-  const rows = activeRows(["A", "ended"]).map((row) => ({ ...row, id: row.id.replace("egbiz:", "kstartup:"), source: "kstartup" }));
++  const rows = activeRows(["A", "ended"]).map((row) => ({ ...row, id: row.id.replace("egbiz:", "nipa:"), source: "nipa" }));
+   const h = collectionHarness({ rows, fetch: async () => new Response(listing(["A"])) });
+-  const summary = await collectAndPersist(h, "kstartup");
++  const summary = await collectAndPersist(h, "nipa");
+   assert.equal(summary.closed, 1);
+-  assert.ok(h.rows.get("kstartup:ended").closed_at);
+-  assert.equal(h.rows.get("kstartup:A").closed_at, null);
++  assert.ok(h.rows.get("nipa:ended").closed_at);
++  assert.equal(h.rows.get("nipa:A").closed_at, null);
+ });
+ 
+ test("bojo keeps its existing protection against closure by absence", async () => {
+--- /dev/null
++++ b/tests/helpers/operations-hook-harness.mjs
+@@ -0,0 +1,65 @@
++import { readFileSync } from "node:fs";
++import path from "node:path";
++import vm from "node:vm";
++import ts from "typescript";
++
++// Execute the real hook with controlled render/effect and network scheduling.
++// This tests response ordering, not browser rendering or React internals.
++export function operationsHookHarness(sourceRoot = process.cwd()) {
++  const slots = [], effects = [], requests = [];
++  let cursor = 0, hook, current, pending = [];
++  const changed = (a, b) => !a || a.length !== b.length || b.some((v, i) => !Object.is(v, a[i]));
++  const react = {
++    useState(initial) {
++      const index = cursor++;
++      if (!(index in slots)) slots[index] = typeof initial === "function" ? initial() : initial;
++      return [slots[index], (value) => { slots[index] = typeof value === "function" ? value(slots[index]) : value; }];
++    },
++    useRef(initial) {
++      const index = cursor++;
++      return slots[index] ??= { current: initial };
++    },
++    useCallback(callback, dependencies) {
++      const index = cursor++;
++      if (changed(slots[index]?.dependencies, dependencies)) slots[index] = { callback, dependencies };
++      return slots[index].callback;
++    },
++    useEffect(callback, dependencies) {
++      const index = cursor++;
++      if (changed(effects[index]?.dependencies, dependencies)) {
++        pending.push(() => {
++          effects[index]?.cleanup?.();
++          effects[index] = { dependencies, cleanup: callback() };
++        });
++      }
++    },
++  };
++  const file = path.join(sourceRoot, "app/operations/useOperationsDashboard.ts");
++  const source = ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
++  const exported = {};
++  vm.runInNewContext(source, {
++    exports: exported, AbortController, DOMException,
++    require(name) {
++      if (name === "react") return react;
++      if (name === "@/components/auth/AuthGate") return { authedHeaders: async () => ({}) };
++      throw new Error(`Unexpected dependency: ${name}`);
++    },
++    fetch(url, options) {
++      return new Promise((resolve, reject) => {
++        requests.push({ url, options, resolve: (value) => resolve(Response.json(value)), reject });
++      });
++    },
++  }, { filename: file });
++  hook = exported.useOperationsDashboard;
++  function render() {
++    cursor = 0;
++    current = hook(true, "2026-09");
++    const queue = pending; pending = [];
++    queue.forEach((effect) => effect());
++    return current;
++  }
++  return { render, requests, unmount() { effects.forEach((effect) => effect?.cleanup?.()); } };
++}
++
++export const flush = async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); };
++export const monthView = (month, revision = 1) => ({ state: { goal: { month }, revision }, summary: {}, mode: "local" });
+--- /dev/null
++++ b/tests/release-operations-hook.test.mjs
+@@ -0,0 +1,60 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { operationsHookHarness, flush, monthView } from "./helpers/operations-hook-harness.mjs";
++
++test("late manual reload cannot replace the newly selected month", async () => {
++  const h = operationsHookHarness(process.env.OPS_REVIEW_SOURCE_ROOT);
++  h.render(); await flush();
++  h.requests[0].resolve(monthView("2026-09")); await flush();
++  const oldReload = h.render().load(); await flush();
++  h.render().selectMonth("2026-10"); h.render(); await flush();
++  h.requests[2].resolve(monthView("2026-10")); await flush();
++  h.requests[1].resolve(monthView("2026-09")); await oldReload; await flush();
++  const result = h.render();
++  assert.equal(result.month, "2026-10");
++  assert.equal(result.view.state.goal.month, "2026-10");
++  assert.equal(result.loading, false);
++  h.unmount();
++});
++
++test("late reload error cannot erase a successfully loaded new month", async () => {
++  const h = operationsHookHarness(process.env.OPS_REVIEW_SOURCE_ROOT);
++  h.render(); await flush();
++  h.requests[0].resolve(monthView("2026-09")); await flush();
++  const oldReload = h.render().load(); await flush();
++  h.render().selectMonth("2026-10"); h.render(); await flush();
++  h.requests[2].resolve(monthView("2026-10")); await flush();
++  h.requests[1].reject(new Error("old September error")); await oldReload; await flush();
++  const result = h.render();
++  assert.equal(result.view?.state.goal.month, "2026-10");
++  assert.equal(result.error, "");
++  h.unmount();
++});
++
++test("month selection invalidates an old response before the next render", async () => {
++  const h = operationsHookHarness(process.env.OPS_REVIEW_SOURCE_ROOT);
++  h.render(); await flush();
++  h.requests[0].resolve(monthView("2026-09")); await flush();
++  const oldReload = h.render().load(); await flush();
++  h.render().selectMonth("2026-10");
++  h.requests[1].resolve(monthView("2026-09")); await oldReload; await flush();
++  const result = h.render();
++  assert.equal(result.view, null);
++  assert.equal(result.loading, true);
++  h.unmount();
++});
++
++test("duplicate save events share one in-flight mutation and block month change", async () => {
++  const h = operationsHookHarness(process.env.OPS_REVIEW_SOURCE_ROOT);
++  h.render(); await flush();
++  h.requests[0].resolve(monthView("2026-09")); await flush();
++  const state = h.render(), command = { kind: "video", value: { id: "v1" } };
++  const first = state.save(command), second = state.save(command);
++  state.selectMonth("2026-10"); await flush();
++  assert.equal(h.requests.length, 2);
++  assert.equal(h.render().month, "2026-09");
++  h.requests[1].resolve(monthView("2026-09", 2));
++  await Promise.all([first, second]); await flush();
++  assert.equal(h.render().busy, false);
++  h.unmount();
++});
+--- /dev/null
++++ b/tests/release-operations.test.ts
+@@ -0,0 +1,43 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { initialMonth, InputError, parseVideo } from "../lib/operations/domain.ts";
++import { operationsRequest, type OperationsEvent } from "../lib/operations/http.ts";
++
++test("video enum accepts only scalar strings, not arrays with matching string conversions", () => {
++  const video = { id: "v1", title: "test", plannedDate: "2026-09-17", product: "word", status: "planned", url: "", views24h: null, views72h: null };
++  for (const override of [{ product: ["word"] }, { status: ["planned"] }])
++    assert.throws(() => parseVideo({ ...video, ...override }, "2026-09"), InputError);
++  assert.equal(parseVideo(video, "2026-09").product, "word");
++});
++
++test("operations failure is correlated and records phase without secrets or customer payload", async () => {
++  const events: OperationsEvent[] = [];
++  const response = await operationsRequest(new Request("https://release.invalid/api/operations?secret=PRIVATE", { headers: { authorization: "Bearer PRIVATE", "x-request-id": "attacker" } }), {
++    authenticate: async () => ({ id: "PRIVATE", isAdmin: true }),
++    store: () => ({ read: async () => { throw new Error("PRIVATE database credential"); }, compareAndSet: async () => false }),
++    observe: (event) => { events.push(event); },
++  });
++  assert.equal(response.status, 503);
++  assert.equal(events.length, 1);
++  assert.equal(events[0].phase, "read");
++  assert.equal(events[0].requestId, response.headers.get("x-request-id"));
++  assert.notEqual(events[0].requestId, "attacker");
++  assert.ok(events[0].durationMs >= 0);
++  assert.doesNotMatch(JSON.stringify(events), /PRIVATE|attacker/);
++  assert.doesNotMatch(await response.text(), /PRIVATE/);
++});
++
++test("observability failure does not change the success of an atomic mutation", async () => {
++  let stored = initialMonth("2026-09");
++  const response = await operationsRequest(new Request("https://release.invalid/api/operations", {
++    method: "PUT", headers: { "content-type": "application/json" },
++    body: JSON.stringify({ month: "2026-09", expectedRevision: 0, command: { kind: "goal", value: { ...stored.goal, targetKrw: 2000000 } } }),
++  }), {
++    authenticate: async () => ({ id: "operator", isAdmin: true }),
++    store: () => ({ read: async () => stored, compareAndSet: async (_month, _revision, next) => { stored = next; return true; } }),
++    observe() { throw new Error("offline sink"); },
++  });
++  assert.equal(response.status, 200);
++  assert.equal(stored.goal.targetKrw, 2000000);
++  assert.equal(stored.revision, 1);
++});
+--- /dev/null
++++ b/tests/release-payment-state.test.mjs
+@@ -0,0 +1,132 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { randomUUID } from "node:crypto";
++import { loadScaleModule, labRedis, redisCommand } from "./helpers/scale-harness.mjs";
++const p = loadScaleModule("lib/plan/paymentState.ts");
++let sequence = 0;
++const jsonGet = async (key) => { const raw = await redisCommand("GET", key); return raw ? JSON.parse(raw) : null; };
++async function fixture(t) {
++  const users = [`release-${randomUUID()}`, `release-${randomUUID()}`];
++  const orders = [0, 1, 2].map(() => `${Date.now()}${String(sequence++).padStart(6, "0")}`);
++  const keys = [...users.flatMap((u) => [p.PAID_KEY(u), p.PRESENTATION_PAID_KEY(u)]), ...orders.flatMap((o) => [p.VALID_ORDER_KEY(o), p.ORDER_USED_KEY(o), `gp:ordergrant:${o}:word`, `gp:ordergrant:${o}:presentation`])];
++  t.after(() => redisCommand("DEL", ...keys));
++  const valid = (orderNo, productId = "word") => p.registerOrder(labRedis, { orderNo, productId, status: "valid", via: "webhook", registeredAt: new Date().toISOString() });
++  const claim = (orderNo, { userId = users[0], mode = "word", bundle = false } = {}) => p.claimOrder(labRedis, { userId, mode, bundle,
++    productId: bundle ? "bundle" : mode,
++    record: { orderNo, email: "synthetic@example.invalid", verifiedAt: new Date().toISOString(), ...(mode === "presentation" ? { source: bundle ? "bundle" : "presentation" } : {}) } });
++  const cancel = (orderNo) => p.cancelOrder(labRedis, { orderNo, registeredAt: new Date().toISOString(), via: "webhook", status: "cancelled" });
++  return { users, orders, valid, claim, cancel };
++}
++
++test("Redis payment: historical order cannot replace a later consumed entitlement", async (t) => {
++  const { users: [u], orders: [a, b], valid, claim } = await fixture(t);
++  await valid(a); await valid(b);
++  assert.equal((await claim(a)).status, 0);
++  assert.equal(await p.updateEntitlement(labRedis, p.PAID_KEY(u), a, "bind", "program-A"), true);
++  assert.equal((await claim(b)).status, 0);
++  await p.updateEntitlement(labRedis, p.PAID_KEY(u), b, "bind", "program-B");
++  assert.equal((await claim(a)).status, -2);
++  assert.equal((await jsonGet(p.PAID_KEY(u))).usedProgramId, "program-B");
++});
++
++test("Redis payment: concurrent owners can grant a given order only once", async (t) => {
++  const { users, orders: [a], valid, claim } = await fixture(t); await valid(a);
++  const results = await Promise.all(users.map((userId) => claim(a, { userId })));
++  assert.deepEqual(results.map((x) => x.status).sort(), [-2, 0]);
++  assert.equal((await Promise.all(users.map((u) => jsonGet(p.PAID_KEY(u))))).filter(Boolean).length, 1);
++});
++
++test("Redis payment: concurrent new orders do not overwrite an unused purchase", async (t) => {
++  const { orders: [a, b], valid, claim } = await fixture(t); await valid(a); await valid(b);
++  const results = await Promise.all([claim(a), claim(b)]);
++  assert.deepEqual(results.map((x) => x.status).sort(), [-3, 0]);
++  const loser = results[0].status < 0 ? a : b;
++  assert.equal(await redisCommand("GET", p.ORDER_USED_KEY(loser)), null);
++});
++
++test("Redis payment: idempotent retry retains the program and one concurrent program loses", async (t) => {
++  const { users: [u], orders: [a], valid, claim } = await fixture(t); await valid(a); await claim(a);
++  const results = await Promise.all(["A", "B"].map((id) => p.updateEntitlement(labRedis, p.PAID_KEY(u), a, "bind", id)));
++  assert.deepEqual(results.sort(), [false, true]);
++  const bound = await jsonGet(p.PAID_KEY(u));
++  assert.equal((await claim(a)).status, 1);
++  assert.deepEqual(await jsonGet(p.PAID_KEY(u)), bound);
++  assert.equal(await p.updateEntitlement(labRedis, p.PAID_KEY(u), a, "bind", bound.usedProgramId), true);
++});
++
++test("Redis payment: historical cancellation preserves both newer product entitlements", async (t) => {
++  const { users: [u], orders: [a, b], valid, claim, cancel } = await fixture(t);
++  await valid(a, "bundle"); await claim(a, { bundle: true });
++  await p.updateEntitlement(labRedis, p.PAID_KEY(u), a, "bind", "A");
++  await p.updateEntitlement(labRedis, p.PRESENTATION_PAID_KEY(u), a, "bind", "A");
++  await valid(b, "bundle"); await claim(b, { bundle: true });
++  assert.equal(await cancel(a), 0);
++  assert.equal((await jsonGet(p.PAID_KEY(u))).orderNo, b);
++  assert.equal((await jsonGet(p.PRESENTATION_PAID_KEY(u))).orderNo, b);
++  assert.equal(await cancel(b), 2);
++  assert.equal(await jsonGet(p.PAID_KEY(u)), null);
++  assert.equal(await jsonGet(p.PRESENTATION_PAID_KEY(u)), null);
++});
++
++test("Redis payment: cancellation remains terminal after completion and recovery retries", async (t) => {
++  const { orders: [a], valid, claim, cancel } = await fixture(t);
++  await cancel(a);
++  assert.equal((await valid(a)).status, "cancelled");
++  assert.equal((await claim(a)).status, -1);
++});
++
++test("Redis payment: grant versus cancel cannot leave an active refunded credit", async (t) => {
++  const { users: [u], orders: [a], valid, claim, cancel } = await fixture(t); await valid(a);
++  await Promise.all([claim(a), cancel(a)]);
++  assert.equal((await jsonGet(p.VALID_ORDER_KEY(a))).status, "cancelled");
++  assert.equal(await jsonGet(p.PAID_KEY(u)), null);
++});
++
++test("Redis payment: consent and bind cannot resurrect a refunded bundle", async (t) => {
++  const { users: [u], orders: [a], valid, claim, cancel } = await fixture(t);
++  await valid(a, "bundle"); await claim(a, { bundle: true });
++  await Promise.all([p.updateEntitlement(labRedis, p.PRESENTATION_PAID_KEY(u), a, "consent"), p.updateEntitlement(labRedis, p.PAID_KEY(u), a, "bind", "A"), cancel(a)]);
++  assert.equal(await jsonGet(p.PAID_KEY(u)), null);
++  assert.equal(await jsonGet(p.PRESENTATION_PAID_KEY(u)), null);
++});
++
++test("Redis payment: an old request cannot consume a replacement order", async (t) => {
++  const { users: [u], orders: [a, b], valid, claim } = await fixture(t);
++  await valid(a); await claim(a); await p.updateEntitlement(labRedis, p.PAID_KEY(u), a, "bind", "A");
++  await valid(b); await claim(b);
++  assert.equal(await p.updateEntitlement(labRedis, p.PAID_KEY(u), a, "bind", "stale"), false);
++  assert.equal((await jsonGet(p.PAID_KEY(u))).orderNo, b);
++  assert.equal((await jsonGet(p.PAID_KEY(u))).usedProgramId, undefined);
++});
++
++test("Redis payment: presentation-first bundle can grant Word once without erasing consent", async (t) => {
++  const { users: [u], orders: [a, b, c], valid, claim } = await fixture(t);
++  await valid(a); await claim(a); await p.updateEntitlement(labRedis, p.PAID_KEY(u), a, "bind", "program-A");
++  await valid(b, "bundle");
++  assert.equal((await claim(b, { mode: "presentation", bundle: true })).status, 0);
++  await p.updateEntitlement(labRedis, p.PRESENTATION_PAID_KEY(u), b, "consent");
++  await p.updateEntitlement(labRedis, p.PRESENTATION_PAID_KEY(u), b, "bind", "program-A");
++  const presentation = await jsonGet(p.PRESENTATION_PAID_KEY(u));
++  assert.equal((await claim(b, { bundle: true })).status, 0);
++  assert.deepEqual(await jsonGet(p.PRESENTATION_PAID_KEY(u)), presentation);
++  assert.equal((await jsonGet(p.PAID_KEY(u))).usedProgramId, "program-A");
++  await valid(c); await claim(c);
++  assert.equal((await claim(b, { bundle: true })).status, -2);
++});
++
++test("Redis payment: a new bundle preserves a different unused presentation purchase", async (t) => {
++  const { users: [u], orders: [a, b, c], valid, claim } = await fixture(t);
++  await valid(a); await claim(a);
++  await p.updateEntitlement(labRedis, p.PAID_KEY(u), a, "bind", "program-A");
++  await valid(b, "presentation"); await claim(b, { mode: "presentation" });
++  const word = await jsonGet(p.PAID_KEY(u));
++  const presentation = await jsonGet(p.PRESENTATION_PAID_KEY(u));
++  await valid(c, "bundle");
++  assert.equal((await claim(c, { bundle: true })).status, -3);
++  assert.deepEqual(await jsonGet(p.PAID_KEY(u)), word);
++  assert.deepEqual(await jsonGet(p.PRESENTATION_PAID_KEY(u)), presentation);
++  assert.equal(await redisCommand("GET", p.ORDER_USED_KEY(c)), null);
++  assert.equal(await redisCommand("GET", `gp:ordergrant:${c}:word`), null);
++  await p.updateEntitlement(labRedis, p.PRESENTATION_PAID_KEY(u), b, "bind", "program-A");
++  assert.equal((await claim(c, { bundle: true })).status, 0);
++});
+--- /dev/null
++++ b/tests/release-plan.test.mjs
+@@ -0,0 +1,275 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++import vm from "node:vm";
++import ts from "typescript";
++import JSZip from "jszip";
++import PptxGenJS from "pptxgenjs";
++import { PDFDocument } from "pdf-lib";
++import { Resvg } from "@resvg/resvg-js";
++import { performanceModules } from "./helpers/performance-harness.mjs";
++
++const presentation = performanceModules().load("lib/plan/presentation.ts");
++const emptyEvidence = { sources: [] };
++const normalizedClaim = (text, overrides = {}) => presentation.normalizePresentationClaims([
++  { id: "claim", text, status: "stated", origin: "user", stageId: "validation", ...overrides },
++], emptyEvidence)[0];
++
++for (const text of [
++  "고객 100명이 사용 중이다",
++  "다운로드 5000건을 기록했다",
++  "가입자 100명, 경쟁사 조사는 미정",
++  "매출 100만원을 기록했다. 다음 고객군은 가설이다",
++]) {
++  test(`presentation requires evidence for unsupported outcomes: ${text}`, () => {
++    const claim = normalizedClaim(text, { requiresEvidence: false });
++    assert.equal(claim.status, "stated");
++    assert.equal(claim.requiresEvidence, true);
++    const report = presentation.reviewPresentationPack({ slides: [], qa: [], claimLedger: [claim], sourceCoverage: [] });
++    assert.ok(report.issues.some((issue) => issue.issue.includes("현재 실적·수치에 확인 자료가 없습니다")));
++  });
++}
++
++test("presentation preserves plain missing experience and explicit future plans", () => {
++  for (const text of ["고객 검증은 아직 없음", "시장 규모는 미확인", "직접 제품을 비교한 경험이 있다", "본인은 엑셀 정리가 가능하다"]) {
++    const claim = normalizedClaim(text, { status: "missing", requiresEvidence: true });
++    assert.equal(claim.status, "stated", text);
++    assert.equal(claim.requiresEvidence, false, text);
++  }
++  const plan = normalizedClaim("고객 5명을 인터뷰할 계획", { status: "plan", verificationPlan: "다음 달 인터뷰 답변을 기록" });
++  assert.equal(plan.status, "plan"); assert.equal(plan.requiresEvidence, false);
++  const hypothesis = normalizedClaim("가격 10000원은 가설이다", { assumption: "가격 가정", verificationPlan: "사용자 반응을 확인" });
++  assert.equal(hypothesis.status, "hypothesis"); assert.equal(hypothesis.requiresEvidence, false);
++});
++
++test("a beginner exception cannot override missing external evidence", () => {
++  const claim = normalizedClaim("시장 규모는 미확인", { origin: "external" });
++  assert.equal(claim.status, "missing"); assert.equal(claim.requiresEvidence, true);
++});
++
++test("automatic repair clears the previous approval when re-review fails", async () => {
++  const source = readFileSync(new URL("../components/chat/Chat.tsx", import.meta.url), "utf8");
++  const tree = ts.createSourceFile("Chat.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
++  let declaration;
++  function visit(node) {
++    if (ts.isFunctionDeclaration(node) && node.name?.text === "generateDraft") declaration = node;
++    ts.forEachChild(node, visit);
++  }
++  visit(tree); assert.ok(declaration, "execute the actual UI generation function");
++  const original = [{ heading: "문제 인식", content: "원래 사용자 설명. ".repeat(40) }];
++  const repaired = [{ heading: "문제 인식", content: "수정된 사용자 설명. ".repeat(40) }];
++  let review = null, currentDraft, audits = 0;
++  const context = {
++    selectedProgram: { title: "가상 공고", target: "", summary: "" }, drafting: false, admin: false, paid: true, code: "",
++    planUserTurns: 8, PLAN_MIN_TURNS: 5, formToc: [], PLAN_SECTIONS: original, draft: { sections: original },
++    messages: [], docSummary: "가상 양식", eligReqs: null, profile: null, provider: "claude", reviewDone: true,
++    setPlanReview(value) { review = value; }, setDraft(value) { currentDraft = value; },
++    setDrafting() {}, setCharts() {}, setGenerationStage() {}, setMessages() {}, setReviewOpen() {},
++    formTocToPlanSections: () => null, organizeEvidenceAndStrategy: async () => ({ evidence: {}, strategy: {} }),
++    buildRegionNotice: () => null, extractBusinessRegion: () => null, preferredRegionNoticeHeading: () => "문제 인식",
++    splitDraftBatches: (items) => items.map((item) => [item]), planTextMessages: () => [], authedHeaders: async () => ({}),
++    async auditDraftSections() {
++      audits++;
++      if (audits === 1) {
++        review = { submissionReady: true, score: 90, issues: [{ canAutoFix: true, issue: "표현 보완" }] };
++        return review;
++      }
++      return null;
++    },
++    fetch: async (url) => {
++      assert.equal(url, "/api/plan/revise");
++      return Response.json({ sections: repaired, degraded: false });
++    },
++    track() {}, refreshPlanStatus: async () => {},
++  };
++  const code = ts.transpileModule(`${declaration.getText(tree)}\nglobalThis.run = generateDraft;`, {
++    compilerOptions: { target: ts.ScriptTarget.ES2022 },
++  }).outputText;
++  vm.runInNewContext(code, context);
++  await context.run();
++  assert.equal(audits, 2); assert.deepEqual(currentDraft.sections, repaired);
++  assert.equal(review, null, "the repaired document must not retain the old approval");
++});
++
++const exportBullets = Array.from({ length: 5 }, (_, index) => `보존할 핵심 내용 ${index + 1}`);
++const exportPack = {
++  title: "내보내기 회귀 검사", qa: [],
++  slides: [{ stageId: "vision", title: "다섯 가지 핵심", headline: "모든 항목이 파일에 남아야 합니다", bullets: exportBullets,
++    speakerNotes: "검증용 대본", sourceNotes: [] }],
++};
++test("PPTX retains all five accepted bullets in visible slide content", async () => {
++  const { buildPresentationPptxBuffer } = performanceModules({ mocks: { pptxgenjs: { default: PptxGenJS } } }).load("lib/plan/presentationExport.ts");
++  const zip = await JSZip.loadAsync(await buildPresentationPptxBuffer(exportPack));
++  const visible = await zip.file("ppt/slides/slide1.xml").async("string");
++  for (const bullet of exportBullets) assert.ok(visible.includes(bullet), `missing visible bullet: ${bullet}`);
++});
++test("PDF renders all five accepted bullets instead of dropping the final two", async () => {
++  const rendered = [];
++  class CapturedResvg extends Resvg { constructor(svg, options) { rendered.push(svg); super(svg, options); } }
++  const { buildPresentationPdfBuffer } = performanceModules({ mocks: {
++    "@resvg/resvg-js": { Resvg: CapturedResvg },
++    "pdf-lib": { PDFDocument: { async create() {
++      const document = await PDFDocument.create(), addPage = document.addPage.bind(document);
++      // The real library uses instanceof Array; bridge the VM's tuple into its realm.
++      document.addPage = (size) => addPage(Array.from(size));
++      return document;
++    } } },
++  } }).load("lib/plan/presentationExport.ts");
++  const buffer = await buildPresentationPdfBuffer(exportPack);
++  assert.equal(buffer.subarray(0, 4).toString(), "%PDF");
++  for (const bullet of exportBullets) assert.ok(rendered.join("\n").includes(bullet), `missing rendered bullet: ${bullet}`);
++});
++
++test("presentation export ignores caller image bytes and embeds only server-rendered PNGs", async () => {
++  const images = [], rendered = [];
++  class CapturedPptx extends PptxGenJS {
++    addSlide(...args) {
++      const slide = super.addSlide(...args), addImage = slide.addImage.bind(slide);
++      slide.addImage = (options) => { images.push(options); return addImage(options); };
++      return slide;
++    }
++  }
++  class CapturedResvg extends Resvg { constructor(svg, options) { rendered.push(svg); super(svg, options); } }
++  const hostile = '</text><image href="https://invalid.example/a.heif"/>';
++  const evidence = { sources: [{ id: "proof", verified: true }], gaps: [] };
++  const strategy = { customer: hostile, diagrams: { tamSamSom: {
++    tam: "100", sam: "50", som: "10", evidenceStatus: "verified", evidenceIds: ["proof"], sourceNote: hostile,
++    png: "aWNucwAAAAA=", path: "https://invalid.example/a.jxl", svg: hostile,
++  } } };
++  const pack = { ...exportPack, slides: [{ ...exportPack.slides[0], stageId: "market", image: hostile }] };
++  const route = performanceModules({ mocks: {
++    pptxgenjs: { default: CapturedPptx }, "@resvg/resvg-js": { Resvg: CapturedResvg },
++    "@/lib/auth/googleUser": { paidGoogleLoginGate: async () => null },
++    "@/lib/plan/presentationAccess": { checkPresentationAccess: async () => ({ ok: true, admin: false, user: { id: "buyer" }, paid: { consentedAt: "2026-09-17" } }) },
++    "@/lib/plan/artifacts": {
++      getPresentationArtifact: async () => ({ pack, review: { exportReady: false }, sectionsDigest: "sections", evidenceDigest: "artifact", strategyDigest: "artifact" }),
++      getAuditArtifact: async () => ({ sectionsDigest: "sections" }), getEvidencePack: async () => evidence,
++      getStrategyPack: async () => strategy, planArtifactDigest: () => "artifact",
++    },
++    "@/lib/plan/presentationRevisions": { markFirstPresentationDelivery: async () => { throw new Error("Review-only export must not start the revision window"); } },
++  } }).load("app/api/plan/presentation/export/route.ts");
++  const response = await route.POST(new Request("https://release.invalid", { method: "POST", body: JSON.stringify({
++    programId: "program-A", format: "pptx", charts: [{ key: "tamsamsom", png: "aWNucwAAAAA=", path: "https://invalid.example/a.icns" }],
++    pack: { ...pack, image: "https://invalid.example/a.heif" },
++  }) }));
++  assert.equal(response.status, 200); assert.equal(images.length, 1);
++  assert.equal(images[0].path, undefined); assert.ok(images[0].data.startsWith("data:image/png;base64,"));
++  assert.equal(Buffer.from(images[0].data.split(",")[1], "base64").subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
++  assert.ok(rendered.length > 0); assert.ok(rendered.every((svg) => !svg.includes("<image")), "untrusted chart text cannot add an SVG image resource");
++  assert.ok(rendered.some((svg) => svg.includes("&lt;image")), "hostile source text was rendered as text");
++  const zip = await JSZip.loadAsync(Buffer.from(await response.arrayBuffer()));
++  const media = Object.values(zip.files).filter((file) => !file.dir && file.name.startsWith("ppt/media/"));
++  assert.equal(media.length, 1);
++  assert.equal((await media[0].async("nodebuffer")).subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
++});
++
++function bindingHarness(file, admin = false) {
++  let binds = 0, budgets = 0, aiCalls = 0;
++  const bindingArgs = [];
++  const denied = () => Response.json({}, { status: 402 });
++  const access = { ok: true, admin, user: { id: "buyer" }, orderNo: "order-A", paid: { orderNo: "order-A", consentedAt: "2026-09-17" } };
++  const evidence = { sources: [], gaps: [], competitors: [] };
++  const strategy = { claims: [{ claim: "사용자 확인 계획", status: "plan", evidenceIds: [] }] };
++  const bind = async (...args) => { binds++; bindingArgs.push(args); return false; };
++  const budget = async () => { budgets++; return { ok: false }; };
++  const loaded = performanceModules({ env: { ANTHROPIC_API_KEY: "synthetic-only" }, mocks: {
++    "@/lib/auth/googleUser": { paidGoogleLoginGate: async () => null },
++    "@/lib/config": { maintenanceGate: () => null },
++    "@/lib/ratelimit": { checkRateLimit: async () => ({ ok: true }) },
++    "@/lib/plan/paidAccess": { checkDraftAccess: async () => access, markCreditUsed: bind, paymentRequiredResponse: denied },
++    "@/lib/plan/presentationAccess": { checkPresentationAccess: async () => access, markPresentationCreditUsed: bind, presentationPaymentRequiredResponse: denied },
++    "@/lib/plan/applicationGuard": { decideDraftApplication: () => ({ ok: true }) },
++    "@/lib/plan/aiBudget": { reservePaidAiCall: budget, reservePresentationAiCall: budget, aiBudgetExceededResponse: () => Response.json({}, { status: 429 }) },
++    "@/lib/plan/presentationRevisions": { reservePresentationRevision: async () => ({ ok: true, rollback: async () => {} }) },
++    "@/lib/plan/artifacts": {
++      getEvidencePack: async () => evidence, getStrategyPack: async () => strategy, getPresentationArtifact: async () => null,
++      getAuditArtifact: async () => ({ sectionsDigest: "sections", evidenceDigest: "artifact", strategyDigest: "artifact" }),
++      planSectionsDigest: () => "sections", planArtifactDigest: () => "artifact",
++    },
++    "@/lib/llm/provider": { parseProvider: () => "claude", isProviderConfigured: () => true, getLlm() { aiCalls++; throw new Error("AI must not run"); } },
++    "@/lib/llm/research": { async researchJson() { aiCalls++; throw new Error("AI must not run"); } },
++  } }).load(file);
++  const body = { program: { id: "program-A", title: "가상 공고" }, documentConfirmed: true, progress: {},
++    messages: [{ role: "user", content: "실제 호출 없는 검증 입력" }], sections: [{ heading: "문제 인식", content: "검증 본문 ".repeat(60) }] };
++  return { async run() { return loaded.POST(new Request("https://release.invalid", { method: "POST", body: JSON.stringify(body) })); },
++    bindingArgs, get binds() { return binds; }, get budgets() { return budgets; }, get aiCalls() { return aiCalls; } };
++}
++for (const file of ["app/api/plan/evidence/route.ts", "app/api/plan/draft-batch/route.ts", "app/api/plan/presentation/chat/route.ts", "app/api/plan/presentation/generate/route.ts"]) {
++  test(`paid AI cannot start when atomic credit binding fails: ${file}`, async () => {
++    const h = bindingHarness(file);
++    assert.equal((await h.run()).status, 402); assert.equal(h.binds, 1);
++    assert.deepEqual(h.bindingArgs, [["buyer", "program-A", "order-A"]]);
++    assert.equal(h.budgets, 0); assert.equal(h.aiCalls, 0);
++  });
++  test(`administrator verification does not mutate credit bindings: ${file}`, async () => {
++    const h = bindingHarness(file, true);
++    assert.equal((await h.run()).status, 429); assert.equal(h.binds, 0); assert.equal(h.budgets, 1);
++    assert.equal(h.aiCalls, 0);
++  });
++}
++
++function prestageHarness() {
++  const values = new Map(), expires = new Map(); let now = 0, fail = true, attempts = 0, stored = 0, finalizeFails = false;
++  let pendingInsert = null;
++  const optionsSeen = [];
++  class Redis {
++    async get(key) { if ((expires.get(key) ?? Infinity) <= now) { values.delete(key); expires.delete(key); } return values.get(key) ?? null; }
++    async set(key, value, options) {
++      optionsSeen.push(options);
++      if (options.nx && await this.get(key) !== null) return null;
++      values.set(key, value); expires.set(key, now + options.px); return "OK";
++    }
++    async eval(script, [key], [token, completedAt]) {
++      if (finalizeFails && completedAt !== undefined) throw new Error("synthetic Redis outage");
++      if (await this.get(key) !== token) return 0;
++      if (script.includes("'DEL'")) { values.delete(key); expires.delete(key); return 1; }
++      values.set(key, completedAt); expires.delete(key); return 1;
++    }
++  }
++  const loaded = performanceModules({ env: { UPSTASH_REDIS_REST_URL: "https://release.invalid", UPSTASH_REDIS_REST_TOKEN: "synthetic-only" },
++    globals: { console: { error() {}, warn() {} } }, mocks: {
++      "@upstash/redis": { Redis }, "@/lib/ratelimit": { checkRateLimit: async () => ({ ok: true }) },
++      "@/lib/plan/paidAccess": { getAuthedUser: async () => ({ id: "buyer", email: "fixture@release.invalid" }) },
++      "@/lib/supabase/admin": { createAdminClient: () => ({ from: () => ({ insert: () => ({ async abortSignal(signal) {
++        assert.ok(signal); attempts++;
++        if (pendingInsert) await pendingInsert;
++        if (fail) return { error: { code: "08006", message: "synthetic outage" } };
++        stored++; return { error: null };
++      } }) }) }) },
++    } });
++  const route = loaded.load("app/api/lead/prestage/route.ts");
++  return { values, optionsSeen, Redis, loaded, async run() { return route.POST(new Request("https://release.invalid")); },
++    restore() { fail = false; }, block(promise) { pendingInsert = promise; }, advance(ms) { now += ms; }, failFinalize() { finalizeFails = true; },
++    get attempts() { return attempts; }, get stored() { return stored; } };
++}
++test("prestage DB failure releases its reservation so recovery persists a lead", async () => {
++  const h = prestageHarness(); assert.equal((await h.run()).status, 503);
++  assert.equal(h.values.has("gp:prestage:buyer"), false);
++  h.restore(); assert.equal((await h.run()).status, 200); assert.equal(h.stored, 1);
++  assert.equal((await (await h.run()).json()).dup, true); assert.equal(h.stored, 1);
++  assert.ok(h.optionsSeen.every((options) => options.nx && options.px === 30_000));
++});
++test("prestage in-flight work is retryable instead of a false duplicate success", async () => {
++  const h = prestageHarness(); h.restore();
++  let finish; h.block(new Promise((resolve) => { finish = resolve; }));
++  const first = h.run();
++  while (h.attempts === 0) await new Promise((resolve) => setImmediate(resolve));
++  const second = await h.run(); assert.equal(second.status, 503); assert.equal(second.headers.get("retry-after"), "5");
++  assert.equal(h.stored, 0); finish(); assert.equal((await first).status, 200); assert.equal(h.stored, 1);
++});
++test("prestage expired owners cannot release or finalize a replacement reservation", async () => {
++  const h = prestageHarness(), store = new h.Redis();
++  const { reservePrestage } = h.loaded.load("lib/leads/prestageReservation.ts");
++  const old = await reservePrestage(store, "buyer"); h.advance(30_001);
++  const replacement = await reservePrestage(store, "buyer"), token = h.values.get("gp:prestage:buyer");
++  assert.equal(old.state, "reserved"); assert.equal(replacement.state, "reserved");
++  await old.release(); assert.equal(await old.complete(), false);
++  assert.equal(h.values.get("gp:prestage:buyer"), token);
++  assert.equal(await replacement.complete(), true);
++});
++test("prestage acknowledges actual DB success while exposing failed dedup finalization", async () => {
++  const h = prestageHarness(); h.restore(); h.failFinalize();
++  const response = await h.run(); assert.equal(response.status, 200); assert.equal(h.stored, 1);
++  assert.equal((await response.json()).deduplicationPending, true);
++  assert.equal((await h.run()).status, 503, "an unfinalized pending marker must not pretend to be a completed duplicate");
++});
+--- /dev/null
++++ b/tests/release-reviewer.test.mjs
+@@ -0,0 +1,298 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++import { execFileSync } from "node:child_process";
++import path from "node:path";
++import vm from "node:vm";
++import ts from "typescript";
++import { randomUUID } from "node:crypto";
++import { redisCommand } from "./helpers/scale-harness.mjs";
++
++// Independent, explicit imports only. Redis tests use synthetic data on the
++// fixed loopback lab; remote requests, real credentials and live DB are absent.
++const root = path.resolve(import.meta.dirname, "..");
++const BASE = "e2ee1f1";
++function evaluate(file, { baseline = false, imports = {}, globals = {}, env = {} } = {}) {
++  const source = baseline
++    ? execFileSync("git", ["show", `${BASE}:${file}`], { cwd: root, encoding: "utf8" })
++    : readFileSync(path.join(root, file), "utf8");
++  const loaded = { exports: {} };
++  const require = (name) => {
++    assert.ok(Object.hasOwn(imports, name), `Unexpected release-review dependency ${name}`);
++    return imports[name];
++  };
++  const code = ts.transpileModule(source, {
++    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
++  }).outputText;
++  vm.runInNewContext(code, {
++    module: loaded, exports: loaded.exports, require, process: { env },
++    Request, Response, Headers, URL, Date, TextDecoder, TextEncoder,
++    AbortController, AbortSignal, structuredClone, setTimeout, clearTimeout,
++    console: { log() {}, warn() {}, error() {}, info() {} },
++    fetch: () => { throw new Error("Release Reviewer forbids network"); }, ...globals,
++  }, { filename: baseline ? `${BASE}:${file}` : file });
++  return loaded.exports;
++}
++const env = { NODE_ENV: "production", UPSTASH_REDIS_REST_URL: "https://release.invalid", UPSTASH_REDIS_REST_TOKEN: "synthetic", GROBLE_WEBHOOK_KEY: "synthetic-webhook" };
++const user = { id: `release-reviewer-${randomUUID()}`, email: "buyer@release.invalid", isAdmin: false };
++const A = `99${Date.now()}0001`, B = `99${Date.now()}0002`, C = `99${Date.now()}0003`;
++function memoryRedis(initial = []) {
++  const values = new Map(initial.map(([k, v]) => [k, structuredClone(v)]));
++  class Redis {
++    async get(key) { return structuredClone(values.get(key) ?? null); }
++    async set(key, value, options = {}) {
++      if (options.nx && values.has(key)) return null;
++      values.set(key, structuredClone(value)); return "OK";
++    }
++    async del(...keys) { let removed = 0; for (const key of keys) if (values.delete(key)) removed++; return removed; }
++    async incr(key) { const value = Number(values.get(key) ?? 0) + 1; values.set(key, value); return value; }
++    async lrange(key, first, last) { const a = values.get(key) ?? []; return structuredClone(a.slice(first, last < 0 ? undefined : last + 1)); }
++    async lpush(key, value) { const a = values.get(key) ?? []; a.unshift(structuredClone(value)); values.set(key, a); return a.length; }
++    async ltrim(key, first, last) { values.set(key, (values.get(key) ?? []).slice(first, last + 1)); return "OK"; }
++  }
++  return { Redis, values, read: (key) => new Redis().get(key) };
++}
++async function actualRedis(t, initial = []) {
++  const rawKey = `release-reviewer:${randomUUID()}:raw`;
++  const keyOf = (key) => key === "gp:groble_raw" ? rawKey : key;
++  const decode = (value) => {
++    if (Array.isArray(value)) return value.map(decode);
++    if (typeof value !== "string") return value;
++    try { return JSON.parse(value); } catch { return value; }
++  };
++  class Redis {
++    async get(key) { return decode(await redisCommand("GET", keyOf(key))); }
++    async set(key, value, options = {}) {
++      return redisCommand("SET", keyOf(key), typeof value === "string" ? value : JSON.stringify(value),
++        ...(options.nx ? ["NX"] : []), ...(options.px ? ["PX", options.px] : []));
++    }
++    async del(...keys) { return redisCommand("DEL", ...keys.map(keyOf)); }
++    async incr(key) { return redisCommand("INCR", keyOf(key)); }
++    async lrange(key, first, last) { return decode(await redisCommand("LRANGE", keyOf(key), first, last)); }
++    async lpush(key, value) { return redisCommand("LPUSH", keyOf(key), typeof value === "string" ? value : JSON.stringify(value)); }
++    async ltrim(key, first, last) { return redisCommand("LTRIM", keyOf(key), first, last); }
++    async eval(script, keys, args) { return decode(await redisCommand("EVAL", script, keys.length, ...keys, ...args)); }
++  }
++  const keys = [rawKey, ...["gp:paid:", "gp:presentation-paid:", "gp:prestage:", "gp:ordertries:", "gp:presentation-ordertries:"].map((p) => p + user.id),
++    ...[A, B, C].flatMap((o) => [`gp:validorder:${o}`, `gp:orderused:${o}`, `gp:ordergrant:${o}:word`, `gp:ordergrant:${o}:presentation`])];
++  await redisCommand("DEL", ...keys);
++  t.after(() => redisCommand("DEL", ...keys));
++  const redis = new Redis();
++  for (const [key, value] of initial) await redis.set(key, value);
++  return { Redis, read: (key) => redis.get(key), client: redis };
++}
++const rateOk = { checkRateLimit: async () => ({ ok: true }), tooManyRequests: () => Response.json({}, { status: 429 }) };
++const products = { isPlanProductId: (id) => id === "word" || id === "bundle", isBundleProductId: (id) => id === "bundle", isPresentationProductId: (id) => id === "presentation" || id === "bundle",
++  GROBLE_PRESENTATION_PRODUCT_ID: "presentation", GROBLE_BUNDLE_PRODUCT_ID: "bundle" };
++async function paymentHarness(t, { baseline = false, globals = {}, extraEnv = {} } = {}) {
++  const initial = [
++    [`gp:paid:${user.id}`, { orderNo: B, usedProgramId: "program-B", email: user.email, verifiedAt: "2026-09-17" }],
++    [`gp:validorder:${A}`, { orderNo: A, status: "valid", productId: "word", via: "webhook" }],
++    [`gp:validorder:${B}`, { orderNo: B, status: "valid", productId: "word", via: "webhook" }],
++    [`gp:orderused:${A}`, user.id], [`gp:orderused:${B}`, user.id],
++  ];
++  const database = baseline ? memoryRedis(initial) : await actualRedis(t, initial);
++  const state = baseline ? {} : evaluate("lib/plan/paymentState.ts");
++  const access = { isMasterCode: () => false };
++  const paid = evaluate("lib/plan/paidAccess.ts", { baseline, env, imports: {
++    "@upstash/redis": database, "./access": access,
++    "./paymentState": state,
++    "@/lib/auth/googleUser": { getGoogleUser: async () => user },
++  } });
++  const presentation = evaluate("lib/plan/presentationAccess.ts", { baseline, env, imports: {
++    "@upstash/redis": database, "./access": access, "./paidAccess": paid, "./paymentState": state,
++  } });
++  const verify = evaluate("app/api/order/verify/route.ts", { baseline, env, imports: {
++    "@upstash/redis": database, "@/lib/ratelimit": rateOk, "@/lib/config": products,
++    "@/lib/supabase/admin": { createAdminClient: () => ({ from: () => ({ insert: async () => ({ error: null }) }) }) },
++    "@/lib/plan/paidAccess": paid, "@/lib/plan/presentationAccess": presentation,
++    "@/lib/plan/paymentState": state,
++  } });
++  const webhook = evaluate("app/api/groble/webhook/route.ts", { baseline, env: { ...env, ...extraEnv }, globals, imports: {
++    "@upstash/redis": database, "@/lib/plan/access": access, "@/lib/config": products,
++    "@/lib/plan/paidAccess": paid, "@/lib/plan/presentationAccess": presentation,
++    "@/lib/plan/paymentState": state,
++  } });
++  const presentationOrder = baseline ? null : evaluate("app/api/plan/presentation/order/route.ts", { env, imports: {
++    "@upstash/redis": database, "@/lib/ratelimit": rateOk, "@/lib/config": products,
++    "@/lib/plan/access": access, "@/lib/plan/paidAccess": paid,
++    "@/lib/plan/presentationAccess": presentation, "@/lib/plan/paymentState": state,
++    "@/lib/plan/presentationRevisions": { getPresentationRevisionStatus: async () => ({}) },
++    "@/lib/supabase/admin": { createAdminClient: () => ({ from: () => ({ insert: async () => ({ error: null }) }) }) },
++  } });
++  return { ...database, paid, presentation, verify, webhook, state, presentationOrder };
++}
++const jsonRequest = (url, body) => new Request(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
++const oldOrderRequest = () => jsonRequest("https://release.invalid/api/order/verify", { orderNo: A });
++const refundRequest = () => jsonRequest("https://release.invalid/api/groble/webhook?key=synthetic-webhook", {
++  type: "payment.cancelled", data: { object: { merchantUid: A, content: { id: "word" } } },
++});
++
++test("release evidence: baseline old-order replay clears credit binding", async () => {
++  const h = await paymentHarness(null, { baseline: true });
++  assert.equal((await h.verify.POST(oldOrderRequest())).status, 200);
++  assert.equal(h.values.get(`gp:paid:${user.id}`).orderNo, A);
++  assert.equal(h.values.get(`gp:paid:${user.id}`).usedProgramId, undefined);
++  assert.equal((await h.paid.checkDraftAccess(new Request("https://release.invalid"), undefined, "program-C")).ok, true);
++});
++
++test("Redis release invariant: an already consumed historical order cannot create unbound credit", async (t) => {
++  const h = await paymentHarness(t);
++  await h.verify.POST(oldOrderRequest());
++  const result = await h.paid.checkDraftAccess(new Request("https://release.invalid"), undefined, "program-C");
++  assert.equal(result.ok, false, "replaying order A after order B must not unlock a third program");
++  assert.ok((await h.read(`gp:paid:${user.id}`))?.usedProgramId, "a consumed order must retain a program binding");
++});
++
++test("release evidence: baseline refund of historical order deletes a newer purchase", async () => {
++  const h = await paymentHarness(null, { baseline: true });
++  assert.equal((await h.webhook.POST(refundRequest())).status, 200);
++  assert.equal(h.values.has(`gp:paid:${user.id}`), false);
++  assert.equal(h.values.get(`gp:validorder:${B}`).status, "valid");
++});
++
++test("Redis release invariant: refund revokes only the matching order entitlement", async (t) => {
++  const h = await paymentHarness(t);
++  assert.equal((await h.webhook.POST(refundRequest())).status, 200);
++  assert.equal((await h.read(`gp:validorder:${A}`)).status, "cancelled");
++  assert.equal((await h.read(`gp:paid:${user.id}`))?.orderNo, B, "refund A must preserve the valid newer order B");
++});
++
++test("Redis release endpoint: presentation-first bundle claims Word once and preserves consent and binding", async (t) => {
++  const h = await paymentHarness(t);
++  await h.client.set(`gp:validorder:${C}`, { orderNo: C, status: "valid", productId: "bundle" });
++  assert.equal((await h.presentationOrder.POST(jsonRequest("https://release.invalid/api/plan/presentation/order", { orderNo: C }))).status, 200);
++  assert.equal(await h.state.updateEntitlement(h.client, `gp:presentation-paid:${user.id}`, C, "consent"), true);
++  assert.equal(await h.state.updateEntitlement(h.client, `gp:presentation-paid:${user.id}`, C, "bind", "program-B"), true);
++  const presentation = await h.read(`gp:presentation-paid:${user.id}`);
++  const claim = () => h.verify.POST(jsonRequest("https://release.invalid/api/order/verify", { orderNo: C }));
++  assert.equal((await claim()).status, 200);
++  assert.equal((await h.read(`gp:paid:${user.id}`)).usedProgramId, "program-B");
++  assert.deepEqual(await h.read(`gp:presentation-paid:${user.id}`), presentation);
++  assert.equal((await claim()).status, 200);
++  assert.deepEqual(await h.read(`gp:presentation-paid:${user.id}`), presentation);
++});
++
++test("Redis release endpoint: historical presentation replay and fresh bundle cannot erase another unused PT", async (t) => {
++  const h = await paymentHarness(t);
++  await h.client.set(`gp:validorder:${A}`, { orderNo: A, status: "valid", productId: "presentation" });
++  await h.client.set(`gp:validorder:${B}`, { orderNo: B, status: "valid", productId: "bundle" });
++  const pt = { orderNo: B, email: user.email, verifiedAt: "2026-09-17", source: "bundle" };
++  await h.client.set(`gp:presentation-paid:${user.id}`, pt);
++  assert.equal((await h.presentationOrder.POST(jsonRequest("https://release.invalid/api/plan/presentation/order", { orderNo: A }))).status, 409);
++  await h.client.set(`gp:validorder:${C}`, { orderNo: C, status: "valid", productId: "bundle" });
++  assert.equal((await h.verify.POST(jsonRequest("https://release.invalid/api/order/verify", { orderNo: C }))).status, 409);
++  assert.deepEqual(await h.read(`gp:presentation-paid:${user.id}`), pt);
++  assert.equal((await h.read(`gp:paid:${user.id}`)).orderNo, B);
++  assert.equal(await h.read(`gp:orderused:${C}`), null);
++  assert.equal(await h.read(`gp:ordergrant:${C}:word`), null);
++});
++
++test("Redis release webhook: forward timeout is bounded, errors redacted and cancelled completion never forwarded", async (t) => {
++  const logs = [], timeouts = [], requests = [];
++  const signal = new AbortController().signal;
++  let transportFailure = false;
++  const h = await paymentHarness(t, {
++    extraEnv: { BCC_CLAUDE101_GROBLE_CONTENT_ID: "claude", BCC_GROBLE_FORWARD_URL: "https://downstream.invalid", BCC_GROBLE_FORWARD_SECRET: "synthetic-forward-secret" },
++    globals: {
++      AbortSignal: { timeout(ms) { timeouts.push(ms); return signal; } },
++      console: { info() {}, error(...args) { logs.push(args); } },
++      fetch: async (url, init) => {
++        requests.push({ url, init });
++        if (transportFailure) throw new Error("synthetic-sensitive-downstream-detail");
++        return { ok: false, status: 500, text() { throw new Error("must not read downstream sensitive body"); } };
++      },
++    },
++  });
++  const event = (type, orderNo = C, productId = "claude") => jsonRequest("https://release.invalid/api/groble/webhook?key=synthetic-webhook", {
++    type, data: { object: { merchantUid: orderNo, content: { id: productId } } },
++  });
++  for (const mode of [false, true]) {
++    transportFailure = mode;
++    const response = await h.webhook.POST(event("payment.completed"));
++    assert.equal(response.status, 502);
++    assert.deepEqual(await response.json(), { error: "downstream unavailable" });
++  }
++  assert.deepEqual(timeouts, [10_000, 10_000]);
++  assert.equal(requests[0].init.signal, signal);
++  assert.deepEqual(logs, [[JSON.stringify({ event: "payment_forward", result: "failed" })], [JSON.stringify({ event: "payment_forward", result: "failed" })]]);
++  await h.state.cancelOrder(h.client, { orderNo: C, status: "cancelled", registeredAt: "2026-09-17", via: "webhook", productId: "claude" });
++  assert.equal((await (await h.webhook.POST(event("payment.completed"))).json()).action, "cancelled");
++  assert.equal((await h.read(`gp:validorder:${C}`)).status, "cancelled");
++  assert.equal((await (await h.webhook.POST(event("payment.pending"))).json()).action, "ignored");
++  assert.equal(requests.length, 2, "cancelled completion and unknown events must not forward");
++});
++
++async function prestageHarness(t, baseline = false) {
++  const db = baseline ? memoryRedis() : await actualRedis(t); let fail = true, attempts = 0, stored = 0;
++  const reservation = baseline ? {} : evaluate("lib/leads/prestageReservation.ts", { imports: { "node:crypto": { randomUUID } } });
++  const route = evaluate("app/api/lead/prestage/route.ts", { baseline, env, imports: {
++    "@upstash/redis": db, "@/lib/ratelimit": rateOk,
++    "@/lib/leads/prestageReservation": reservation,
++    "@/lib/plan/paidAccess": { getAuthedUser: async () => user },
++    "@/lib/supabase/admin": { createAdminClient: () => ({ from: () => ({ insert: () => {
++      const work = Promise.resolve().then(() => {
++      attempts++; if (fail) return { error: { code: "PGRST204", message: "synthetic missing stage" } };
++      stored++; return { error: null };
++      });
++      work.abortSignal = () => work;
++      return work;
++    } }) }) },
++  } });
++  return { ...route, ...db, restore() { fail = false; }, get attempts() { return attempts; }, get stored() { return stored; } };
++}
++test("release evidence: baseline prestage outage permanently suppresses successful retry", async () => {
++  const h = await prestageHarness(null, true);
++  assert.equal((await h.POST(jsonRequest("https://release.invalid/api/lead/prestage", {}))).status, 503);
++  h.restore();
++  const response = await h.POST(jsonRequest("https://release.invalid/api/lead/prestage", {}));
++  assert.equal((await response.json()).dup, true);
++  assert.equal(h.stored, 0); assert.equal(h.attempts, 2);
++});
++test("Redis release invariant: prestage retries persist after a temporary database failure", async (t) => {
++  const h = await prestageHarness(t);
++  assert.equal((await h.POST(jsonRequest("https://release.invalid/api/lead/prestage", {}))).status, 503);
++  h.restore();
++  const response = await h.POST(jsonRequest("https://release.invalid/api/lead/prestage", {}));
++  assert.equal(response.status, 200);
++  assert.equal(h.stored, 1, "success after recovery must correspond to a persisted lead");
++});
++
++test("release invariant: operations refuses unauthenticated or non-admin access before touching storage", async () => {
++  const domain = evaluate("lib/operations/domain.ts");
++  const { operationsRequest } = evaluate("lib/operations/http.ts", { imports: { "./domain.ts": domain, "node:crypto": { randomUUID } } });
++  for (const actor of [null, user]) for (const method of ["GET", "PUT"]) {
++    const req = new Request("https://release.invalid/api/operations", { method });
++    const response = await operationsRequest(req, {
++      authenticate: async () => actor,
++      store() { throw new Error("Storage must not be reached"); },
++    });
++    assert.equal(response.status, actor ? 403 : 401);
++    assert.equal(response.headers.get("cache-control"), "private, no-store");
++  }
++});
++
++test("release invariant: operations local bypass is closed for production and hostile host", () => {
++  const domain = evaluate("lib/operations/domain.ts");
++  const { isLocalOperationsRequest } = evaluate("lib/operations/http.ts", { imports: { "./domain.ts": domain, "node:crypto": { randomUUID } } });
++  assert.equal(isLocalOperationsRequest(new Request("http://localhost/api/operations"), { NODE_ENV: "production", OPS_LOCAL_MODE: "on" }), false);
++  assert.equal(isLocalOperationsRequest(new Request("http://localhost/api/operations", { headers: { host: "attacker.invalid" } }), { NODE_ENV: "development", OPS_LOCAL_MODE: "on" }), false);
++  assert.equal(isLocalOperationsRequest(new Request("http://127.0.0.1/api/operations"), { NODE_ENV: "development", OPS_LOCAL_MODE: "on" }), true);
++});
++
++test("release invariant: rate store absence and SDK timeout reject production cost paths", async () => {
++  const absent = evaluate("lib/ratelimit.ts", { env: { NODE_ENV: "production" }, imports: {
++    "@upstash/redis": {}, "@upstash/ratelimit": {},
++  } });
++  assert.equal((await absent.checkRateLimit(new Request("https://release.invalid"), "chat")).unavailable, true);
++  const timeout = evaluate("lib/ratelimit.ts", { env, imports: {
++    "@upstash/redis": { Redis: class {} },
++    "@upstash/ratelimit": { Ratelimit: class {
++      static slidingWindow() { return {}; }
++      async limit() { return { success: true, reason: "timeout" }; }
++    } },
++  } });
++  const result = await timeout.checkRateLimit(new Request("https://release.invalid"), "chat");
++  assert.equal(result.ok, false); assert.equal(result.unavailable, true);
++  assert.equal(timeout.tooManyRequests(result.retryAfter, result.unavailable).status, 503);
++});
+--- /dev/null
++++ b/tests/release-sre.test.mjs
+@@ -0,0 +1,149 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { createClient } from "@supabase/supabase-js";
++import { performanceModules, programsFixture } from "./helpers/performance-harness.mjs";
++import { collectionHarness, activeRows } from "./helpers/collection-harness.mjs";
++
++const row = (id, applyEnd, closedAt = null) => {
++  const p = programsFixture(1)[0];
++  return { id, source: "egbiz", title: `Synthetic ${id}`, summary: p.summary, target: p.target,
++    support_field: p.supportField, region: p.region, apply_end: applyEnd, url: p.url, form_url: null, closed_at: closedAt };
++};
++function catalogFixture(rows, instant = "2026-09-17T03:00:00.000Z", onFetch) {
++  let now = Date.parse(instant);
++  const requests = [];
++  class Clock extends Date {
++    constructor(...args) { super(...(args.length ? args : [now])); }
++    static now() { return now; }
++  }
++  // Real installed SDK constructs the query; this offline PostgREST model applies
++  // predicates before ordering/limit and records the transport's AbortSignal.
++  const client = createClient("https://example.invalid", "fixture-only", {
++    auth: { persistSession: false, autoRefreshToken: false },
++    global: { fetch: async (input, options) => {
++      const url = new URL(String(input)); requests.push({ url, signal: options?.signal });
++      if (options?.signal?.aborted) throw new DOMException("fixture aborted", "AbortError");
++      const query = url.searchParams;
++      let selected = rows.filter((r) => query.get("closed_at") === "is.null" ? r.closed_at === null : true);
++      const filter = query.get("or");
++      if (filter) {
++        assert.match(filter, /^\(apply_end\.is\.null,apply_end\.gte\.\d{4}-\d{2}-\d{2}\)$/);
++        const today = filter.slice("(apply_end.is.null,apply_end.gte.".length, -1);
++        selected = selected.filter((r) => r.apply_end === null || r.apply_end >= today);
++      }
++      assert.equal(query.get("order"), "apply_end.asc.nullslast");
++      selected = selected.sort((a, b) => (a.apply_end ?? "9999-12-31").localeCompare(b.apply_end ?? "9999-12-31"));
++      selected = selected.slice(0, Number(query.get("limit")));
++      const columns = query.get("select").split(",");
++      onFetch?.({ advance: (ms) => { now += ms; } });
++      return Response.json(selected.map((r) => Object.fromEntries(columns.map((key) => [key, r[key]]))));
++    } },
++  });
++  const modules = performanceModules({ globals: { Date: Clock }, mocks: { "lib/supabase/admin.ts": { createAdminClient: () => client } } });
++  return { ...modules.load("lib/supabase/programs.ts"), ...modules.load("lib/data/programs.ts"), requests,
++    advance: (ms) => { now += ms; } };
++}
++
++test("catalog: expired preserved rows cannot crowd a live notice beyond LIMIT 3000", async () => {
++  const rows = Array.from({ length: 3000 }, (_, i) => row(`expired-${i}`, "2026-01-01"));
++  rows.push(row("live-notice", "2026-12-31"));
++  const h = catalogFixture(rows);
++  const result = await h.fetchOpenPrograms();
++  assert.equal(result.usingSample, false);
++  assert.deepEqual(Array.from(result.programs, (p) => p.id), ["live-notice"]);
++  assert.equal(h.requests.length, 1);
++  assert.equal(h.requests[0].url.searchParams.get("limit"), "3000");
++});
++
++test("catalog: actual SDK preserves deadline-day, future and null rows but rejects closed/expired rows", async () => {
++  const h = catalogFixture([row("past", "2026-09-16"), row("today", "2026-09-17"), row("future", "2026-09-18"), row("undated", null), row("closed", "2026-12-31", "2026-09-01T00:00:00Z")]);
++  const result = await h.getOpenPrograms();
++  assert.deepEqual(result.map((p) => p.id), ["today", "future", "undated"]);
++  const query = h.requests[0].url.searchParams;
++  assert.equal(query.get("or"), "(apply_end.is.null,apply_end.gte.2026-09-17)");
++  assert.equal(query.get("closed_at"), "is.null");
++  assert.equal(query.get("select"), "id,source,title,summary,target,support_field,region,apply_end,url,form_url");
++});
++
++test("catalog: SQL filter date refreshes at KST midnight for each query", async () => {
++  const h = catalogFixture([row("today", "2026-09-17"), row("tomorrow", "2026-09-18")], "2026-09-17T14:59:59.999Z");
++  assert.deepEqual((await h.getOpenPrograms()).map((p) => p.id), ["today", "tomorrow"]);
++  h.advance(1);
++  assert.deepEqual((await h.getOpenPrograms()).map((p) => p.id), ["tomorrow"]);
++  assert.equal(h.requests[1].url.searchParams.get("or"), "(apply_end.is.null,apply_end.gte.2026-09-18)");
++});
++
++test("catalog: post-fetch guard still removes a deadline passed while transport was pending", async () => {
++  const h = catalogFixture([row("today", "2026-09-17"), row("tomorrow", "2026-09-18")], "2026-09-17T14:59:59.999Z", ({ advance }) => advance(1));
++  const result = await h.fetchOpenPrograms();
++  assert.equal(result.usingSample, false);
++  assert.deepEqual(Array.from(result.programs, (p) => p.id), ["tomorrow"]);
++  assert.equal(h.requests[0].url.searchParams.get("or"), "(apply_end.is.null,apply_end.gte.2026-09-17)");
++});
++
++test("catalog: explicit limits, null deadlines and abort propagation remain intact", async () => {
++  const h = catalogFixture([row("first", "2026-09-17"), row("second", null)]);
++  assert.equal((await h.getOpenPrograms(1)).length, 1);
++  const controller = new AbortController(); controller.abort();
++  await assert.rejects(h.getOpenPrograms(1, controller.signal));
++  assert.equal(h.requests[1].signal, controller.signal);
++});
++
++function brokenLimiter(stage) {
++  return performanceModules({
++    env: { NODE_ENV: "production", UPSTASH_REDIS_REST_URL: "https://example.invalid", UPSTASH_REDIS_REST_TOKEN: "fixture-only" },
++    mocks: {
++      "@upstash/redis": { Redis: class { constructor() { if (stage === "redis") throw new Error("private configuration detail"); } } },
++      "@upstash/ratelimit": { Ratelimit: class { static slidingWindow() { return {}; } constructor() { throw new Error("private configuration detail"); } } },
++    }, globals: { console: { error() {} } },
++  }).load("lib/ratelimit.ts");
++}
++for (const stage of ["redis", "limiter"]) {
++  test(`rate limit: ${stage} construction failure returns controlled 503 without leaking details`, async () => {
++    const h = brokenLimiter(stage);
++    const result = await h.checkRateLimit(new Request("https://example.invalid"), "match");
++    assert.equal(result.ok, false); assert.equal(result.unavailable, true);
++    const response = h.tooManyRequests(result.retryAfter, result.unavailable);
++    assert.equal(response.status, 503); assert.equal(response.headers.get("Retry-After"), "5");
++    assert.ok(!(await response.text()).includes("private configuration detail"));
++  });
++}
++
++function persistenceFixture(source) {
++  return collectionHarness({ rows: activeRows(["A", "still-open-B"]).map((r) => ({ ...r, id: r.id.replace("egbiz:", `${source}:`), source })) });
++}
++for (const source of ["bizinfo", "kstartup"]) {
++  test(`collection: ${source} page failure cannot close an unseen live notice`, async () => {
++    const requestedPages = [];
++    class Clock extends Date {
++      constructor(...args) { super(...(args.length ? args : ["2026-09-17T03:00:00Z"])); }
++      static now() { return Date.parse("2026-09-17T03:00:00Z"); }
++    }
++    const modules = performanceModules({ env: { BIZINFO_KEY: "fixture-only", KSTARTUP_KEY: "fixture-only" },
++      globals: { Date: Clock, URLSearchParams, console: { log() {}, warn() {}, error() {} }, fetch: async (input) => {
++        const page = Number(new URL(input).searchParams.get(source === "bizinfo" ? "pageIndex" : "page"));
++        requestedPages.push(page);
++        if (page === 2) throw new Error("synthetic page failure");
++        return Response.json(source === "bizinfo"
++          ? { jsonArray: page === 1 ? [{ pblancId: "A", pblancNm: "Current A", reqstBeginEndDe: "2026-09-01 ~ 2026-12-31" }] : [] }
++          : { matchCount: 501, data: page === 1 ? [{ pbanc_sn: "A", biz_pbanc_nm: "Current A", rcrt_prgs_yn: "Y", pbanc_rcpt_end_dt: "20261231" }] : [] });
++      } },
++    });
++    const fetcher = modules.load(`lib/data/${source}.ts`)[source === "bizinfo" ? "fetchBizinfoOpen" : "fetchKstartupOpen"];
++    const programs = await fetcher();
++    assert.ok(requestedPages.includes(2)); assert.equal(programs.length, 1);
++    const db = persistenceFixture(source);
++    const result = await db.load("lib/supabase/programs.ts").upsertAndDiff(source, programs, new Date("2026-09-17T03:00:00Z"));
++    assert.equal(result.seen, 1); assert.equal(result.closed, 0);
++    assert.equal(db.rows.get(`${source}:still-open-B`).closed_at, null);
++    assert.ok(!db.calls.includes("update"));
++  });
++  test(`collection: ${source} partial direct persistence preserves prior rows even without fetcher guards`, async () => {
++    const db = persistenceFixture(source);
++    const program = { ...programsFixture(1)[0], id: `${source}:A`, source };
++    const result = await db.load("lib/supabase/programs.ts").upsertAndDiff(source, [program], new Date("2026-09-17T03:00:00Z"));
++    assert.equal(result.closed, 0);
++    assert.equal(db.rows.get(`${source}:still-open-B`).closed_at, null);
++    assert.ok(!db.calls.includes("update"));
++  });
++}
+--- a/tests/team-review.test.mjs
++++ b/tests/team-review.test.mjs
+@@ -46,9 +46,11 @@
+   });
+ }
+ function paidModules(identity, records) {
++  const paymentState = evaluate("lib/plan/paymentState.ts");
+   const common = {
+     "@upstash/redis": { Redis: class { async get(key) { return records.get(key) ?? null; } } },
+     "./access": { isMasterCode: () => false },
++    "./paymentState": paymentState,
+   };
+   const env = { UPSTASH_REDIS_REST_URL: "https://review.invalid", UPSTASH_REDIS_REST_TOKEN: "synthetic" };
+   const word = evaluate("lib/plan/paidAccess.ts", { env,
+@@ -180,10 +182,11 @@
+   };
+   const results = [];
+   for (const before of [true, false]) {
+-    let selected, table, filter, order, limit, capturedSignal;
++    let selected, table, filter, dateFilter, order, limit, capturedSignal;
+     const query = {
+       select(value) { selected = value; return this; },
+       is(...args) { filter = args; return this; },
++      or(value) { dateFilter = value; return this; },
+       order(...args) { order = args; return this; },
+       limit(value) { limit = value; return this; },
+       abortSignal(value) { capturedSignal = value; return this; },
+@@ -194,12 +197,14 @@
+     };
+     const db = evaluate("lib/supabase/programs.ts", { before, imports: {
+       "./admin": { createAdminClient: () => ({ from(value) { table = value; return query; } }) },
++      "@/lib/data/openFilter": evaluate("lib/data/openFilter.ts"),
+     } });
+     const controller = new AbortController();
+     results.push(JSON.parse(JSON.stringify(await db.getOpenPrograms(17, controller.signal))));
+     assert.equal(table, "programs"); assert.deepEqual(filter, ["closed_at", null]);
+     assert.equal(order[0], "apply_end"); assert.equal(order[1].ascending, true); assert.equal(order[1].nullsFirst, false);
+     assert.equal(limit, 17); assert.equal(capturedSignal, controller.signal);
++    if (!before) assert.match(dateFilter, /^apply_end\.is\.null,apply_end\.gte\.20\d{2}-\d{2}-\d{2}$/);
+   }
+   assert.deepEqual(results[1], results[0]);
+   assert.deepEqual(Object.keys(results[1][0]).sort(), ["id", "source", "title", "summary", "target", "supportField", "region", "applyEnd", "url", "formUrl"].sort());

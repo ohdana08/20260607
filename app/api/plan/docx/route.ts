@@ -9,7 +9,7 @@ import {
 } from "@/lib/plan/artifacts";
 import { countDraftPlaceholders } from "@/lib/plan/reviewer";
 import { markFirstFinalDelivery } from "@/lib/plan/revisions";
-import { verifiedEvidenceIds, type EvidenceSource } from "@/lib/plan/strategy";
+import { normalizeStrategyPack, verifiedEvidenceIds, type EvidenceSource } from "@/lib/plan/strategy";
 import { buildCharts } from "@/lib/viz/svg";
 
 export const runtime = "nodejs";
@@ -43,6 +43,9 @@ export async function POST(req: Request) {
   if (!access.ok) return paymentRequiredResponse(access.reason);
   if (!Array.isArray(sections) || sections.length === 0) {
     return Response.json({ error: "내보낼 내용이 없어요." }, { status: 400 });
+  }
+  if (sections.some(section => !section.content?.trim() || /자동 작성이 완료되지 않았습니다|초안 자동 작성 연결이 끊겼/.test(section.content))) {
+    return Response.json({ error: "작성되지 않은 항목이 있어요. 사업계획서 본문을 먼저 다시 작성해 주세요." }, { status: 409 });
   }
   const acknowledged =
     acknowledgements?.reviewedIssues === true &&
@@ -90,7 +93,7 @@ export async function POST(req: Request) {
     }
     auditSubmissionReady = audit.report.submissionReady === true;
     evidenceSources = evidence.sources.filter((source) => source.verified);
-    safeCharts = await buildCharts(strategy.diagrams, verifiedEvidenceIds(evidence));
+    safeCharts = await buildCharts(normalizeStrategyPack(strategy, evidence).diagrams, verifiedEvidenceIds(evidence));
   } else if (reviewStatus !== "ready") {
     return Response.json({ error: "최종 심사 결과가 제출 가능 상태가 아니에요." }, { status: 409 });
   }

@@ -1,0 +1,90 @@
+import { randomUUID } from "node:crypto";
+
+export interface Snapshot<T> { value: T; freshUntil: number; staleUntil: number }
+export interface SnapshotStore<T> {
+  read(): Promise<Snapshot<T> | null>;
+  acquire(token: string, leaseMs: number): Promise<boolean>;
+  publish(token: string, snapshot: Snapshot<T>, ttlMs: number): Promise<boolean>;
+  release(token: string): Promise<void>;
+}
+export class SnapshotUnavailable extends Error {}
+
+// One refresh per process; the store lease also coordinates different instances.
+// Refresh work is awaited, never abandoned as a serverless background promise.
+export class SnapshotCache<T> {
+  private local: Snapshot<T> | null = null;
+  private localUntil = 0;
+  private flight: Promise<T> | null = null;
+  private blockedUntil = 0;
+  constructor(
+    private readonly store: SnapshotStore<T>,
+    private readonly loader: (signal: AbortSignal) => Promise<T>,
+    private readonly options = { freshMs: 60_000, staleMs: 300_000, localMs: 60_000, loadMs: 2_000, leaseMs: 3_000, waitMs: 2_100 },
+  ) {}
+  private usable() { return this.local && this.local.staleUntil > Date.now() ? this.local : null; }
+  private promote(snapshot: Snapshot<T>): T {
+    this.local = snapshot;
+    this.localUntil = Math.min(snapshot.freshUntil, Date.now() + this.options.localMs);
+    return snapshot.value;
+  }
+  async get(): Promise<T> {
+    if (this.local && Date.now() < this.localUntil && Date.now() < this.local.freshUntil) return structuredClone(this.local.value);
+    if (this.flight) {
+      const stale = this.usable();
+      return structuredClone(stale ? stale.value : await this.flight);
+    }
+    if (Date.now() < this.blockedUntil) {
+      const stale = this.usable();
+      if (stale) return structuredClone(stale.value);
+      throw new SnapshotUnavailable("catalog temporarily unavailable");
+    }
+    this.flight = this.refresh();
+    try { return structuredClone(await this.flight); }
+    finally { this.flight = null; }
+  }
+  private async refresh(): Promise<T> {
+    const token = randomUUID();
+    let owned = false;
+    try {
+      const shared = await this.store.read();
+      if (shared && shared.staleUntil > Date.now()) this.local = shared;
+      if (shared && shared.freshUntil > Date.now()) {
+        return this.promote(shared);
+      }
+      owned = await this.store.acquire(token, this.options.leaseMs);
+      if (!owned) {
+        const stale = this.usable();
+        if (stale) return stale.value;
+        const end = Date.now() + this.options.waitMs;
+        while (Date.now() < end) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          const ready = await this.store.read();
+          if (ready && ready.freshUntil > Date.now()) return this.promote(ready);
+        }
+        throw new SnapshotUnavailable("catalog refresh busy");
+      }
+      // A completed refresh may have released its lease between read and acquire.
+      const newer = await this.store.read();
+      if (newer && newer.freshUntil > Date.now()) return this.promote(newer);
+      const controller = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { controller.abort(); reject(new SnapshotUnavailable("catalog load timed out")); }, this.options.loadMs);
+      });
+      let value: T;
+      try { value = await Promise.race([this.loader(controller.signal), timeout]); }
+      finally { clearTimeout(timer); }
+      const now = Date.now();
+      const snapshot = { value, freshUntil: now + this.options.freshMs, staleUntil: now + this.options.staleMs };
+      if (!await this.store.publish(token, snapshot, this.options.staleMs)) throw new SnapshotUnavailable("catalog lease lost");
+      return this.promote(snapshot);
+    } catch {
+      this.blockedUntil = Date.now() + 1_000;
+      const stale = this.usable();
+      if (stale) return stale.value;
+      throw new SnapshotUnavailable("catalog temporarily unavailable");
+    } finally {
+      if (owned) await this.store.release(token).catch(() => {});
+    }
+  }
+}

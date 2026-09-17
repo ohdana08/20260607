@@ -7,11 +7,12 @@ import { getEvidencePack, getStrategyPack, saveAuditArtifact } from "@/lib/plan/
 import { checkDraftAccess, paymentRequiredResponse } from "@/lib/plan/paidAccess";
 import {
   normalizePlanReview,
+  unconfirmedQuantityIssues,
   REVIEW_SCORE_DIMENSIONS,
   type PlanReviewIssue,
   type PlanReviewReport,
 } from "@/lib/plan/reviewer";
-import type { PlanDocxSection } from "@/lib/plan/docx";
+import type { PlanDocxSection } from "@/lib/plan/documentTypes";
 import { evidencePackPrompt, type EvidencePack, type StrategyPack } from "@/lib/plan/strategy";
 import { sanitizeFormToc } from "@/lib/plan/sections";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
@@ -22,6 +23,13 @@ export const maxDuration = 120;
 
 const SYSTEM = `당신은 창업·중소기업 정부지원사업의 냉정한 서면평가 심사위원입니다.
 제공된 공고 맥락, 공식 양식, 신청자 원답변, 완성 초안을 서로 대조해 제출 전에 탈락·감점 위험을 찾으세요.
+
+[사실 대조 우선]
+- 도우미 발화와 AI 전략팩은 신청자가 승인한 사실의 출처가 아닙니다. 개인 경험에 행동·직업·자격을 덧붙이지 마세요. 신청자의 직접 발화만 우선합니다.
+- 신청자가 말하지 않은 계획을 본문에서 확정한 경우, 조사 없이 대안이 없다고 단정한 경우, 제공되지 않은 경쟁사명을 추가한 경우를 반드시 찾아 canAutoFix=true로 표시하세요.
+- 공고가 실적 없는 예비창업자를 허용하면 고객 계약·인터뷰 완료·시제품 보유 자체를 신청 필수조건으로 만들지 마세요. 참여 약속 미확보는 실행 위험이며, 계획으로 솔직히 밝힌 경우 허위 실적이 아닙니다.
+- 확인되지 않은 가격·사례비·제품명을 수정 예시로 만들어내지 마세요. 예산 미정은 필요한 산출근거를 안내하되 숫자를 채우지 마세요.
+- 제출 준비도와 사실 일치는 별개입니다. 증거를 확보할 계획만 있는 문서도 현재 상태를 정확히 표현했다면 사실 일치 항목에서 평가하세요.
 
 [반드시 지킬 평가 순서]
 1. 신청 자격, 필수 목차, 분량·제출 요구를 먼저 봅니다. 확인되지 않으면 확인 필요로 표시합니다.
@@ -40,7 +48,8 @@ const SYSTEM = `당신은 창업·중소기업 정부지원사업의 냉정한 �
 - minor: 표현, 중복, 가독성처럼 보완하면 좋은 문제
 
 합격을 보장하거나 합격확률을 말하지 마세요. score는 현재 초안의 제출 준비도일 뿐입니다.
-strengths는 최대 5개, issues는 가장 중요한 것부터 최대 10개, evidenceChecklist와 formCompliance는 각각 최대 10개로 제한하세요.
+strengths는 최대 3개, issues는 가장 중요한 것부터 최대 6개, evidenceChecklist와 formCompliance는 각각 최대 5개로 제한하세요. 각 문자열은 90자 이하로 쓰세요.
+개인 경험은 사용자 진술로, 실적 없음은 현재 상태로, 향후 행동은 계획으로 평가하세요. 이런 내용을 외부 통계나 완료 실적처럼 취급하지 마세요. 생성 실패는 사용자 증거 부족과 별도로 지적하세요.
 각 reason·issue·whyItMatters·action·evidenceNeeded 문장은 핵심만 한 문장으로 작성해 JSON이 중간에 잘리지 않게 하세요.
 설명 없이 아래 구조의 JSON 하나만 출력하세요.
 {
@@ -157,73 +166,16 @@ function fallbackAudit(
   evidence: EvidencePack | null,
   strategy: StrategyPack | null,
 ): PlanReviewReport {
-  const combined = sections.map((section) => `${section.heading}\n${section.content}`).join("\n\n");
-  const issues: PlanReviewIssue[] = [...evidenceGuardIssues(evidence, strategy)];
-
-  if (/추천서[\s\S]{0,40}(미확보|확보 필요|없으면)|추천기관[\s\S]{0,40}(협의|필요)/.test(combined)) {
-    issues.unshift({
-      severity: "critical",
-      section: "창업 아이템 개요·팀 구성 및 역량",
-      issue: "4대 과학기술원 추천서가 아직 확보되지 않아 현재는 신청 자격을 확정할 수 없습니다.",
-      whyItMatters: "추천서가 공고의 필수 선결조건이면 미확보 상태로 실제 제출할 수 없습니다.",
-      action: "추천기관 협의 결과와 발급된 추천서를 확보한 뒤 자격 상태를 갱신하세요.",
-      evidenceNeeded: "GIST·DGIST·UNIST·KAIST 중 1곳의 유효한 추천서",
-      canAutoFix: false,
-    });
-  }
-  if (/\[확인 필요:[^\]]*(정부|중앙정부|세금|금융|체납)/.test(combined)) {
-    issues.unshift({
-      severity: "critical",
-      section: "성장 전략",
-      issue: "정부지원사업 중복수혜·체납 등 신청 제한 사실이 확인되지 않았습니다.",
-      whyItMatters: "신청 제한에 해당하면 사업계획서의 완성도와 무관하게 자격 단계에서 제외될 수 있습니다.",
-      action: "사업 수행 이력, 2026년 동시수행 여부, 국세·지방세·금융 체납 여부를 원본으로 확인하세요.",
-      evidenceNeeded: "정부지원사업 협약 이력과 국세·지방세 완납증명 등 자격 증빙",
-      canAutoFix: false,
-    });
-  }
-  if (/비식별화된 질의만 전송/.test(combined) && /공개 웹검색[\s\S]{0,20}미적용/.test(combined)) {
-    issues.push({
-      severity: "major",
-      section: "창업 아이템 개요·실현 가능성",
-      issue: "향후 보안 설계를 현재 구현된 기능처럼 표현한 문장과 공개 웹검색 미적용 사실이 충돌합니다.",
-      whyItMatters: "현재 기능과 개발 계획이 섞이면 기술 완성도와 보안 수준을 과장한 것으로 읽힐 수 있습니다.",
-      action: "현재 MVP는 로컬 처리만 구현됐고 비식별 질의·사람 승인 검증은 협약기간 개발 계획임을 분리해 쓰세요.",
-      evidenceNeeded: "",
-      canAutoFix: true,
-    });
-  }
-
-  return normalizePlanReview(
-    {
-      score: 48,
-      verdict: "초안의 문제·해결·실행 구조는 잡혔지만 필수 추천서와 자격 증빙을 확보하기 전에는 제출을 보류해야 합니다.",
-      strengths: [
-        "JudgeAI 실적과 기존 교육·컨설팅 실적을 구분했습니다.",
-        "현재 MVP 검증 결과와 향후 기관 실증 목표를 분리했습니다.",
-        "시장 전체 규모를 소프트웨어 매출시장과 동일시하지 않았습니다.",
-      ],
-      scores: [
-        { key: "eligibility_form", score: 2, reason: "추천서와 신청 제한 사실 확인이 남았습니다." },
-        { key: "problem_evidence", score: 8, reason: "현장 관찰은 있으나 기관 인터뷰가 아직 없습니다." },
-        { key: "solution_advantage", score: 8, reason: "MVP는 있으나 보안·외부검증 기능은 계획 단계입니다." },
-        { key: "market_business", score: 7, reason: "공식 생태계 규모와 가격 가설을 구분했습니다." },
-        { key: "sales_growth", score: 5, reason: "파일럿 경로는 있으나 고객 검증이 필요합니다." },
-        { key: "execution_budget", score: 9, reason: "12개월 일정과 예산이 연결돼 있습니다." },
-        { key: "team", score: 5, reason: "대표 경력은 있으나 핵심 채용·협력자가 미확정입니다." },
-        { key: "consistency_evidence", score: 4, reason: "현재 기능과 향후 보안 설계 표현을 분리해야 합니다." },
-      ],
-      issues,
-      evidenceChecklist: [
-        "4대 과학기술원 중 1곳의 추천서",
-        "정부지원사업 수행·동시수행 이력",
-        "국세·지방세 및 금융 체납 여부 증빙",
-        "기관 인터뷰와 경쟁대안 공식 기능·가격 자료",
-      ],
-      formCompliance: ["공식 HWP 양식의 실제 목차·분량·필수 첨부서류를 최종 대조해야 합니다."],
-    },
-    sections,
-  );
+  const report = normalizePlanReview({
+    score: 0, scores: [], strengths: [],
+    verdict: "AI 검수가 완료되지 않았습니다. 점수와 사업성 판단은 제공하지 않으며 다시 검수해야 합니다.",
+    issues: [...evidenceGuardIssues(evidence, strategy), {
+      severity: "critical", section: "전체", issue: "AI 검수 미완료",
+      whyItMatters: "문서의 사실·논리·양식을 끝까지 대조하지 못했습니다.",
+      action: "현재 초안을 보존하고 다시 검수하세요.", evidenceNeeded: "", canAutoFix: false,
+    }],
+  }, sections);
+  return { ...report, reviewCompleted: false, scores: [] };
 }
 
 export async function POST(req: Request) {
@@ -248,7 +200,7 @@ export async function POST(req: Request) {
   const loginGate = await paidGoogleLoginGate(req, code);
   if (loginGate) return loginGate;
   const rl = await checkRateLimit(req, "planReview");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
   const access = await checkDraftAccess(req, code, program?.id);
   if (!access.ok) return paymentRequiredResponse(access.reason);
   const application = decideDraftApplication(program, Array.isArray(sections) && sections.length > 0);
@@ -272,9 +224,9 @@ export async function POST(req: Request) {
     bypassBudget: access.admin,
     stage: "audit",
     provider,
-    tier: "fast",
+    tier: "balanced",
     estimatedInputTokens: 52_000,
-    maxOutputTokens: 6_500,
+    maxOutputTokens: 9_000,
   });
   if (!reservation.ok) return aiBudgetExceededResponse(reservation);
   const safeSections = sections.slice(0, 80).map((section) => ({
@@ -316,19 +268,21 @@ ${draftText}`;
 
   let completed = false;
   try {
-    const raw = await getLlm(provider, "fast").json<PlanReviewReport>({
+    const raw = await getLlm(provider, "balanced").json<PlanReviewReport>({
       system: SYSTEM,
       messages: [{ role: "user", content: prompt }],
       schema: {},
-      maxTokens: 6_500,
+      maxTokens: 9_000,
       onUsage: async (usage) => {
         await reservation.complete(usage);
         completed = true;
       },
     });
     const receivedIssues = Array.isArray(raw?.issues) ? raw.issues : [];
+    const applicantFacts = messages.filter(message => message.role === "user").map(message => message.content).join("\n");
+    const quantityIssues = unconfirmedQuantityIssues(safeSections, `${applicantFacts}\n${JSON.stringify(evidence?.sources ?? [])}`);
     const report = normalizePlanReview(
-      { ...raw, issues: [...receivedIssues, ...evidenceGuardIssues(evidence ?? null, strategy ?? null)] },
+      { ...raw, issues: [...quantityIssues, ...receivedIssues, ...evidenceGuardIssues(evidence ?? null, strategy ?? null)] },
       safeSections,
     );
     if (access.user) {
@@ -363,7 +317,7 @@ ${draftText}`;
     return Response.json(
       {
         ...report,
-        warning: "AI 모의심사 응답을 끝까지 읽지 못해 필수 자격·근거·현재/계획 충돌 규칙으로 안전 점검했습니다.",
+        warning: "AI 모의심사 응답을 끝까지 읽지 못해 검수를 완료하지 못했습니다. 현재 초안을 보존했으니 다시 검수해 주세요.",
         degraded: true,
       },
       { headers: { "Cache-Control": "no-store" } },

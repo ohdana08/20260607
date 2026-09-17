@@ -1,4 +1,4 @@
-import type { PlanDocxSection } from "./docx";
+import type { PlanDocxSection } from "./documentTypes";
 
 export type ReadinessStatus = "strong" | "partial" | "missing";
 export type EvidenceLevel = "verified" | "stated" | "missing";
@@ -43,6 +43,7 @@ export interface PlanReviewScore {
 }
 
 export interface PlanReviewReport {
+  reviewCompleted?: boolean;
   status: "ready" | "revise" | "blocked";
   submissionReady: boolean;
   score: number;
@@ -178,7 +179,16 @@ export function normalizePlanReview(raw: unknown, sections: PlanDocxSection[]): 
     canAutoFix: item.canAutoFix === true,
   }));
 
-  if (placeholderCounts.missing > 0 && !issues.some((item) => item.issue.includes("보완 필요"))) {
+  const failedSections = sections.filter(section => !section.content.trim() || section.content.includes("자동 작성이 완료되지 않았습니다"));
+  if (failedSections.length) issues.unshift({
+    severity: "critical", section: failedSections.map(section => section.heading).join(", "),
+    issue: "시스템 작성 실패로 본문이 완성되지 않았습니다.",
+    whyItMatters: "사용자 증거 부족과 별개의 생성 오류입니다.",
+    action: "작성되지 않은 항목 다시 만들기로 기존 답변에서 재생성하세요.",
+    evidenceNeeded: "추가 증빙 없이 기존 답변으로 재시도", canAutoFix: true,
+  });
+
+  if (placeholderCounts.missing > failedSections.length && !issues.some((item) => item.issue.includes("보완 필요"))) {
     issues.unshift({
       severity: "critical",
       section: "전체",
@@ -204,12 +214,14 @@ export function normalizePlanReview(raw: unknown, sections: PlanDocxSection[]): 
   const receivedScores = Array.isArray(source.scores) ? source.scores.map(objectOf) : [];
   const scores = REVIEW_SCORE_DIMENSIONS.map(({ key, label, max }) => {
     const item = receivedScores.find((candidate) => candidate.key === key) ?? {};
+    const cannotVerify = key === "consistency_evidence" && issues.some(issue =>
+      issue.severity === "critical" && /근거팩.*없|근거 충돌|허위|날조|원답변.*없는/.test(issue.issue));
     return {
       key,
       label,
       max,
-      score: integer(item.score, 0, max),
-      reason: text(item.reason, "평가 근거가 제공되지 않았습니다."),
+      score: cannotVerify ? 0 : integer(item.score, 0, max),
+      reason: cannotVerify ? "핵심 근거를 확인할 수 없어 이 항목의 평가를 보류합니다." : text(item.reason, "평가 근거가 제공되지 않았습니다."),
     };
   });
   const calculatedScore = scores.reduce((sum, item) => sum + item.score, 0);
@@ -256,7 +268,7 @@ export function reviewReportSections(report: PlanReviewReport): PlanDocxSection[
   return [
     {
       heading: "[별첨] 심사위원 관점 제출 준비도",
-      content: `판정: ${status}\n제출 준비도: ${report.score}/100\n검토 의견: ${report.verdict}\n\n${issueLines.join("\n\n")}`,
+      content: `판정: ${status}\n제출 준비도: ${report.reviewCompleted === false ? "검수 미완료 · 점수 없음" : `${report.score}/100`}\n검토 의견: ${report.verdict}\n\n${issueLines.join("\n\n")}`,
     },
     {
       heading: "[별첨] 제출 전 증빙 체크리스트",
@@ -265,4 +277,28 @@ export function reviewReportSections(report: PlanReviewReport): PlanDocxSection[
         : "- 사업계획서의 모든 수치·실적·계약·고객 주장을 원본 자료와 대조\n- 공고문 최신본의 신청 자격·분량·제출서류를 최종 확인",
     },
   ];
+}
+
+
+/** Conservative check for quantities the applicant has not supplied. AI strategy is not a source. */
+export function unconfirmedQuantityIssues(sections: PlanDocxSection[], sourceText: string): PlanReviewIssue[] {
+  const quantityPattern = /\d[\d,.]*\s*(?:천|만|억)?\s*(?:명|개|건|장|곳|회|원|%|퍼센트|배)(?=$|[\s,.·/)(\]…:;]|(?:이상|이하|정도|씩|의|을|를|에|은|는|만|가|이|부터|까지))/g;
+  const canonical = (value: string) => value.replace(/[\s,]/g, "");
+  const supplied = new Set(Array.from(sourceText.matchAll(quantityPattern), match => canonical(match[0])));
+  return sections.flatMap(section => {
+    const unknown = new Set<string>();
+    for (const paragraph of section.content.split(/\n+/)) {
+      // Suggestions and requests for evidence are visibly different from applicant commitments.
+      if (/^\s*\[(?:제안|보완 필요|증거 보충 안내|확인 필요)/.test(paragraph)) continue;
+      for (const match of paragraph.matchAll(quantityPattern)) {
+        if (!supplied.has(canonical(match[0]))) unknown.add(match[0].trim());
+      }
+    }
+    if (!unknown.size) return [];
+    return [{ severity: "critical" as const, section: section.heading,
+      issue: `원답변·출처에서 확인되지 않은 수량: ${Array.from(unknown).slice(0, 8).join(", ")}`,
+      whyItMatters: "AI가 추가한 목표나 판단 기준도 신청자가 확정한 계획으로 표시하면 안 됩니다.",
+      action: "해당 수치를 삭제하고 원답변의 표현으로 돌리세요. 꼭 필요한 새 목표라면 별도 [제안·사용자 확인 필요] 문단으로 분리하세요. 새 수치를 추가하지 마세요.",
+      evidenceNeeded: "", canAutoFix: true }];
+  });
 }

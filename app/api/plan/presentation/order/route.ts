@@ -15,7 +15,6 @@ import {
   getPaidRecord,
   MAX_ORDER_TRIES,
   ORDER_NO_RE,
-  ORDER_USED_KEY,
   VALID_ORDER_KEY,
   type ValidOrder,
 } from "@/lib/plan/paidAccess";
@@ -26,6 +25,7 @@ import {
   PRESENTATION_ORDER_TRIES_KEY,
 } from "@/lib/plan/presentationAccess";
 import { getPresentationRevisionStatus } from "@/lib/plan/presentationRevisions";
+import { claimOrder } from "@/lib/plan/paymentState";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -119,7 +119,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const rl = await checkRateLimit(req, "verify");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
   const user = await getAuthedUser(req);
   if (!user) return Response.json({ ok: false, error: "로그인이 필요해요." }, { status: 401 });
   if (user.isAdmin) {
@@ -196,16 +196,20 @@ export async function POST(req: Request) {
     );
   }
 
-  const bound = await r.set(ORDER_USED_KEY(orderNo), user.id, { nx: true });
-  if (bound === null && (await r.get<string>(ORDER_USED_KEY(orderNo))) !== user.id) {
+  const source = isBundleProductId(valid.productId) ? "bundle" : "presentation";
+  const granted = await claimOrder(r, {
+    userId: user.id,
+    record: { orderNo, email: user.email, verifiedAt: new Date().toISOString(), source },
+    mode: "presentation", productId: valid.productId,
+  });
+  if (granted.status < 0) {
     return Response.json(
-      { ok: false, error: "이미 다른 계정에 연결된 주문번호예요." },
+      { ok: false, error: "이미 사용되었거나 결제 상태가 변경된 주문번호예요. 현재 이용권을 확인해 주세요." },
       { status: 409 },
     );
   }
-  const source = isBundleProductId(valid.productId) ? "bundle" : "presentation";
-  const granted = await grantPresentationAccess({ user, orderNo, source });
-  if (!granted) return Response.json({ ok: false, error: "권한 저장에 실패했어요." }, { status: 503 });
+  if (granted.status === 1) return Response.json({ ok: true, orderNo, source });
+  const grantedRecord = JSON.parse(granted.record) as { verifiedAt: string };
 
   try {
     const db = createAdminClient();
@@ -217,7 +221,7 @@ export async function POST(req: Request) {
       source: `groble_presentation_order:${orderNo}`,
       message: `발표자료 주문번호 인증 (userId: ${user.id}, source: ${source})`,
       consent: true,
-      consent_at: granted.verifiedAt,
+      consent_at: grantedRecord.verifiedAt,
     });
   } catch {
     /* Redis 권한이 원본이며 CRM 기록은 best effort */

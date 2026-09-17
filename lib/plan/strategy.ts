@@ -202,6 +202,28 @@ export function normalizeStrategyPack(raw: unknown, evidence: EvidencePack): Str
   const validation = record(rawDiagrams.validation);
   const roadmap = record(rawDiagrams.roadmap);
   const diagrams: VizData = {};
+  // Built from the normalized interview/strategy, never from an invented success metric.
+  const valueOrAction = (key: string, action: string) => clean(source[key], 240) || action;
+  const gaps = evidence.gaps.slice(0, 3);
+  diagrams.planning = [
+    { key: "concept", title: "누구의 어떤 불편을 해결하나요", targetSection: "문제 인식", cards: [
+      { label: "도움을 줄 사람", body: valueOrAction("customer", "도움을 주고 싶은 사람과 그 사람의 하루를 적어보세요.") },
+      { label: "불편한 순간", body: valueOrAction("problem", "최근 직접 겪거나 들은 불편한 장면을 하나 찾아보세요.") },
+      { label: "제공할 도움", body: valueOrAction("solution", "사용 전과 후에 무엇이 달라지는지 설명해보세요.") },
+    ] },
+    { key: "validationPlan", title: "부족한 자료를 확인하는 방법", targetSection: "실현 가능성", cards: gaps.length ? gaps.map(gap => ({
+      label: clean(gap.label, 100), body: clean(gap.suggestedAction, 240) || "누구에게 무엇을 확인할지 정하고 답변과 원자료를 기록하세요.",
+    })) : [
+      { label: "물어보기", body: "예상 고객에게 최근 겪은 불편과 지금 해결하는 방법을 물어보고 답변을 기록하세요." },
+      { label: "보여주기", body: "제품 설명이나 시제품을 보여주고 사용하려는 이유와 망설이는 이유를 각각 기록하세요." },
+      { label: "다시 판단하기", body: "답변과 행동을 비교해 유지할 내용과 바꿀 내용을 정하세요. 아직 반응이 없다면 성과로 쓰지 마세요." },
+    ] },
+    { key: "executionPlan", title: "사업을 구체화하는 실행 계획", targetSection: "성장 전략", cards: [
+      { label: "돈을 받는 방식", body: valueOrAction("businessModel", "누가 어떤 도움에 돈을 낼지 정하고 가격에 대한 반응을 확인하세요.") },
+      { label: "첫 고객 만나기", body: valueOrAction("goToMarket", "연락할 수 있는 예상 고객과 만날 방법부터 정하세요.") },
+      { label: "다음에 할 일", body: valueOrAction("roadmap", "먼저 할 일과 확인할 결과를 정한 뒤 가능한 날짜와 담당자를 적으세요.") },
+    ] },
+  ];
 
   const tssIds = evidenceIds(tss.evidenceIds, validIds);
   if (clean(tss.evidenceStatus, 30) === "verified" && clean(tss.tam) && clean(tss.sam) && clean(tss.som) && tssIds.length > 0) {

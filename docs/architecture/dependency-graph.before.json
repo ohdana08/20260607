@@ -1,0 +1,4108 @@
+{
+  "scope": "Static literal imports, exports, dynamic imports and require in app/components/lib. Explicit type-only edges separated; not a bundled-runtime or cross-repository graph.",
+  "nodes": [
+    {
+      "file": "app/aimax/route.ts",
+      "lines": 21,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/auth/signup/route.ts",
+      "lines": 50,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/calendar/list/route.ts",
+      "lines": 11,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/calendar/remove/route.ts",
+      "lines": 19,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/calendar/save/route.ts",
+      "lines": 31,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/chat/route.ts",
+      "lines": 191,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/cron/collect-programs/route.ts",
+      "lines": 40,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/evidence-map/route.ts",
+      "lines": 29,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/files/extract/route.ts",
+      "lines": 47,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/groble/webhook/route.ts",
+      "lines": 234,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/health/route.ts",
+      "lines": 13,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/lead/email/route.ts",
+      "lines": 85,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/lead/prestage/route.ts",
+      "lines": 56,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/lead/signup/route.ts",
+      "lines": 69,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/match/route.ts",
+      "lines": 414,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/modoo-2026/download/route.ts",
+      "lines": 95,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/modoo-2026/draft/route.ts",
+      "lines": 115,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/modoo-2026/materials/route.ts",
+      "lines": 135,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/operations/route.ts",
+      "lines": 20,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/order/verify/route.ts",
+      "lines": 368,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/audit/route.ts",
+      "lines": 326,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/chat/route.ts",
+      "lines": 319,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/diagnose/route.ts",
+      "lines": 267,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/docx/route.ts",
+      "lines": 127,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/draft-batch/route.ts",
+      "lines": 209,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/draft/route.ts",
+      "lines": 11,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/evidence/route.ts",
+      "lines": 260,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/fitcheck/route.ts",
+      "lines": 209,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/presentation/chat/route.ts",
+      "lines": 275,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/presentation/export/route.ts",
+      "lines": 110,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/presentation/generate/route.ts",
+      "lines": 376,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/presentation/order/route.ts",
+      "lines": 227,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/readiness/route.ts",
+      "lines": 10,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/revise/route.ts",
+      "lines": 209,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/status/route.ts",
+      "lines": 53,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/strategy/route.ts",
+      "lines": 186,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/verify/route.ts",
+      "lines": 21,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/plan/visuals/route.ts",
+      "lines": 10,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/programs/pre/route.ts",
+      "lines": 26,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/public-evidence/route.ts",
+      "lines": 26,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/api/review/route.ts",
+      "lines": 64,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/data-policy/page.tsx",
+      "lines": 69,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/embed/page.tsx",
+      "lines": 23,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/landing/LandingClient.tsx",
+      "lines": 854,
+      "hooks": {
+        "useState": 3,
+        "useEffect": 2,
+        "useReducer": 0
+      },
+      "client": true,
+      "apiPaths": []
+    },
+    {
+      "file": "app/landing/page.tsx",
+      "lines": 27,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/layout.tsx",
+      "lines": 45,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/modoo-2026/ModooApplicationBuilder.tsx",
+      "lines": 509,
+      "hooks": {
+        "useState": 7,
+        "useEffect": 1,
+        "useReducer": 0
+      },
+      "client": true,
+      "apiPaths": [
+        "/api/modoo-2026/download",
+        "/api/modoo-2026/draft",
+        "/api/modoo-2026/materials"
+      ]
+    },
+    {
+      "file": "app/modoo-2026/page.tsx",
+      "lines": 165,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/operations/OperationsDashboard.tsx",
+      "lines": 721,
+      "hooks": {
+        "useState": 6,
+        "useEffect": 1,
+        "useReducer": 0
+      },
+      "client": true,
+      "apiPaths": []
+    },
+    {
+      "file": "app/operations/page.tsx",
+      "lines": 21,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/page.tsx",
+      "lines": 27,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/privacy/page.tsx",
+      "lines": 83,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/refund/page.tsx",
+      "lines": 64,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/start/route.ts",
+      "lines": 22,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "app/terms/page.tsx",
+      "lines": 101,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "components/LandingTracker.tsx",
+      "lines": 15,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 1,
+        "useReducer": 0
+      },
+      "client": true,
+      "apiPaths": []
+    },
+    {
+      "file": "components/Maintenance.tsx",
+      "lines": 24,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "components/ReviewsSection.tsx",
+      "lines": 69,
+      "hooks": {
+        "useState": 2,
+        "useEffect": 1,
+        "useReducer": 0
+      },
+      "client": true,
+      "apiPaths": [
+        "/api/review"
+      ]
+    },
+    {
+      "file": "components/auth/AuthGate.tsx",
+      "lines": 228,
+      "hooks": {
+        "useState": 6,
+        "useEffect": 2,
+        "useReducer": 0
+      },
+      "client": true,
+      "apiPaths": [
+        "/api/order/verify"
+      ]
+    },
+    {
+      "file": "components/chat/Chat.tsx",
+      "lines": 4672,
+      "hooks": {
+        "useState": 88,
+        "useEffect": 11,
+        "useReducer": 0
+      },
+      "client": true,
+      "apiPaths": [
+        "/api/calendar/remove",
+        "/api/calendar/save",
+        "/api/evidence-map",
+        "/api/files/extract",
+        "/api/lead/prestage",
+        "/api/lead/signup",
+        "/api/match",
+        "/api/order/verify",
+        "/api/plan/audit",
+        "/api/plan/chat",
+        "/api/plan/docx",
+        "/api/plan/draft-batch",
+        "/api/plan/evidence",
+        "/api/plan/fitcheck",
+        "/api/plan/revise",
+        "/api/plan/status",
+        "/api/plan/strategy",
+        "/api/programs/pre",
+        "/api/review"
+      ]
+    },
+    {
+      "file": "components/chat/DiagnosisWizard.tsx",
+      "lines": 1339,
+      "hooks": {
+        "useState": 12,
+        "useEffect": 3,
+        "useReducer": 0
+      },
+      "client": true,
+      "apiPaths": [
+        "/api/match"
+      ]
+    },
+    {
+      "file": "components/chat/EvidenceDiagnosis.tsx",
+      "lines": 408,
+      "hooks": {
+        "useState": 4,
+        "useEffect": 1,
+        "useReducer": 0
+      },
+      "client": true,
+      "apiPaths": []
+    },
+    {
+      "file": "components/chat/PresentationStudio.tsx",
+      "lines": 896,
+      "hooks": {
+        "useState": 19,
+        "useEffect": 2,
+        "useReducer": 0
+      },
+      "client": true,
+      "apiPaths": [
+        "/api/plan/presentation/chat",
+        "/api/plan/presentation/export",
+        "/api/plan/presentation/generate",
+        "/api/plan/presentation/order"
+      ]
+    },
+    {
+      "file": "components/chat/PublicEvidencePanel.tsx",
+      "lines": 63,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "components/legal/PolicyPage.tsx",
+      "lines": 47,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/auth/config.ts",
+      "lines": 9,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/auth/googleUser.ts",
+      "lines": 86,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/auth/localReview.ts",
+      "lines": 15,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/campaigns/modoo2026-docx.ts",
+      "lines": 126,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/campaigns/modoo2026.ts",
+      "lines": 176,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/config.ts",
+      "lines": 58,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/bizinfo.ts",
+      "lines": 117,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/bojo.ts",
+      "lines": 343,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/collect.ts",
+      "lines": 39,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/decodeEntities.ts",
+      "lines": 44,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/dedupePrograms.ts",
+      "lines": 48,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/egbiz.ts",
+      "lines": 100,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/kocca.ts",
+      "lines": 99,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/kstartup.ts",
+      "lines": 128,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/nipa.ts",
+      "lines": 103,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/openFilter.ts",
+      "lines": 13,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/programs.ts",
+      "lines": 29,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/publicEvidence.ts",
+      "lines": 214,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/regional.ts",
+      "lines": 128,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/sample.ts",
+      "lines": 47,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/smtech.ts",
+      "lines": 113,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/data/trustedProgramUrl.ts",
+      "lines": 99,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/diagnosis.ts",
+      "lines": 112,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/diagnosis/evidence.ts",
+      "lines": 94,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/diagnosis/localReviewEvidence.ts",
+      "lines": 16,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/ga.ts",
+      "lines": 95,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/hwp/extract.ts",
+      "lines": 61,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/hwp/extractHwp.ts",
+      "lines": 148,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/leads.ts",
+      "lines": 86,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/llm/anthropic.ts",
+      "lines": 194,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/llm/json.ts",
+      "lines": 12,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/llm/openai.ts",
+      "lines": 89,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/llm/provider.ts",
+      "lines": 106,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/llm/research.ts",
+      "lines": 153,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/match/buttonFilter.ts",
+      "lines": 374,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/match/convProfile.ts",
+      "lines": 68,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/match/prefilter.ts",
+      "lines": 89,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/match/types.ts",
+      "lines": 42,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/operations/domain.ts",
+      "lines": 421,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/operations/http.ts",
+      "lines": 185,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/operations/storage.ts",
+      "lines": 96,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/paymentReturn.ts",
+      "lines": 35,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plain-language.ts",
+      "lines": 201,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/access.ts",
+      "lines": 66,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/aiBudget.ts",
+      "lines": 204,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/applicationGuard.ts",
+      "lines": 64,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/artifacts.ts",
+      "lines": 146,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/docx.ts",
+      "lines": 405,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/draftChunking.ts",
+      "lines": 53,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/paidAccess.ts",
+      "lines": 134,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/presentation.ts",
+      "lines": 662,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/presentationAccess.ts",
+      "lines": 145,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/presentationExport.ts",
+      "lines": 315,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/presentationPolicy.ts",
+      "lines": 15,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/presentationRevisions.ts",
+      "lines": 148,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/productPolicy.ts",
+      "lines": 20,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/reviewer.ts",
+      "lines": 304,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/revisionText.ts",
+      "lines": 80,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/revisions.ts",
+      "lines": 128,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/sections.ts",
+      "lines": 231,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/plan/strategy.ts",
+      "lines": 468,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/ratelimit.ts",
+      "lines": 96,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/report-docx.ts",
+      "lines": 36,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/reviews.ts",
+      "lines": 144,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/shims/empty.ts",
+      "lines": 3,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/supabase/admin.ts",
+      "lines": 18,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/supabase/programs.ts",
+      "lines": 146,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/utm.ts",
+      "lines": 43,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/viz/font.ts",
+      "lines": 37,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    },
+    {
+      "file": "lib/viz/svg.ts",
+      "lines": 341,
+      "hooks": {
+        "useState": 0,
+        "useEffect": 0,
+        "useReducer": 0
+      },
+      "client": false,
+      "apiPaths": []
+    }
+  ],
+  "edges": [
+    {
+      "from": "app/api/auth/signup/route.ts",
+      "to": "lib/auth/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/auth/signup/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/calendar/list/route.ts",
+      "to": "lib/leads.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/calendar/remove/route.ts",
+      "to": "lib/leads.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/calendar/save/route.ts",
+      "to": "lib/leads.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/chat/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/chat/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/chat/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/chat/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/chat/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/chat/route.ts",
+      "to": "lib/plain-language.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/cron/collect-programs/route.ts",
+      "to": "lib/data/collect.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/cron/collect-programs/route.ts",
+      "to": "lib/supabase/programs.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/evidence-map/route.ts",
+      "to": "lib/supabase/admin.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/files/extract/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/files/extract/route.ts",
+      "to": "lib/hwp/extractHwp.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/groble/webhook/route.ts",
+      "to": "lib/plan/access.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/groble/webhook/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/groble/webhook/route.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/groble/webhook/route.ts",
+      "to": "lib/plan/presentationAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/lead/email/route.ts",
+      "to": "lib/diagnosis.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/lead/email/route.ts",
+      "to": "lib/supabase/admin.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/lead/email/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/lead/prestage/route.ts",
+      "to": "lib/supabase/admin.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/lead/prestage/route.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/lead/prestage/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/lead/signup/route.ts",
+      "to": "lib/leads.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/lead/signup/route.ts",
+      "to": "lib/supabase/admin.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/lead/signup/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/match/route.ts",
+      "to": "lib/data/programs.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/match/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/match/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/match/route.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/match/route.ts",
+      "to": "lib/match/prefilter.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/match/route.ts",
+      "to": "lib/match/buttonFilter.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/match/route.ts",
+      "to": "lib/match/convProfile.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/match/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/match/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/match/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/match/route.ts",
+      "to": "lib/plain-language.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/modoo-2026/download/route.ts",
+      "to": "lib/campaigns/modoo2026.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/modoo-2026/download/route.ts",
+      "to": "lib/campaigns/modoo2026-docx.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/modoo-2026/draft/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/modoo-2026/draft/route.ts",
+      "to": "lib/campaigns/modoo2026.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/modoo-2026/draft/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/modoo-2026/draft/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/modoo-2026/materials/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/modoo-2026/materials/route.ts",
+      "to": "lib/hwp/extract.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/modoo-2026/materials/route.ts",
+      "to": "lib/hwp/extractHwp.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/modoo-2026/materials/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/modoo-2026/materials/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/operations/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/operations/route.ts",
+      "to": "lib/operations/http.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/operations/route.ts",
+      "to": "lib/operations/storage.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/order/verify/route.ts",
+      "to": "lib/supabase/admin.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/order/verify/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/order/verify/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/order/verify/route.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/order/verify/route.ts",
+      "to": "lib/plan/presentationAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/audit/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/audit/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/audit/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/audit/route.ts",
+      "to": "lib/plan/applicationGuard.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/audit/route.ts",
+      "to": "lib/plan/aiBudget.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/audit/route.ts",
+      "to": "lib/plan/artifacts.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/audit/route.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/audit/route.ts",
+      "to": "lib/plan/reviewer.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/audit/route.ts",
+      "to": "lib/plan/docx.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/plan/audit/route.ts",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/audit/route.ts",
+      "to": "lib/plan/sections.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/audit/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/chat/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/chat/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/plan/chat/route.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/chat/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/chat/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/chat/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/chat/route.ts",
+      "to": "lib/plan/applicationGuard.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/chat/route.ts",
+      "to": "lib/data/publicEvidence.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/chat/route.ts",
+      "to": "lib/plain-language.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/chat/route.ts",
+      "to": "lib/plan/aiBudget.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/diagnose/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/diagnose/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/plan/diagnose/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/diagnose/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/diagnose/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/diagnose/route.ts",
+      "to": "lib/diagnosis.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/diagnose/route.ts",
+      "to": "lib/report-docx.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/diagnose/route.ts",
+      "to": "lib/data/publicEvidence.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/docx/route.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/docx/route.ts",
+      "to": "lib/plan/docx.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/docx/route.ts",
+      "to": "lib/plan/artifacts.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/docx/route.ts",
+      "to": "lib/plan/reviewer.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/docx/route.ts",
+      "to": "lib/plan/revisions.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/docx/route.ts",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/docx/route.ts",
+      "to": "lib/viz/svg.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/draft-batch/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/draft-batch/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/draft-batch/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/draft-batch/route.ts",
+      "to": "lib/plan/aiBudget.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/draft-batch/route.ts",
+      "to": "lib/plan/applicationGuard.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/draft-batch/route.ts",
+      "to": "lib/plan/artifacts.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/draft-batch/route.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/draft-batch/route.ts",
+      "to": "lib/plan/docx.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/plan/draft-batch/route.ts",
+      "to": "lib/plan/sections.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/draft-batch/route.ts",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/draft-batch/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/evidence/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/evidence/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/evidence/route.ts",
+      "to": "lib/llm/research.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/evidence/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/plan/evidence/route.ts",
+      "to": "lib/plan/aiBudget.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/evidence/route.ts",
+      "to": "lib/plan/applicationGuard.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/evidence/route.ts",
+      "to": "lib/plan/artifacts.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/evidence/route.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/evidence/route.ts",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/evidence/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/fitcheck/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/fitcheck/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/plan/fitcheck/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/fitcheck/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/fitcheck/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/fitcheck/route.ts",
+      "to": "lib/data/trustedProgramUrl.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/fitcheck/route.ts",
+      "to": "lib/plain-language.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/chat/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/chat/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/chat/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/chat/route.ts",
+      "to": "lib/plan/aiBudget.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/chat/route.ts",
+      "to": "lib/plan/applicationGuard.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/chat/route.ts",
+      "to": "lib/plan/artifacts.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/chat/route.ts",
+      "to": "lib/plan/docx.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/plan/presentation/chat/route.ts",
+      "to": "lib/plan/presentationAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/chat/route.ts",
+      "to": "lib/plan/presentation.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/chat/route.ts",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/plan/presentation/chat/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/export/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/export/route.ts",
+      "to": "lib/plan/artifacts.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/export/route.ts",
+      "to": "lib/plan/presentationAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/export/route.ts",
+      "to": "lib/plan/presentationExport.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/export/route.ts",
+      "to": "lib/plan/presentationRevisions.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/export/route.ts",
+      "to": "lib/viz/svg.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/export/route.ts",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/generate/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/generate/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/generate/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/generate/route.ts",
+      "to": "lib/plan/aiBudget.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/generate/route.ts",
+      "to": "lib/plan/applicationGuard.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/generate/route.ts",
+      "to": "lib/plan/artifacts.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/generate/route.ts",
+      "to": "lib/plan/docx.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/plan/presentation/generate/route.ts",
+      "to": "lib/plan/presentationAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/generate/route.ts",
+      "to": "lib/plan/presentationRevisions.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/generate/route.ts",
+      "to": "lib/plan/presentation.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/generate/route.ts",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/plan/presentation/generate/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/order/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/order/route.ts",
+      "to": "lib/supabase/admin.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/order/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/order/route.ts",
+      "to": "lib/plan/access.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/order/route.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/order/route.ts",
+      "to": "lib/plan/presentationAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/order/route.ts",
+      "to": "lib/plan/presentationRevisions.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/plan/aiBudget.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/plan/applicationGuard.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/plan/artifacts.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/plan/docx.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/plan/reviewer.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/plan/revisions.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/plan/sections.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/revise/route.ts",
+      "to": "lib/plan/revisionText.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/status/route.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/status/route.ts",
+      "to": "lib/plan/aiBudget.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/status/route.ts",
+      "to": "lib/plan/productPolicy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/status/route.ts",
+      "to": "lib/plan/revisions.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/strategy/route.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/strategy/route.ts",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/strategy/route.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/strategy/route.ts",
+      "to": "lib/plan/aiBudget.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/strategy/route.ts",
+      "to": "lib/plan/artifacts.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/strategy/route.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/strategy/route.ts",
+      "to": "lib/plan/sections.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/strategy/route.ts",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/strategy/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/strategy/route.ts",
+      "to": "lib/viz/svg.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/verify/route.ts",
+      "to": "lib/plan/access.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/verify/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/programs/pre/route.ts",
+      "to": "lib/data/programs.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/public-evidence/route.ts",
+      "to": "lib/data/publicEvidence.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/review/route.ts",
+      "to": "lib/reviews.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/review/route.ts",
+      "to": "lib/reviews.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/api/review/route.ts",
+      "to": "lib/ratelimit.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/data-policy/page.tsx",
+      "to": "components/legal/PolicyPage.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/embed/page.tsx",
+      "to": "components/chat/Chat.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/embed/page.tsx",
+      "to": "components/auth/AuthGate.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/embed/page.tsx",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/embed/page.tsx",
+      "to": "components/Maintenance.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/landing/LandingClient.tsx",
+      "to": "lib/ga.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/landing/LandingClient.tsx",
+      "to": "lib/utm.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/landing/LandingClient.tsx",
+      "to": "lib/paymentReturn.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/landing/LandingClient.tsx",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/landing/LandingClient.tsx",
+      "to": "lib/plan/productPolicy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/landing/page.tsx",
+      "to": "app/landing/LandingClient.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/modoo-2026/ModooApplicationBuilder.tsx",
+      "to": "lib/campaigns/modoo2026.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/modoo-2026/ModooApplicationBuilder.tsx",
+      "to": "lib/ga.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/modoo-2026/ModooApplicationBuilder.tsx",
+      "to": "lib/utm.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/modoo-2026/page.tsx",
+      "to": "app/modoo-2026/ModooApplicationBuilder.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/modoo-2026/page.tsx",
+      "to": "lib/campaigns/modoo2026.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/operations/OperationsDashboard.tsx",
+      "to": "components/auth/AuthGate.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/operations/OperationsDashboard.tsx",
+      "to": "lib/operations/domain.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "app/operations/OperationsDashboard.tsx",
+      "to": "lib/operations/domain.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/operations/page.tsx",
+      "to": "app/operations/OperationsDashboard.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/operations/page.tsx",
+      "to": "lib/operations/http.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/operations/page.tsx",
+      "to": "lib/operations/domain.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/page.tsx",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/page.tsx",
+      "to": "components/Maintenance.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/page.tsx",
+      "to": "app/landing/LandingClient.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/privacy/page.tsx",
+      "to": "components/legal/PolicyPage.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/refund/page.tsx",
+      "to": "components/legal/PolicyPage.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/terms/page.tsx",
+      "to": "components/legal/PolicyPage.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/terms/page.tsx",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/terms/page.tsx",
+      "to": "lib/plan/productPolicy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "app/terms/page.tsx",
+      "to": "lib/plan/presentationPolicy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/LandingTracker.tsx",
+      "to": "lib/ga.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/LandingTracker.tsx",
+      "to": "lib/utm.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/auth/AuthGate.tsx",
+      "to": "lib/auth/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/auth/AuthGate.tsx",
+      "to": "lib/ga.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/plan/sections.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/plan/reviewer.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/plan/revisions.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/plan/productPolicy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/ga.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/utm.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/paymentReturn.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "components/auth/AuthGate.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "components/chat/EvidenceDiagnosis.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "components/chat/DiagnosisWizard.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "components/chat/PublicEvidencePanel.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/match/buttonFilter.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/match/convProfile.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/diagnosis/evidence.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/diagnosis/localReviewEvidence.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/plain-language.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "components/chat/PresentationStudio.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "to": "lib/hwp/extract.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/DiagnosisWizard.tsx",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "components/chat/DiagnosisWizard.tsx",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/DiagnosisWizard.tsx",
+      "to": "lib/ga.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/DiagnosisWizard.tsx",
+      "to": "components/auth/AuthGate.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/DiagnosisWizard.tsx",
+      "to": "lib/match/buttonFilter.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/DiagnosisWizard.tsx",
+      "to": "components/chat/EvidenceDiagnosis.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/DiagnosisWizard.tsx",
+      "to": "lib/diagnosis/evidence.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "components/chat/DiagnosisWizard.tsx",
+      "to": "lib/plain-language.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/EvidenceDiagnosis.tsx",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "components/chat/EvidenceDiagnosis.tsx",
+      "to": "lib/plan/sections.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/EvidenceDiagnosis.tsx",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/EvidenceDiagnosis.tsx",
+      "to": "lib/diagnosis/evidence.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/EvidenceDiagnosis.tsx",
+      "to": "lib/plain-language.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/PresentationStudio.tsx",
+      "to": "components/auth/AuthGate.tsx",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/PresentationStudio.tsx",
+      "to": "lib/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/PresentationStudio.tsx",
+      "to": "lib/ga.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/PresentationStudio.tsx",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "components/chat/PresentationStudio.tsx",
+      "to": "lib/plan/docx.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "components/chat/PresentationStudio.tsx",
+      "to": "lib/plan/presentation.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/PresentationStudio.tsx",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "components/chat/PresentationStudio.tsx",
+      "to": "lib/plan/presentationRevisions.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "components/chat/PresentationStudio.tsx",
+      "to": "lib/plan/presentationPolicy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/PublicEvidencePanel.tsx",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "components/chat/PublicEvidencePanel.tsx",
+      "to": "lib/data/publicEvidence.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/auth/googleUser.ts",
+      "to": "lib/auth/config.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/auth/googleUser.ts",
+      "to": "lib/auth/localReview.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/auth/googleUser.ts",
+      "to": "lib/plan/access.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/campaigns/modoo2026-docx.ts",
+      "to": "lib/campaigns/modoo2026.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/bizinfo.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/data/bizinfo.ts",
+      "to": "lib/data/openFilter.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/bizinfo.ts",
+      "to": "lib/data/decodeEntities.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/bojo.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/data/collect.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/data/collect.ts",
+      "to": "lib/data/kstartup.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/collect.ts",
+      "to": "lib/data/bizinfo.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/collect.ts",
+      "to": "lib/data/bojo.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/collect.ts",
+      "to": "lib/data/nipa.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/collect.ts",
+      "to": "lib/data/kocca.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/collect.ts",
+      "to": "lib/data/smtech.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/collect.ts",
+      "to": "lib/data/egbiz.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/collect.ts",
+      "to": "lib/data/openFilter.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/dedupePrograms.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/data/egbiz.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/data/egbiz.ts",
+      "to": "lib/data/regional.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/kocca.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/data/kocca.ts",
+      "to": "lib/data/decodeEntities.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/kstartup.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/data/kstartup.ts",
+      "to": "lib/data/decodeEntities.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/nipa.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/data/nipa.ts",
+      "to": "lib/data/decodeEntities.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/programs.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/data/programs.ts",
+      "to": "lib/data/sample.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/programs.ts",
+      "to": "lib/supabase/programs.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/programs.ts",
+      "to": "lib/data/openFilter.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/programs.ts",
+      "to": "lib/data/dedupePrograms.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/regional.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/data/regional.ts",
+      "to": "lib/data/decodeEntities.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/sample.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/data/smtech.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/data/smtech.ts",
+      "to": "lib/data/decodeEntities.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/data/trustedProgramUrl.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/diagnosis/localReviewEvidence.ts",
+      "to": "lib/diagnosis/evidence.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/llm/anthropic.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/llm/anthropic.ts",
+      "to": "lib/llm/json.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/llm/openai.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/llm/openai.ts",
+      "to": "lib/llm/json.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/llm/provider.ts",
+      "to": "lib/llm/anthropic.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/llm/provider.ts",
+      "to": "lib/llm/openai.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/llm/research.ts",
+      "to": "lib/llm/json.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/llm/research.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/llm/research.ts",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/match/buttonFilter.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/match/convProfile.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/match/convProfile.ts",
+      "to": "lib/match/buttonFilter.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/match/prefilter.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/operations/http.ts",
+      "to": "lib/operations/domain.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/operations/http.ts",
+      "to": "lib/operations/storage.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/operations/storage.ts",
+      "to": "lib/operations/domain.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plain-language.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/plan/aiBudget.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/plan/aiBudget.ts",
+      "to": "lib/llm/provider.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/aiBudget.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/aiBudget.ts",
+      "to": "lib/plan/presentationAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/aiBudget.ts",
+      "to": "lib/plan/productPolicy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/aiBudget.ts",
+      "to": "lib/plan/presentationPolicy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/applicationGuard.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/plan/applicationGuard.ts",
+      "to": "lib/match/buttonFilter.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/artifacts.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/artifacts.ts",
+      "to": "lib/plan/presentationAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/artifacts.ts",
+      "to": "lib/plan/docx.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/plan/artifacts.ts",
+      "to": "lib/plan/presentation.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/plan/artifacts.ts",
+      "to": "lib/plan/reviewer.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/plan/artifacts.ts",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/plan/paidAccess.ts",
+      "to": "lib/plan/access.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/paidAccess.ts",
+      "to": "lib/auth/googleUser.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/presentation.ts",
+      "to": "lib/plan/docx.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/plan/presentation.ts",
+      "to": "lib/plan/strategy.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/plan/presentationAccess.ts",
+      "to": "lib/plan/access.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/presentationAccess.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/presentationExport.ts",
+      "to": "lib/viz/svg.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/plan/presentationExport.ts",
+      "to": "lib/viz/font.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/presentationExport.ts",
+      "to": "lib/plan/presentation.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/plan/presentationRevisions.ts",
+      "to": "lib/plan/presentationAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/presentationRevisions.ts",
+      "to": "lib/plan/presentationPolicy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/reviewer.ts",
+      "to": "lib/plan/docx.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/plan/revisionText.ts",
+      "to": "lib/llm/json.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/revisions.ts",
+      "to": "lib/plan/paidAccess.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/revisions.ts",
+      "to": "lib/plan/productPolicy.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/strategy.ts",
+      "to": "lib/viz/svg.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/supabase/programs.ts",
+      "to": "lib/match/types.ts",
+      "kind": "import",
+      "typeOnly": true
+    },
+    {
+      "from": "lib/supabase/programs.ts",
+      "to": "lib/supabase/admin.ts",
+      "kind": "import",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/viz/svg.ts",
+      "to": "lib/viz/font.ts",
+      "kind": "import",
+      "typeOnly": false
+    }
+  ],
+  "external": [
+    {
+      "from": "app/aimax/route.ts",
+      "specifier": "next/server",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/cron/collect-programs/route.ts",
+      "specifier": "next/server",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/groble/webhook/route.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/lead/prestage/route.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/modoo-2026/materials/route.ts",
+      "specifier": "mammoth",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/order/verify/route.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "app/api/plan/presentation/order/route.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "app/data-policy/page.tsx",
+      "specifier": "next",
+      "typeOnly": true
+    },
+    {
+      "from": "app/embed/page.tsx",
+      "specifier": "next",
+      "typeOnly": true
+    },
+    {
+      "from": "app/landing/LandingClient.tsx",
+      "specifier": "react",
+      "typeOnly": false
+    },
+    {
+      "from": "app/landing/LandingClient.tsx",
+      "specifier": "next/link",
+      "typeOnly": false
+    },
+    {
+      "from": "app/landing/page.tsx",
+      "specifier": "next",
+      "typeOnly": true
+    },
+    {
+      "from": "app/layout.tsx",
+      "specifier": "next",
+      "typeOnly": true
+    },
+    {
+      "from": "app/layout.tsx",
+      "specifier": "next/script",
+      "typeOnly": false
+    },
+    {
+      "from": "app/layout.tsx",
+      "specifier": "@next/third-parties/google",
+      "typeOnly": false
+    },
+    {
+      "from": "app/modoo-2026/ModooApplicationBuilder.tsx",
+      "specifier": "react",
+      "typeOnly": false
+    },
+    {
+      "from": "app/modoo-2026/page.tsx",
+      "specifier": "next",
+      "typeOnly": true
+    },
+    {
+      "from": "app/modoo-2026/page.tsx",
+      "specifier": "next/link",
+      "typeOnly": false
+    },
+    {
+      "from": "app/operations/OperationsDashboard.tsx",
+      "specifier": "react",
+      "typeOnly": false
+    },
+    {
+      "from": "app/operations/page.tsx",
+      "specifier": "next",
+      "typeOnly": true
+    },
+    {
+      "from": "app/operations/page.tsx",
+      "specifier": "next/headers",
+      "typeOnly": false
+    },
+    {
+      "from": "app/page.tsx",
+      "specifier": "next",
+      "typeOnly": true
+    },
+    {
+      "from": "app/privacy/page.tsx",
+      "specifier": "next",
+      "typeOnly": true
+    },
+    {
+      "from": "app/refund/page.tsx",
+      "specifier": "next",
+      "typeOnly": true
+    },
+    {
+      "from": "app/start/route.ts",
+      "specifier": "next/server",
+      "typeOnly": false
+    },
+    {
+      "from": "app/terms/page.tsx",
+      "specifier": "next",
+      "typeOnly": true
+    },
+    {
+      "from": "components/LandingTracker.tsx",
+      "specifier": "react",
+      "typeOnly": false
+    },
+    {
+      "from": "components/ReviewsSection.tsx",
+      "specifier": "react",
+      "typeOnly": false
+    },
+    {
+      "from": "components/auth/AuthGate.tsx",
+      "specifier": "react",
+      "typeOnly": false
+    },
+    {
+      "from": "components/auth/AuthGate.tsx",
+      "specifier": "@supabase/supabase-js",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "specifier": "react",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "specifier": "next/dynamic",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "specifier": "driver.js",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "specifier": "driver.js/dist/driver.css",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/Chat.tsx",
+      "specifier": "mammoth/mammoth.browser",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/DiagnosisWizard.tsx",
+      "specifier": "react",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/EvidenceDiagnosis.tsx",
+      "specifier": "react",
+      "typeOnly": false
+    },
+    {
+      "from": "components/chat/PresentationStudio.tsx",
+      "specifier": "react",
+      "typeOnly": false
+    },
+    {
+      "from": "components/legal/PolicyPage.tsx",
+      "specifier": "react",
+      "typeOnly": true
+    },
+    {
+      "from": "components/legal/PolicyPage.tsx",
+      "specifier": "next/link",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/campaigns/modoo2026-docx.ts",
+      "specifier": "docx",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/diagnosis.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/hwp/extract.ts",
+      "specifier": "jszip",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/hwp/extractHwp.ts",
+      "specifier": "server-only",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/hwp/extractHwp.ts",
+      "specifier": "cfb",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/hwp/extractHwp.ts",
+      "specifier": "pako",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/hwp/extractHwp.ts",
+      "specifier": "hwp.js",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/leads.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/llm/anthropic.ts",
+      "specifier": "@anthropic-ai/sdk",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/llm/openai.ts",
+      "specifier": "openai",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/llm/research.ts",
+      "specifier": "@anthropic-ai/sdk",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/operations/storage.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/operations/storage.ts",
+      "specifier": "node:fs/promises",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/operations/storage.ts",
+      "specifier": "node:path",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/operations/storage.ts",
+      "specifier": "node:crypto",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/access.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/aiBudget.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/artifacts.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/artifacts.ts",
+      "specifier": "node:crypto",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/docx.ts",
+      "specifier": "docx",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/paidAccess.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/presentationAccess.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/presentationExport.ts",
+      "specifier": "pptxgenjs",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/presentationExport.ts",
+      "specifier": "pdf-lib",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/presentationExport.ts",
+      "specifier": "@resvg/resvg-js",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/presentationRevisions.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/plan/revisions.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/ratelimit.ts",
+      "specifier": "@upstash/ratelimit",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/ratelimit.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/report-docx.ts",
+      "specifier": "docx",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/reviews.ts",
+      "specifier": "@upstash/redis",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/supabase/admin.ts",
+      "specifier": "@supabase/supabase-js",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/viz/font.ts",
+      "specifier": "fs",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/viz/font.ts",
+      "specifier": "fs/promises",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/viz/font.ts",
+      "specifier": "os",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/viz/font.ts",
+      "specifier": "path",
+      "typeOnly": false
+    },
+    {
+      "from": "lib/viz/svg.ts",
+      "specifier": "@resvg/resvg-js",
+      "typeOnly": false
+    }
+  ],
+  "unresolved": [],
+  "cycles": [
+    [
+      "lib/llm/anthropic.ts",
+      "lib/llm/openai.ts",
+      "lib/llm/provider.ts"
+    ]
+  ],
+  "runtimeCycles": [],
+  "boundaryViolations": []
+}

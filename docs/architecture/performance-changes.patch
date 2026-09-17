@@ -1,0 +1,136 @@
+--- a/lib/auth/googleUser.ts
++++ b/lib/auth/googleUser.ts
+@@ -29,11 +29,7 @@
+   return metadata.is_admin === true || role === "admin" || roles.includes("admin");
+ }
+ 
+-export async function getGoogleUser(req: Request): Promise<GoogleUser | null> {
+-  const authorization = req.headers.get("authorization") ?? "";
+-  const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
+-  if (!token) return null;
+-
++async function verifyGoogleToken(token: string): Promise<GoogleUser | null> {
+   try {
+     const response = await fetch(`${AUTH_URL}/auth/v1/user`, {
+       headers: { apikey: AUTH_ANON_KEY, Authorization: `Bearer ${token}` },
+@@ -68,6 +64,31 @@
+   }
+ }
+ 
++// Route handlers do not run in a React render cache. Share only this Request's
++// verified identity, never a cross-request session or mutable paid entitlement.
++// A short upper bound also rechecks a Request reused by a long-running handler.
++const requestUsers = new WeakMap<Request, {
++  token: string;
++  until: number;
++  user: Promise<GoogleUser | null>;
++}>();
++const REQUEST_AUTH_WINDOW_MS = 5_000;
++
++export async function getGoogleUser(req: Request): Promise<GoogleUser | null> {
++  const authorization = req.headers.get("authorization") ?? "";
++  const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : "";
++  if (!token) { requestUsers.delete(req); return null; }
++  let entry = requestUsers.get(req);
++  if (!entry || entry.token !== token || Date.now() >= entry.until) {
++    entry = { token, until: Date.now() + REQUEST_AUTH_WINDOW_MS, user: verifyGoogleToken(token) };
++    requestUsers.set(req, entry);
++  }
++  const user = await entry.user;
++  // Do not retain transient errors or rejected sessions; the next check may retry.
++  if (!user && requestUsers.get(req) === entry) requestUsers.delete(req);
++  return user ? { ...user } : null;
++}
++
+ export async function googleLoginGate(req: Request): Promise<Response | null> {
+   if (isLocalReviewMatchRequest(req)) return null;
+   const user = await getGoogleUser(req);
+--- a/lib/match/buttonFilter.ts
++++ b/lib/match/buttonFilter.ts
+@@ -84,16 +84,18 @@
+   포항: "경북",
+ };
+ const RESTRICT_RE = "(에\\s*)?.{0,10}(소재|거주|주소지|사업장|관내|한정|시민|도민|주민|이전\\s*(예정|필수))";
++// Fixed, non-global expressions: safe to reuse without lastIndex state. Build
++// once instead of allocating candidate arrays and up to 24 regexes per program.
++const REGION_RESTRICTIONS = [
++  ...SIDO_ALL.map((sido) => ({ sido, re: new RegExp(`${sido}${RESTRICT_RE}`) })),
++  ...Object.entries(SUBREGION_TO_SIDO).map(([name, sido]) => ({ sido, re: new RegExp(`${name}${RESTRICT_RE}`) })),
++];
+ export function regionConflict(p: Program, userSido: string | null): boolean {
+   if (!userSido) return false;
+   const hay = `${p.title} ${p.target}`;
+   if (hay.includes(userSido) || hay.includes("전국")) return false; // 사용자 지역 언급·전국이면 충돌 아님
+-  const candidates: [string, string][] = [
+-    ...SIDO_ALL.filter((s) => s !== userSido).map((s): [string, string] => [s, s]),
+-    ...Object.entries(SUBREGION_TO_SIDO).filter(([, sido]) => sido !== userSido),
+-  ];
+-  for (const [name] of candidates) {
+-    if (new RegExp(`${name}${RESTRICT_RE}`).test(hay)) return true;
++  for (const { sido, re } of REGION_RESTRICTIONS) {
++    if (sido !== userSido && re.test(hay)) return true;
+   }
+   return false;
+ }
+--- a/lib/supabase/programs.ts
++++ b/lib/supabase/programs.ts
+@@ -140,7 +140,7 @@
+   const db = createAdminClient();
+   let query = db
+     .from("programs")
+-    .select("*")
++    .select("id,source,title,summary,target,support_field,region,apply_end,url,form_url")
+     .is("closed_at", null)
+     .order("apply_end", { ascending: true, nullsFirst: false })
+     .limit(limit);
+--- a/lib/scale/snapshotCache.ts
++++ b/lib/scale/snapshotCache.ts
+@@ -22,6 +22,11 @@
+     private readonly options = { freshMs: 60_000, staleMs: 300_000, localMs: 60_000, loadMs: 2_000, leaseMs: 3_000, waitMs: 2_100 },
+   ) {}
+   private usable() { return this.local && this.local.staleUntil > Date.now() ? this.local : null; }
++  private promote(snapshot: Snapshot<T>): T {
++    this.local = snapshot;
++    this.localUntil = Math.min(snapshot.freshUntil, Date.now() + this.options.localMs);
++    return snapshot.value;
++  }
+   async get(): Promise<T> {
+     if (this.local && Date.now() < this.localUntil && Date.now() < this.local.freshUntil) return structuredClone(this.local.value);
+     if (this.flight) {
+@@ -44,8 +49,7 @@
+       const shared = await this.store.read();
+       if (shared && shared.staleUntil > Date.now()) this.local = shared;
+       if (shared && shared.freshUntil > Date.now()) {
+-        this.localUntil = Math.min(shared.freshUntil, Date.now() + this.options.localMs);
+-        return shared.value;
++        return this.promote(shared);
+       }
+       owned = await this.store.acquire(token, this.options.leaseMs);
+       if (!owned) {
+@@ -55,13 +59,13 @@
+         while (Date.now() < end) {
+           await new Promise((resolve) => setTimeout(resolve, 100));
+           const ready = await this.store.read();
+-          if (ready && ready.freshUntil > Date.now()) { this.local = ready; return ready.value; }
++          if (ready && ready.freshUntil > Date.now()) return this.promote(ready);
+         }
+         throw new SnapshotUnavailable("catalog refresh busy");
+       }
+       // A completed refresh may have released its lease between read and acquire.
+       const newer = await this.store.read();
+-      if (newer && newer.freshUntil > Date.now()) { this.local = newer; return newer.value; }
++      if (newer && newer.freshUntil > Date.now()) return this.promote(newer);
+       const controller = new AbortController();
+       let timer: ReturnType<typeof setTimeout> | undefined;
+       const timeout = new Promise<never>((_, reject) => {
+@@ -73,9 +77,7 @@
+       const now = Date.now();
+       const snapshot = { value, freshUntil: now + this.options.freshMs, staleUntil: now + this.options.staleMs };
+       if (!await this.store.publish(token, snapshot, this.options.staleMs)) throw new SnapshotUnavailable("catalog lease lost");
+-      this.local = snapshot;
+-      this.localUntil = now + this.options.localMs;
+-      return value;
++      return this.promote(snapshot);
+     } catch {
+       this.blockedUntil = Date.now() + 1_000;
+       const stale = this.usable();

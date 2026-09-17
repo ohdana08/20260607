@@ -31,15 +31,16 @@ const SYSTEM = `당신은 정부지원사업 심사 논리에 맞춰 근거팩�
 
 [도식 원칙]
 - 후보는 tamSamSom, validation, process, comparison, journey, funnel, revenue, roadmap 중 최대 6종입니다.
-- 여섯 개를 채우는 것이 목표가 아닙니다. 심사 설득력이 있고 evidenceIds가 충분한 것만 출력하세요.
+- 수치·성과 도식은 evidenceIds가 충분할 때만 출력합니다. 증거가 부족해도 서버가 사업 구조·고객 확인·실행 계획 카드를 추가하므로 시각자료가 없는 결과물을 만들지 않습니다.
 - 사업계획서에 존재하며 근거팩의 verified 출처 id로 확인된 사실만 도식화하세요. 도식마다 evidenceStatus는 반드시 verified여야 합니다.
-- 가설·향후 계획·증빙 필요·보완 필요 내용은 도식화하지 말고 본문에 사실대로 남기세요.
+- 가설·계획은 검증 그래프에 넣지 마세요. 서버가 별도의 검토안 카드로 시각화하므로 problem/customer/solution/businessModel/goToMarket/roadmap을 구체적인 사업 내용으로 작성하세요. 자료가 없으면 사용자에게 맞는 확인 행동을 담으세요.
 - TAM·SAM·SOM은 기준연도와 산식까지 확인된 근거가 없으면 생략하세요.
 - comparison은 근거팩의 선택 경쟁사 2곳이 모두 있고, 각 행의 세 칸을 같은 기준으로 비교할 수 있을 때만 출력하세요.
 - process, journey, revenue, roadmap도 사용자가 제공한 자료 또는 검증 출처 id를 연결해야 합니다.
 - 각 targetSection은 공식 양식 목차 중 가장 맞는 항목명을 원문 그대로 사용하세요.
 - 도식 문구는 발표 슬라이드가 아니라 A4 본문에서 읽히도록 짧고 밀도 있게 쓰세요.
 
+problem/customer/solution/businessModel/goToMarket는 각각 100자 이하, roadmap은 6개월 등 전체 기간의 단계가 빠지지 않게 160자 이하로 요약하세요. claims 최대 10개, 각 150자 이하. 도우미의 미동의 제안을 신청자 계획으로 넣지 마세요.
 설명 없이 아래 JSON 하나만 출력하세요.
 {
   "problem":"근거 있는 문제 정의",
@@ -87,7 +88,7 @@ export async function POST(req: Request) {
   const loginGate = await paidGoogleLoginGate(req, code);
   if (loginGate) return loginGate;
   const rl = await checkRateLimit(req, "planReview");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
   const access = await checkDraftAccess(req, code, program?.id);
   if (!access.ok) return paymentRequiredResponse(access.reason);
   if (!Array.isArray(messages)) {

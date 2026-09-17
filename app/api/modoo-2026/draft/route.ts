@@ -66,7 +66,7 @@ export async function POST(request: Request) {
   if (maintenance) return maintenance;
 
   const limit = await checkRateLimit(request, "campaignDraft");
-  if (!limit.ok) return tooManyRequests(limit.retryAfter);
+  if (!limit.ok) return tooManyRequests(limit.retryAfter, limit.unavailable);
 
   let raw: unknown;
   try {

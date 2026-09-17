@@ -1,6 +1,6 @@
 import { fetchOpenPrograms } from "@/lib/data/programs";
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
-import type { ChatMsg } from "@/lib/llm/provider";
+import type { ChatMsg } from "@/lib/llm/types";
 import type { Program, RankedPick, Recommendation } from "@/lib/match/types";
 import { prefilterPrograms, type MatchProfile } from "@/lib/match/prefilter";
 import {
@@ -78,7 +78,7 @@ function programForPrompt(p: Program) {
 
 export async function POST(req: Request) {
   const rl = await checkRateLimit(req, "match");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
 
   let body: unknown;
   try {

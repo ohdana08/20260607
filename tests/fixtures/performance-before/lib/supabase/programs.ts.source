@@ -1,0 +1,151 @@
+import type { Program } from "@/lib/match/types";
+import { createAdminClient } from "./admin";
+
+// programs 테이블 read/write — 배치 수집기(scripts/collect-programs.mts)와
+// 앱의 fetchOpenPrograms(lib/data/programs.ts)가 공유하는 서버 전용 모듈.
+// ⚠️ service_role 클라이언트(createAdminClient)를 쓴다 — 브라우저에서 import 금지.
+
+interface ProgramRow {
+  id: string;
+  source: string;
+  external_id: string;
+  title: string;
+  summary: string;
+  target: string;
+  support_field: string;
+  region: string;
+  apply_end: string | null;
+  url: string;
+  form_url: string | null;
+  last_seen_at: string;
+}
+
+function toRow(p: Program, lastSeenAtIso: string): ProgramRow {
+  const external_id = p.id.slice(p.id.indexOf(":") + 1) || p.id;
+  return {
+    id: p.id,
+    source: p.source,
+    external_id,
+    title: p.title,
+    summary: p.summary,
+    target: p.target,
+    support_field: p.supportField,
+    region: p.region,
+    apply_end: p.applyEnd,
+    url: p.url,
+    form_url: p.formUrl,
+    last_seen_at: lastSeenAtIso,
+  };
+}
+
+function fromRow(r: Record<string, unknown>): Program {
+  return {
+    id: r.id as string,
+    title: r.title as string,
+    summary: r.summary as string,
+    target: r.target as string,
+    supportField: r.support_field as string,
+    region: r.region as string,
+    applyEnd: (r.apply_end as string | null) ?? null,
+    url: r.url as string,
+    formUrl: (r.form_url as string | null) ?? null,
+    source: r.source as Program["source"],
+  };
+}
+
+export interface DiffSummary {
+  source: string;
+  seen: number;
+  new: number;
+  closed: number;
+  deadlineChanged: number;
+}
+
+const CHUNK = 500;
+
+// e나라도움 API는 연도 조건을 줘도 한 해 전체 상세사업을 10만 건 이상 반환할 수 있다.
+// 현재 수집기는 호출 시간·일일 한도를 지키기 위해 일부 페이지만 읽으므로, 이번 실행에
+// 보이지 않았다는 이유만으로 기존 공고를 종료하면 안 된다. 수집 범위가 완전해진 뒤 제거한다.
+// EGBIZ also lacks a reliable completeness signal: its live count and returned
+// pages can disagree. Successful HTTP responses cannot authorize deletion by
+// absence. Preserve prior rows; the read path still filters expired apply_end.
+const NON_EXHAUSTIVE_SOURCES = new Set<Program["source"]>(["bojo", "egbiz"]);
+
+// 소스 하나를 upsert하고 diff(신규/마감변경/종료)를 계산한다.
+// mark-and-sweep: 이번 배치의 last_seen_at(runAt)보다 과거인, 아직 안 닫힌 같은 소스 행은
+// "이번엔 안 보였다"는 뜻이므로 closed_at을 채운다 — 대상 건수와 무관하게 IN절 없이 처리된다.
+export async function upsertAndDiff(
+  source: Program["source"],
+  programs: Program[],
+  runAt: Date = new Date(),
+): Promise<DiffSummary> {
+  // 키 누락·외부 장애·응답 스키마 변경이 0건으로 보일 때 기존 공고를 전부 닫으면 안 된다.
+  // 한 건이라도 정상 수집된 실행에서만 mark-and-sweep을 수행한다.
+  if (programs.length === 0) {
+    console.warn(`[programs] ${source}: 0건 응답이라 기존 공고를 보존합니다.`);
+    return { source, seen: 0, new: 0, closed: 0, deadlineChanged: 0 };
+  }
+
+  const db = createAdminClient();
+  const runIso = runAt.toISOString();
+
+  const { data: beforeRows, error: beforeErr } = await db
+    .from("programs")
+    .select("id, apply_end")
+    .eq("source", source)
+    .is("closed_at", null);
+  if (beforeErr) throw beforeErr;
+  const beforeMap = new Map<string, string | null>(
+    (beforeRows ?? []).map((r) => [r.id as string, (r.apply_end as string | null) ?? null]),
+  );
+
+  const rows = programs.map((p) => toRow(p, runIso));
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const { error } = await db.from("programs").upsert(rows.slice(i, i + CHUNK), { onConflict: "id" });
+    if (error) throw error;
+  }
+
+  // 이번 배치에서 안 보인 건(같은 소스, 아직 안 닫힘, last_seen_at이 이번 배치보다 과거) → 종료 처리.
+  // 단, 전체 목록을 읽지 못하는 소스는 누락과 종료를 구분할 수 없으므로 기존 행을 보존한다.
+  if (NON_EXHAUSTIVE_SOURCES.has(source)) {
+    console.warn(
+      `[programs] ${source}: 부분 수집 소스라 이번 실행에서 보이지 않은 기존 공고를 종료 처리하지 않습니다.`,
+    );
+  } else {
+    const { error: closeErr } = await db
+      .from("programs")
+      .update({ closed_at: runIso })
+      .eq("source", source)
+      .is("closed_at", null)
+      .lt("last_seen_at", runIso);
+    if (closeErr) throw closeErr;
+  }
+
+  let newCount = 0;
+  let deadlineChanged = 0;
+  const seenIds = new Set(rows.map((r) => r.id));
+  for (const r of rows) {
+    if (!beforeMap.has(r.id)) newCount++;
+    else if ((beforeMap.get(r.id) ?? null) !== (r.apply_end ?? null)) deadlineChanged++;
+  }
+  const closed = NON_EXHAUSTIVE_SOURCES.has(source)
+    ? 0
+    : [...beforeMap.keys()].filter((id) => !seenIds.has(id)).length;
+
+  return { source, seen: rows.length, new: newCount, closed, deadlineChanged };
+}
+
+// 앱(무료 버튼 매칭 경로)이 읽는 함수 — DB 조회 1회, 외부 API·LLM 호출 없음.
+export async function getOpenPrograms(limit = 3000, signal?: AbortSignal): Promise<Program[]> {
+  const db = createAdminClient();
+  let query = db
+    .from("programs")
+    .select("*")
+    .is("closed_at", null)
+    .order("apply_end", { ascending: true, nullsFirst: false })
+    .limit(limit);
+  if (signal) query = query.abortSignal(signal);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map(fromRow);
+}

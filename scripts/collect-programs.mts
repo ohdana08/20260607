@@ -10,33 +10,7 @@
 // 소스 하나가 실패해도 나머지는 계속 진행한다(Promise.allSettled) — 사이트 개편으로
 // 파서 하나가 죽어도 전체 배치가 멈추지 않게. 0건 수집은 각 lib/data/*.ts가 자체
 // 경고 로그를 남긴다("조용히 빠뜨리지 않는다" 원칙).
-import { COLLECTABLE_SOURCES, collectSource } from "../lib/data/collect";
-import { upsertAndDiff } from "../lib/supabase/programs";
+import { runCollection } from "../lib/data/collectionRun";
 
-const runAt = new Date();
-console.log(`[collect] 시작 ${runAt.toISOString()}`);
-
-const results = await Promise.allSettled(
-  COLLECTABLE_SOURCES.map(async (source) => {
-    const items = await collectSource(source);
-    return upsertAndDiff(source, items, runAt);
-  }),
-);
-
-let hadError = false;
-for (let i = 0; i < COLLECTABLE_SOURCES.length; i++) {
-  const source = COLLECTABLE_SOURCES[i];
-  const r = results[i];
-  if (r.status === "fulfilled") {
-    const d = r.value;
-    console.log(
-      `[collect] ${source}: 수집 ${d.seen}건 (신규 ${d.new} · 마감변경 ${d.deadlineChanged} · 종료 ${d.closed})`,
-    );
-  } else {
-    hadError = true;
-    console.error(`[collect] ${source} 실패`, r.reason);
-  }
-}
-
-console.log(`[collect] 종료 ${new Date().toISOString()}`);
-if (hadError) process.exit(1);
+const result = await runCollection();
+if (!result.ok) process.exitCode = 1;

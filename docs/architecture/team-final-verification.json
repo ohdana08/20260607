@@ -1,0 +1,74 @@
+{
+  "date": "2026-09-17",
+  "verdict": "passed-for-scoped-local-candidate",
+  "scope": "Previous four performance changes plus deadline formatter reuse; not all accumulated worktree changes",
+  "deployed": false,
+  "stages": {
+    "architect": "design and scope approved",
+    "implementation": "formatter fix and boundary regressions completed",
+    "reviewer": "independent source review and final harness re-review passed",
+    "sre_optimizer": "frozen-source performance gates passed",
+    "integration": "91 tests, product guards, type checks, ESLint, architecture check and build passed"
+  },
+  "checks": {
+    "team": 50,
+    "rca_and_scale_unit": 36,
+    "real_local_redis": 5,
+    "total_distinct_tests": 91,
+    "architecture_files": 149,
+    "architecture_edges": 390,
+    "architecture_violations": 0,
+    "original_dirty_files_preserved": 22
+  },
+  "performance": {
+    "workload": "synthetic 3000 rows, actual fetchOpenPrograms and matchByButtons functions, mocked catalog transport",
+    "measured_samples_per_profile_variant": 80,
+    "rounds": 4,
+    "warmup_samples_separate": true,
+    "p95_ms": {
+      "busan": {
+        "before": 62.661,
+        "after": 10.143
+      },
+      "gyeonggi": {
+        "before": 58.956,
+        "after": 9.331
+      },
+      "national": {
+        "before": 61.44,
+        "after": 9.282
+      }
+    }
+  },
+  "sha256": {
+    "lib/auth/googleUser.ts": "da8e372a73bbc755f8e2db70d7818e94e19d8b0b5d97e864aa8ce1a0c6a97df9",
+    "lib/match/buttonFilter.ts": "923705df05789511570410cb8ff85e7f83780d0e936f6a3b6a2666be013268e5",
+    "lib/supabase/programs.ts": "399dadbe2025b433af55d33c2450de9b447c4fe4bb3107529cbb3fd5bb84aad6",
+    "lib/scale/snapshotCache.ts": "aa4ff0282f7fdd7d01439fb86776a9cb4c6124f5c1bb7d82679feb4aba584d93",
+    "lib/data/openFilter.ts": "9b0ec62c6bacd90df2a6ae0c1947f8613821a4847de3517f9167d55c36a226e7",
+    "lib/data/programs.ts": "297122f52284f807847d125d52555a0f392dba3c5a9418bd5120569c305b80b9",
+    "scripts/performance-team-benchmark.mjs": "4b5a4be3f73813363b585cd874e1f9db7a98746ba24cc53b750eb8c584ad112a",
+    "tests/helpers/performance-harness.mjs": "1fa61d193847b1bfb22bd761638607681a8b61a6b18f8c86600e92519b69cb50",
+    "tests/performance.test.mjs": "9012866d5960dfe5b2689e4ca4fdd03ddeb11b22be3789f1c429f100576b2494",
+    "tests/team-review.test.mjs": "867e56888d06160a9f8a14c9b16907e6f48670f43766578d0137a4bfdb8ad0d2",
+    "tests/team-sre.test.mjs": "601cbb981552f176e97d2113a1578fb4ac1ca126d8b3fbd66ac1a4bd9fdbe6a3",
+    "docs/architecture/team-performance-20260917-final.json": "bb1496462cdaa8ef81ac2880f847d1980f9f04b3a99ac6d2f7e30879be40b8f8",
+    "docs/architecture/team-design.md": "1ed66e01e1629df11dec4d8e12d0766b571abd8a556037e9825ae8c74ce58b2c",
+    "docs/architecture/team-reviewer.md": "6426fea4fde32005bd7b06a18d058fe2f9135798d268aa46db503e0ff6f40fbf",
+    "docs/architecture/team-sre.md": "e6a5af03532e5b50b90cb351e769b07f65d40af066016ff3c1750079e9b6c290",
+    "docs/architecture/team-final-verification.md": "0ccf87ae19e014d900898195d0864ba680b35efe464c8918a20b9aec273891d8",
+    "docs/architecture/team-final-changes.patch": "3be86b38452a203418613c8d494bd9d25af9be2d06881a56a24b0b7bd7d6621e",
+    "tests/fixtures/performance-before/manifest.json": "7baaac2757150aaef98b946d428362571d89a8f51b020c8875d5b43e4636d7c9",
+    "tests/fixtures/team-before/manifest.json": "53e662b6538aad63e41713961b51b9d33a762410e7d93c0490205e569e1aaa84",
+    "package.json": "c69312af2609f06b83436457e2f000e979d643224ac60a3fcbddd116d29d54df"
+  },
+  "not_verified": [
+    "production HTTP latency or 100x capacity",
+    "product memory savings",
+    "live database schema, plans and policies",
+    "paid AI or payment E2E",
+    "browser rendering",
+    "operational alert integration"
+  ],
+  "common_team_policy": "/Users/jinjoopwer/BCC_Brain/30_dev/BCC_공통개발팀_프로젝트별작업규칙.md"
+}

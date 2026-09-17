@@ -12,6 +12,7 @@ interface EvidenceBound {
 
 // 독립 발표 이미지가 아니라 A4 Word 본문에 삽입하는 데이터 밀도로 제한한다.
 export interface VizData {
+  planning?: Array<{ key: string; title: string; targetSection?: string; cards: Array<{ label: string; body: string }> }>;
   tamSamSom?: EvidenceBound & { tam: string; sam: string; som: string; note?: string };
   process?: EvidenceBound & { stages: string[] };
   comparison?: EvidenceBound & {
@@ -38,13 +39,14 @@ export interface VizData {
 export interface Chart {
   key: string;
   title: string;
+  planningCards?: Array<{ label: string; body: string }>;
   png: string; // base64
   width: number;
   height: number;
   targetSection?: string;
   sourceNote?: string;
   evidenceIds: string[];
-  evidenceStatus: "verified";
+  evidenceStatus: "verified" | "plan";
 }
 
 const BLUE = "#2563EB";
@@ -220,12 +222,44 @@ async function toPng(svg: string): Promise<string> {
   return Buffer.from(png).toString("base64");
 }
 
+function svgPlanning(title: string, cards: Array<{ label: string; body: string }>, note: string) {
+  const w = 560, cardW = 512, top = 76;
+  const lines = (value: string, limit = 24) => {
+    const words = value.replace(/\s+/g, " ").trim().split(" ");
+    const result: string[] = [];
+    let line = "";
+    for (const word of words) {
+      if (line && `${line} ${word}`.length > limit) { result.push(line); line = ""; }
+      let rest = word;
+      while (rest.length > limit) { result.push(rest.slice(0, limit)); rest = rest.slice(limit); }
+      line = line ? `${line} ${rest}` : rest;
+    }
+    if (line) result.push(line);
+
+    return result;
+  };
+  const cardLines = cards.slice(0, 3).map(card => lines(card.body));
+  const labelLines = cards.slice(0, 3).map(card => lines(card.label, 22));
+  const cardHeights = cardLines.map((rows, i) => Math.max(144, 80 + rows.length * 28 + Math.max(0, labelLines[i].length - 1) * 27));
+  const h = top + cardHeights.reduce((sum, height) => sum + height + 14, 0) + 44;
+  let body = `<rect x="24" y="22" width="72" height="26" rx="13" fill="#FEF3C7"/><text x="60" y="40" text-anchor="middle" font-size="13" fill="#92400E">검토안</text><text x="112" y="43" font-size="23" font-weight="700" fill="${INK}">${esc(short(title, 23))}</text>`;
+  cards.slice(0, 3).forEach((card, i) => {
+    const x = 24;
+    const y = top + cardHeights.slice(0, i).reduce((sum, height) => sum + height + 14, 0);
+    body += `<rect x="${x}" y="${y}" width="${cardW}" height="${cardHeights[i]}" rx="16" fill="#EFF6FF" stroke="#BFDBFE"/>`;
+    labelLines[i].forEach((line, n) => { body += `<text x="${x + 20}" y="${y + 32 + n * 27}" font-size="21" font-weight="700" fill="${BLUE}">${esc(line)}</text>`; });
+    cardLines[i].forEach((line, n) => { body += `<text x="${x + 20}" y="${y + 64 + Math.max(0, labelLines[i].length - 1) * 27 + n * 28}" font-size="19" fill="${INK}">${esc(line)}</text>`; });
+  });
+  body += footer(note, w, h - 22);
+  return { svg: wrap(body, w, h), w, h };
+}
+
 function verifiedIds(meta: EvidenceBound | undefined, allowedIds: ReadonlySet<string>): string[] {
   if (meta?.evidenceStatus !== "verified") return [];
   return Array.from(new Set((meta.evidenceIds ?? []).filter((id) => allowedIds.has(id))));
 }
 
-// 후보 중 최대 6종을 반환한다. 모든 도식은 서버에서 검증된 근거 ID와 명시적 verified 상태가 있어야 한다.
+// 수치·성과 도식은 검증 ID가 필요하며, 계획 카드는 별도 표시한다. 최대 6종.
 export async function buildCharts(
   data: VizData,
   verifiedEvidenceIds: Iterable<string>,
@@ -274,23 +308,34 @@ export async function buildCharts(
     specs.push({ key: "funnel", title: "마케팅 퍼널", built: svgFunnel(data.funnel.stages, data.funnel.sourceNote), meta: data.funnel, evidenceIds: funnelIds });
   }
 
+  // Planning cards communicate proposals, never measured outcomes or quantitative charts.
+  for (const item of (data.planning ?? []).slice(0, 3)) {
+    if (!item.cards?.length) continue;
+    const note = "검토안 · 작성 내용과 확인할 계획이며, 검증된 성과가 아닙니다.";
+    specs.push({ key: item.key, title: `${item.title} · 검토안`, built: svgPlanning(item.title, item.cards, note),
+      meta: { evidenceStatus: "plan", sourceNote: note, targetSection: item.targetSection }, evidenceIds: [] });
+  }
+  const planning = specs.filter(spec => spec.meta.evidenceStatus === "plan");
+  const selected = [...specs.filter(spec => spec.meta.evidenceStatus !== "plan").slice(0, 6 - planning.length), ...planning];
   const charts: Chart[] = [];
-  for (const spec of specs.slice(0, 6)) {
+  for (const spec of selected) {
     try {
       charts.push({
         key: spec.key,
         title: spec.title,
+        planningCards: spec.meta.evidenceStatus === "plan" ? data.planning?.find(item => item.key === spec.key)?.cards.slice(0, 3) : undefined,
         png: await toPng(spec.built.svg),
         width: spec.built.w,
         height: spec.built.h,
         targetSection: spec.meta.targetSection,
         sourceNote: spec.meta.sourceNote,
         evidenceIds: spec.evidenceIds,
-        evidenceStatus: "verified",
+        evidenceStatus: spec.meta.evidenceStatus === "plan" ? "plan" : "verified",
       });
     } catch (error) {
       console.error("[viz] render failed", spec.key, error);
     }
   }
+  if (charts.length !== selected.length) throw new Error("시각자료 생성에 실패했습니다. 다시 시도해 주세요.");
   return charts;
 }

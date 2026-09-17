@@ -20,7 +20,7 @@ function cleanSource(raw: unknown): string {
 
 export async function POST(req: Request) {
   const rl = await checkRateLimit(req, "review");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
 
   let body: unknown;
   try {

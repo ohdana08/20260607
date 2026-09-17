@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect -- 브라우저 저장소·URL·외부 인증 결과를 마운트 후 복원하는 상태 머신입니다. */
 
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { extractFormHeadings } from "@/lib/plan/formHeadings";
 import dynamic from "next/dynamic";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
@@ -20,7 +21,7 @@ import {
   type PlanReviewReport,
 } from "@/lib/plan/reviewer";
 import type { EvidencePack, StrategyPack } from "@/lib/plan/strategy";
-import type { RevisionStatus } from "@/lib/plan/revisions";
+import type { RevisionStatus } from "@/lib/plan/revisionTypes";
 import {
   PLAN_OUTCOME_NOTICE,
   PLAN_REVISION_NOTICE,
@@ -247,7 +248,7 @@ const KIT_PROMPT_TEMPLATE = `이 프롬프트를 분석하거나 요약하지 �
 // 채점 루브릭 (30_dev/루브릭_초안채점_260710 확정안)
 const KIT_RUBRIC = `□ 심사위원이 지적할 지점을 명시하는가 (0/1)
 □ 삭감 1순위 비목(광고선전비 등)을 피하는가 (0/1)
-□ '~할 예정입니다' → 과정·결과로 바꾸는가 (문장 3개 중 2개 이상 전환 시 1)
+□ 현재 실적과 향후 계획을 구분하고, 계획에는 확인할 방법·일정·판단 기준을 명시하는가 (0/1)
 □ 공고문을 파싱해 평가 항목에 배치하는가 (0/1)`;
 
 // 컨설팅 문의 — 카톡채널 (가격·약속 문구 없음)
@@ -255,38 +256,6 @@ const KAKAO_CONSULT_URL = "https://pf.kakao.com/_xbrxjxkxj/chat";
 
 const SUMMARY_PREFIX =
   "[공고·양식 요약] 아래는 사용자가 올린 공고문·양식의 요약입니다. 원본 파일 대신 이 요약을 기준으로 진행하세요. 특히 '양식 목차'가 있으면 그 항목명·순서를 그대로 따르세요.\n\n";
-
-// 양식 목차 결정적 추출(2026-07-12) — LLM 요약이 목차를 압축·누락할 수 있어(검증에서 확인됨),
-// 업로드된 양식 텍스트에서 항목 라인(□, n., n-n.)을 코드로 직접 뽑아 요약에 원문 그대로 결합한다.
-// 2026-07-14 보강: 실제 프리팁스·예창·초창 양식 3종으로 검증 중 발견한 오염 2가지 —
-// ① hwpx 추출 시 <hp:lineBreak/> 같은 내부 XML 태그가 텍스트에 그대로 남아, 같은 항목이
-//    태그 차이만으로 다른 문자열이 돼 있음 → 태그 제거로 정리.
-// ② 표지 요약 페이지의 짧은 제목과 본문 섹션 제목이 같은 번호/기호로 두 번씩 잡히고
-//    "00.00 ~ 00.00" 같은 날짜 표 칸까지 숫자 접두사 정규식에 걸림 → 한글 없는 줄 배제 +
-//    같은 번호("2." "2-1.")·같은 □항목(부가어 무시 후 동일)은 가장 정보량 많은 한 줄만 채택.
-function formHeadingDedupKey(l: string): string {
-  const num = l.match(/^[0-9]{1,2}(-[0-9]{1,2})?\./)?.[0];
-  if (num) return num;
-  if (/^(□|■)/.test(l)) return l.replace(/^(□|■)\s*/, "").replace(/창업\s*아이템\s*/g, "").trim();
-  return l;
-}
-function extractFormHeadings(text: string): string[] {
-  const candidates = text
-    .split(/\n/)
-    .map((l) => l.replace(/<[^>]+>/g, "").trim()) // hwpx 내부 XML 태그 잔존분 제거
-    .filter((l) => l.length >= 2 && l.length <= 60 && /^(□|■|[0-9]{1,2}(-[0-9]{1,2})?\.\s*\S)/.test(l))
-    .filter((l) => /[가-힣]/.test(l)); // 날짜 표 칸 등 한글 없는 잡음 배제
-
-  const bestByKey = new Map<string, string>();
-  const order: string[] = [];
-  for (const l of candidates) {
-    const key = formHeadingDedupKey(l);
-    const prev = bestByKey.get(key);
-    if (!prev) order.push(key);
-    if (!prev || l.length > prev.length) bestByKey.set(key, l);
-  }
-  return order.map((key) => bestByKey.get(key)!);
-}
 
 const GREETING =
   "안녕하세요! 사장님께 맞는 정부지원사업을 같이 찾아볼게요. 😊\n무료로 어디까지 받을 수 있는지 아래에서 먼저 확인해 주세요!";
@@ -1842,7 +1811,7 @@ export default function Chat() {
     doSubmitEvidence(revenue, items);
   }
 
-  // 분기 실행: 실적 1개 이상 = 진단지 / 실적 0개 = pre 전용 화면
+  // 실적 유무는 보완 안내에 사용하고, 작성 가능 여부는 공고의 제출서류 기준으로 판단한다.
   function doSubmitEvidence(revenue: string, items: string[]) {
     // 체크 조합이 곧 시장 데이터 (GA4 이벤트 파라미터는 스칼라만 — 콤마 문자열로)
     const realItems = items.filter((i) => i !== "해당 없음");
@@ -1858,8 +1827,7 @@ export default function Chat() {
     });
 
     if (isPreStage(items)) {
-      // 아직 실적이 쌓이기 전 단계 — 유료 CTA 노출 금지, leads stage='pre' 저장
-      setEvResult({ kind: "pre" });
+      // 실적 없는 상태는 기록하되 공고 분석·작성 경로를 막지 않는다.
       track("no_evidence_view");
       void (async () => {
         try {
@@ -1877,7 +1845,8 @@ export default function Chat() {
         .then((d) => setEvPrograms(Array.isArray(d?.programs) ? d.programs : []))
         .catch(() => setEvPrograms([]))
         .finally(() => setEvProgramsLoading(false));
-    } else {
+    }
+    {
       const sheet = buildSheet(evMap ?? [], items);
       setEvResult({ kind: "sheet", sheet });
       setKitSheet(sheet); // 완성 키트용 — 결제 후에도 유지
@@ -2209,7 +2178,7 @@ export default function Chat() {
         setMessages((prev) => [...prev, { role: "assistant", content: `⚠️ ${evidenceData.warning}` }]);
       }
 
-      setGenerationStage("검증된 근거로 전략과 A4 도식을 설계하는 중");
+      setGenerationStage("사업 내용과 확인할 계획을 시각자료로 정리하는 중");
       const strategyRes = await fetch("/api/plan/strategy", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
@@ -2247,13 +2216,8 @@ export default function Chat() {
   }
 
   function splitDraftBatches<T>(items: T[]): T[][] {
-    // 한 번에 목차를 많이 요청하면 긴 한국어 본문 JSON이 출력 한도에서 끊길 수 있다.
-    // 최대 3회라는 상품 한도 안에서 일반 PSST 5개 목차는 2/2/1로 나눠 작성한다.
-    const batchCount = Math.min(3, Math.max(1, Math.ceil(items.length / 2)));
-    const size = Math.ceil(items.length / batchCount);
-    return Array.from({ length: batchCount }, (_, index) => items.slice(index * size, (index + 1) * size)).filter(
-      (batch) => batch.length > 0,
-    );
+    // 사용자 수정 횟수와 내부 생성 호출 수는 별개다. 한 항목씩 완료 여부를 검사한다.
+    return items.map((item) => [item]);
   }
 
   async function generateDraft() {
@@ -2265,7 +2229,10 @@ export default function Chat() {
     const formSections = formTocToPlanSections(formToc);
     const draftPlanSections = formSections ?? PLAN_SECTIONS;
     const draftFormToc = formSections?.map((section) => section.heading) ?? [];
-    const initialSections = draftPlanSections.map((section) => ({ heading: section.heading, content: "" }));
+    const initialSections = draftPlanSections.map((section) => {
+      const prior = draft?.sections.find(item => item.heading === section.heading);
+      return { heading: section.heading, content: prior && prior.content.length >= 250 && !prior.content.includes("자동 작성이 완료되지 않았습니다") ? prior.content : "" };
+    });
     setDraft({ title, sections: initialSections });
 
     const artifacts = await organizeEvidenceAndStrategy();
@@ -2287,11 +2254,11 @@ export default function Chat() {
     );
     const regionNoticeHeading = preferredRegionNoticeHeading(draftPlanSections.map((section) => section.heading));
     const completedSections = initialSections.map((section) => ({ ...section }));
-    const batches = splitDraftBatches(draftPlanSections);
+    const batches = splitDraftBatches(draftPlanSections.filter(section => !completedSections.find(item => item.heading === section.heading)?.content));
 
     try {
       for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-        setGenerationStage(`공식 목차 묶음 ${batchIndex + 1}/${batches.length} 작성 중`);
+        setGenerationStage(`항목 ${batchIndex + 1}/${batches.length} 작성 중`);
         const batch = batches[batchIndex];
         const res = await fetch("/api/plan/draft-batch", {
           method: "POST",
@@ -2331,7 +2298,25 @@ export default function Chat() {
       }
       const completeDraft = { title, sections: completedSections };
       setDraft(completeDraft);
-      await auditDraftSections(completedSections, artifacts);
+      const initialReview = await auditDraftSections(completedSections, artifacts);
+      const fixable = initialReview?.reviewCompleted !== false ? initialReview?.issues.filter(issue => issue.canAutoFix).slice(0, 4) ?? [] : [];
+      if (fixable.length) {
+        setGenerationStage("현재 답변만으로 고칠 수 있는 문장을 보완하는 중");
+        const repair = await fetch("/api/plan/revise", {
+          method: "POST", headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
+          body: JSON.stringify({ messages: planTextMessages(), code, program: selectedProgram,
+            sections: completedSections, findings: fixable, provider,
+            requestNote: "제공된 자동 수정 가능 지적만 반영하세요. 사용자에게 새 증빙이 필요한 문제는 그대로 남기세요. 사용자가 말하지 않은 계획·수치·경쟁사 이름은 추가하지 마세요. 수정 대상 본문만 반환하세요." }),
+        });
+        const repaired = await repair.json().catch(() => null) as { sections?: DraftSection[]; error?: string; degraded?: boolean } | null;
+        if (repair.ok && repaired?.sections?.length === completedSections.length && !repaired.degraded) {
+          setPlanReview(null);
+          setDraft({ title, sections: repaired.sections });
+          await auditDraftSections(repaired.sections, artifacts);
+        } else {
+          setMessages(prev => [...prev, { role: "assistant", content: repaired?.error || "자동 보완을 완료하지 못했습니다. 작성된 본문과 심사 결과를 보존했으니 아래에서 다시 보완할 수 있어요." }]);
+        }
+      }
       track("complete_draft", { program: selectedProgram.title });
       if (!reviewDone) {
         track("review_prompt_shown");
@@ -2348,6 +2333,10 @@ export default function Chat() {
   }
 
   async function reviseDraftFromReview(requestNote = "") {
+    if (draft?.sections.some(section => !section.content.trim() || section.content.includes("자동 작성이 완료되지 않았습니다"))) {
+      await generateDraft();
+      return;
+    }
     if (!draft || !planReview || !selectedProgram || revisingDraft || reviewingDraft) return;
     if (planReview.issues.length === 0 && !requestNote.trim()) return;
     setRevisingDraft(true);
@@ -3145,7 +3134,7 @@ export default function Chat() {
               </button>
             </div>
           )}
-          {mode === "plan" && !draft && (
+          {mode === "plan" && (!draft || draft.sections.some(section => !section.content.trim() || section.content.includes("자동 작성이 완료되지 않았습니다"))) && (
             <div className="border-t border-zinc-100 px-4 pt-3">
               {kickoffError && (
                 <div className="mb-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-800">
@@ -4031,7 +4020,7 @@ function Paywall({
         <li>· {PLAN_OUTCOME_NOTICE}</li>
         <li>· {PLAN_REVISION_NOTICE}</li>
         <li>· 입력한 사업정보는 초안 생성 목적으로만 사용됩니다.</li>
-        <li>· 근거가 충분한 도식만 선택하며, 최종 제출 전 사실·증빙 확인이 필요합니다.</li>
+        <li>· 사업 구조와 실행 계획을 시각자료로 정리하며, 계획과 확인된 성과를 구분합니다.</li>
       </ul>
 
       <button onClick={onCancel} className="mt-3 text-xs text-zinc-400 hover:underline">
@@ -4087,7 +4076,7 @@ function DraftView({
   });
   const allAcknowledged = Object.values(acknowledgements).every(Boolean);
   const submissionReady = Boolean(review?.submissionReady) && !reviewNeedsRefresh;
-  const reviewedDraftReady = Boolean(review) && !reviewNeedsRefresh;
+  const reviewedDraftReady = Boolean(review) && !reviewNeedsRefresh && draft.sections.every(section => section.content.trim().length >= 250 && !section.content.includes("자동 작성이 완료되지 않았습니다"));
   const canDownload = reviewedDraftReady && allAcknowledged && !drafting && !reviewing && !revising;
   useEffect(() => {
     setAcknowledgements({
@@ -4189,7 +4178,7 @@ function DraftView({
 
       {charts && charts.length > 0 && (
         <div className="mt-4 border-t border-zinc-100 pt-3">
-          <div className="text-sm font-semibold text-zinc-800">📊 근거가 충족돼 자동 선택된 도식 {charts.length}/6</div>
+          <div className="text-sm font-semibold text-zinc-800">📊 사업 내용과 확인할 계획을 정리한 시각자료 {charts.length}/6</div>
           <div className="mt-2 space-y-3">
             {charts.map((c) => (
               <div key={c.key}>
@@ -4225,7 +4214,7 @@ function DraftView({
                     : "bg-amber-100 text-amber-800"
               }`}
             >
-              {review.score}/100
+              {review.reviewCompleted === false ? "검수 미완료" : `${review.score}/100`}
             </span>
           )}
         </div>
@@ -4370,6 +4359,9 @@ function DraftView({
         ) : null}
       </div>
 
+      {draft.sections.some(section => !section.content.trim() || section.content.includes("자동 작성이 완료되지 않았습니다")) && !drafting && (
+        <button onClick={() => onRevise("")} className="mt-3 w-full rounded-xl bg-blue-600 p-3 text-sm font-bold text-white">작성되지 않은 항목 다시 만들기</button>
+      )}
       <div className={`mt-4 rounded-xl border p-3 ${submissionReady ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}>
         <p className="text-sm font-bold text-zinc-900">제출 전 필수 확인</p>
         {!submissionReady && (
@@ -4447,7 +4439,7 @@ function DraftView({
           <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4">
             <p className="text-sm font-bold text-zinc-800">선택: 다른 AI로 한 번 더 교차검토</p>
             <p className="mt-2 rounded-lg bg-zinc-100 px-3 py-2 text-xs leading-5 text-zinc-700">
-              위 모의심사는 딱지원핏 안에서 이미 수행했습니다. 아래 프롬프트는 새 자료가 생겼거나
+              현재 모의심사 완료 여부는 위 결과를 확인해 주세요. 아래 프롬프트는 새 자료가 생겼거나
               ChatGPT·Gemini·Claude의 다른 시각으로 한 번 더 확인하고 싶을 때만 사용하세요.
             </p>
             <p className="mt-2 text-xs leading-5 text-zinc-600">

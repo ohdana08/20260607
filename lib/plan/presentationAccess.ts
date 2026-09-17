@@ -1,6 +1,8 @@
 import { Redis } from "@upstash/redis";
 import { isMasterCode } from "./access";
 import { getAuthedUser, getPaidRecord, type AuthedUser } from "./paidAccess";
+import { PRESENTATION_PAID_KEY, updateEntitlement } from "./paymentState";
+export { PRESENTATION_PAID_KEY } from "./paymentState";
 
 let redis: Redis | null = null;
 function getRedis(): Redis | null {
@@ -11,7 +13,6 @@ function getRedis(): Redis | null {
   return redis;
 }
 
-export const PRESENTATION_PAID_KEY = (userId: string) => `gp:presentation-paid:${userId}`;
 export const PRESENTATION_ORDER_TRIES_KEY = (userId: string) =>
   `gp:presentation-ordertries:${userId}`;
 
@@ -60,33 +61,24 @@ export async function grantPresentationAccess(args: {
   return record;
 }
 
-export async function markPresentationServiceConsent(userId: string): Promise<string | null> {
+export async function markPresentationServiceConsent(userId: string, expectedOrderNo?: string): Promise<string | null> {
   const r = getRedis();
   if (!r) return null;
   const paid = await r.get<PresentationPaidRecord>(PRESENTATION_PAID_KEY(userId));
-  if (!paid) return null;
-  if (paid.consentedAt) return paid.consentedAt;
-  const consentedAt = new Date().toISOString();
-  await r.set(PRESENTATION_PAID_KEY(userId), {
-    ...paid,
-    consentedAt,
-  } satisfies PresentationPaidRecord);
-  return consentedAt;
+  if (!paid || (expectedOrderNo && paid.orderNo !== expectedOrderNo)) return null;
+  if (!(await updateEntitlement(r, PRESENTATION_PAID_KEY(userId), paid.orderNo, "consent"))) return null;
+  const current = await r.get<PresentationPaidRecord>(PRESENTATION_PAID_KEY(userId));
+  return current?.orderNo === paid.orderNo ? current.consentedAt ?? null : null;
 }
 
 export async function markPresentationCreditUsed(
   userId: string,
   programId: string,
-): Promise<void> {
+  expectedOrderNo?: string,
+): Promise<boolean> {
   const r = getRedis();
-  if (!r || !programId) return;
-  const paid = await r.get<PresentationPaidRecord>(PRESENTATION_PAID_KEY(userId));
-  if (!paid || paid.usedProgramId) return;
-  await r.set(PRESENTATION_PAID_KEY(userId), {
-    ...paid,
-    usedProgramId: programId,
-    usedAt: new Date().toISOString(),
-  } satisfies PresentationPaidRecord);
+  if (!r || !programId) return false;
+  return updateEntitlement(r, PRESENTATION_PAID_KEY(userId), expectedOrderNo, "bind", programId);
 }
 
 export type PresentationAccess =

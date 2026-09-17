@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ChatMsg, JsonOptions, LlmClient, LlmUsage, StreamTextOptions } from "./provider";
+import type { ChatMsg, JsonOptions, LlmClient, LlmUsage, StreamTextOptions } from "./types";
 import { extractJson } from "./json";
 
 // Cheap model for the conversational intake + matching (Phase 2). The final

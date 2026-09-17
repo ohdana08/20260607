@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // (브라우저에서 직접 부르면 CORS 허용 목록에 gov-plan 도메인이 없어 막히므로 프록시가 필요)
 export async function POST(req: Request) {
   const rl = await checkRateLimit(req, "chat");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
 
   let body: unknown;
   try {

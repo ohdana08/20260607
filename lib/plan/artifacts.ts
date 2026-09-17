@@ -2,7 +2,7 @@ import { Redis } from "@upstash/redis";
 import { createHash } from "node:crypto";
 import { getPaidRecord } from "./paidAccess";
 import { getPresentationPaidRecord } from "./presentationAccess";
-import type { PlanDocxSection } from "./docx";
+import type { PlanDocxSection } from "./documentTypes";
 import type { PresentationPack, PresentationReview } from "./presentation";
 import type { PlanReviewReport } from "./reviewer";
 import type { EvidencePack, StrategyPack } from "./strategy";

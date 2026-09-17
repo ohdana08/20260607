@@ -12,7 +12,7 @@ import {
   planSectionsDigest,
   savePresentationArtifact,
 } from "@/lib/plan/artifacts";
-import type { PlanDocxSection } from "@/lib/plan/docx";
+import type { PlanDocxSection } from "@/lib/plan/documentTypes";
 import {
   checkPresentationAccess,
   markPresentationCreditUsed,
@@ -26,7 +26,6 @@ import {
 } from "@/lib/plan/presentationRevisions";
 import {
   mergePresentationClaims,
-  buildFallbackPresentationPack,
   normalizePresentationClaims,
   normalizePresentationPack,
   presentationContextPrompt,
@@ -62,14 +61,21 @@ export async function GET(req: Request) {
   const access = await checkPresentationAccess(req, code, programId);
   if (!access.ok) return presentationPaymentRequiredResponse(access.reason);
   if (!access.user) return Response.json({ pack: null, review: null });
-  const [artifact, revision] = await Promise.all([
+  const [artifact, revision, audit, evidence, strategy] = await Promise.all([
     getPresentationArtifact(access.user.id, access.admin),
     getPresentationRevisionStatus(access.user.id, access.admin),
+    getAuditArtifact(access.user.id, access.admin),
+    getEvidencePack(access.user.id, access.admin),
+    getStrategyPack(access.user.id, access.admin),
   ]);
+  const fresh = artifact && audit && evidence && strategy &&
+    artifact.sectionsDigest === audit.sectionsDigest &&
+    artifact.evidenceDigest === planArtifactDigest(evidence) &&
+    artifact.strategyDigest === planArtifactDigest(strategy);
   return Response.json(
     {
-      pack: artifact?.pack ?? null,
-      review: artifact?.review ?? null,
+      pack: fresh ? artifact.pack : null,
+      review: fresh ? reviewPresentationPack(artifact.pack) : null,
       revision,
     },
     { headers: { "Cache-Control": "no-store" } },
@@ -87,7 +93,8 @@ const SYSTEM = `당신은 정부지원사업 발표평가용 슬라이드 원고
 - stated 주장은 확인된 사실처럼 강화하지 말고, hypothesis는 가정·산식, plan은 시점·담당·산출물·지표가 드러나게 쓰세요.
 - 가상의 고객 인터뷰·유료 고객·개발 완료·파트너십·대표·팀 프로필을 만들지 마세요.
 - 사업계획서의 각 원본 section heading을 최소 한 슬라이드의 sourceSectionHeadings에 연결하세요. 본문에 직접 쓰지 못한 세부 내용은 대본과 데이터 부록에서 보존됩니다.
-- 10~16장, 슬라이드당 bullet 최대 5개. 각 bullet은 한 문장 이하로 쓰세요.
+- 정확히 12장, 슬라이드당 bullet 2~3개. 제목 20자, headline 45자, bullet 각각 45자, speakerNotes 180자 이하. 긴 원본은 백업에 남으므로 복사하지 마세요. qa는 정확히 5개, answer 140자 이하.
+- 각 장표는 해당 주제의 실제 내용을 써야 합니다. 임시 안내 문구나 시스템 검색·생성 실패 설명을 발표 내용에 넣지 마세요.
 - 내부 작업 용어(주장 장부, evidenceIds, 상태 분류)는 visible title/headline/bullets에 노출하지 마세요.
 - 외부 출처는 visible slide가 아니라 시스템이 만드는 sourceNotes와 발표자 대본의 자연스러운 출처 언급으로 남깁니다.
 
@@ -204,7 +211,7 @@ export async function POST(req: Request) {
   const loginGate = await paidGoogleLoginGate(req, code);
   if (loginGate) return loginGate;
   const rl = await checkRateLimit(req, "planPresentationGenerate");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
   const access = await checkPresentationAccess(req, code, program?.id);
   if (!access.ok) return presentationPaymentRequiredResponse(access.reason);
   if (access.user && !access.admin && !access.paid?.consentedAt) {
@@ -214,7 +221,7 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
-    if (!(await markPresentationServiceConsent(access.user.id))) {
+    if (!(await markPresentationServiceConsent(access.user.id, access.paid?.orderNo))) {
       return Response.json({ error: "발표자료 시작 동의를 저장하지 못했어요." }, { status: 503 });
     }
   }
@@ -224,6 +231,9 @@ export async function POST(req: Request) {
     return Response.json({ error: "최종 사업계획서가 필요해요." }, { status: 409 });
   }
 
+  if (sections.some(section => !section.content?.trim() || /자동 작성이 완료되지 않았습니다|초안 자동 작성 연결이 끊겼/.test(section.content))) {
+    return Response.json({ error: "작성되지 않은 항목이 있어요. 사업계획서 본문을 먼저 다시 작성해 주세요." }, { status: 409 });
+  }
   const provider = parseProvider(rawProvider);
   if (!isProviderConfigured(provider)) {
     return Response.json({ error: "AI 키가 설정되지 않았어요." }, { status: 503 });
@@ -276,6 +286,9 @@ export async function POST(req: Request) {
     return Response.json({ error: "슬라이드에 연결할 실제 주장과 데이터가 아직 없어요." }, { status: 409 });
   }
 
+  if (access.user && !access.admin && (!program?.id || !(await markPresentationCreditUsed(access.user.id, program.id, access.paid?.orderNo)))) {
+    return presentationPaymentRequiredResponse("presentation_credit_used");
+  }
   const revision = await reservePresentationRevision(access.user?.id, access.admin);
   if (!revision.ok) return presentationRevisionUnavailableResponse(revision.status);
   const reservation = await reservePresentationAiCall({
@@ -285,7 +298,7 @@ export async function POST(req: Request) {
     provider,
     tier: "balanced",
     estimatedInputTokens: 70_000,
-    maxOutputTokens: 7000,
+    maxOutputTokens: 12000,
   });
   if (!reservation.ok) {
     await revision.rollback();
@@ -316,7 +329,7 @@ export async function POST(req: Request) {
         content: `${context}\n\n[발표 인터뷰]\n${interview}\n\n[확정 주장 장부]\n${JSON.stringify(claims, null, 2).slice(0, 45_000)}\n\n${revisionContext}`,
       }],
       schema: {},
-      maxTokens: 7000,
+      maxTokens: 12000,
       onUsage: async (usage) => {
         await reservation.complete(usage);
         completed = true;
@@ -340,7 +353,6 @@ export async function POST(req: Request) {
         strategy,
         access.admin,
       );
-      if (program?.id) await markPresentationCreditUsed(access.user.id, program.id);
     }
     return Response.json(
       {
@@ -356,36 +368,8 @@ export async function POST(req: Request) {
     if (!completed) await reservation.release();
     await revision.rollback();
     console.error("[/api/plan/presentation/generate]", error);
-    const pack = buildFallbackPresentationPack({
-      title: `${program?.title ?? "정부지원사업"} 발표자료`,
-      evidence,
-      strategy,
-      sections: safeSections,
-      claims,
-    });
-    const review = reviewPresentationPack(pack);
-    if (access.user) {
-      await savePresentationArtifact(
-        access.user.id,
-        pack,
-        review,
-        safeSections,
-        evidence,
-        strategy,
-        access.admin,
-      ).catch(() => undefined);
-    }
-    return Response.json(
-      {
-        pack,
-        review,
-        revision: revision.status,
-        degraded: true,
-        warning:
-          "발표자료 AI 응답을 끝까지 읽지 못해 현재 사업계획서 문장을 기준으로 검토용 슬라이드를 만들었습니다.",
-      },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return Response.json({ error: "발표자료 생성이 끝까지 완료되지 않았어요. 사업계획서와 답변은 보존했습니다. 다시 만들기를 눌러 주세요.", retryable: true },
+      { status: 502, headers: { "Cache-Control": "no-store" } });
   }
 }
 

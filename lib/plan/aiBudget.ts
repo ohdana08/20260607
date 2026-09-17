@@ -1,5 +1,5 @@
 import { Redis } from "@upstash/redis";
-import type { LlmUsage, Provider, Tier } from "@/lib/llm/provider";
+import type { LlmUsage, Provider, Tier } from "@/lib/llm/types";
 import { resolveModel } from "@/lib/llm/provider";
 import { getPaidRecord } from "./paidAccess";
 import { getPresentationPaidRecord } from "./presentationAccess";

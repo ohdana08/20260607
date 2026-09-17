@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { JsonOptions, LlmClient, StreamTextOptions } from "./provider";
+import type { JsonOptions, LlmClient, StreamTextOptions } from "./types";
 import { extractJson } from "./json";
 
 let singleton: OpenAI | null = null;

@@ -34,6 +34,7 @@ const { PLAN_MAX_REVISIONS, PLAN_OUTCOME_NOTICE, PLAN_REVISION_NOTICE } = await 
 );
 const {
   normalizePlanReview,
+  unconfirmedQuantityIssues,
   normalizeReadinessAssessment,
   READINESS_DIMENSIONS,
   reviewReportSections,
@@ -317,6 +318,15 @@ assert.deepEqual(
   },
   "AI가 JSON 대신 목차형 본문을 보내도 안전하게 복구해야 함",
 );
+const taggedRevisionBody = "고객 확인을 위한 향후 계획입니다. ".repeat(30);
+assert.equal(parseRevisionOutput(`<SECTION_2>${taggedRevisionBody}</SECTION_2>\n<END_REVISION>`, revisionHeadings).sections[0].heading, revisionHeadings[1]);
+assert.equal(parseRevisionOutput(`<SECTION_2>${taggedRevisionBody}</SECTION_2>`, revisionHeadings).sections.length, 0, "완료 표시가 없는 수정은 거부");
+assert.equal(parseRevisionOutput(`<SECTION_2>${taggedRevisionBody}</SECTION_2><SECTION_1>잘린 본문<END_REVISION>`, revisionHeadings).sections.length, 0, "다른 항목이 잘렸으면 일부만 성공 처리 금지");
+const quantitySource = "보호자 5명에게 물어볼 계획. 제품 10개를 정리. 가격 미정.";
+assert.equal(unconfirmedQuantityIssues([{ heading: "계획", content: "보호자 5명 중 2명 이상이면 출시. 목표 100%." }], quantitySource).length, 1);
+assert.equal(unconfirmedQuantityIssues([{ heading: "계획", content: "보호자 5명 인터뷰. 제품 10개 비교표. 1개월차 제작." }], quantitySource).length, 0);
+assert.equal(unconfirmedQuantityIssues([{ heading: "계획", content: "[제안·사용자 확인 필요] 2명 이상이면 출시를 검토." }], quantitySource).length, 0);
+assert.equal(unconfirmedQuantityIssues([{ heading: "예산", content: "가격 10,000원 예정." }], "가격 10000원 계획.").length, 0);
 const aiEvidence = rankPublicEvidenceItems("AI 공공데이터 기반 관광 서비스", "step6", 3);
 assert.ok(aiEvidence.some((item) => item.id === "public-data-portal"));
 assert.ok(aiEvidence.some((item) => item.id === "kogl-ai"));
@@ -533,8 +543,8 @@ const groundedCharts = await buildCharts(
 );
 assert.deepEqual(
   groundedCharts.map((chart) => chart.key),
-  ["tamsamsom"],
-  "사업계획서 전략과 서버 검증 근거가 모두 연결된 도식만 생성해야 함",
+  ["tamsamsom", "concept", "validationPlan", "executionPlan"],
+  "검증된 수치와 검토안 시각자료를 구분해 생성해야 함",
 );
 const bypassedCharts = await buildCharts(
   {
@@ -954,7 +964,7 @@ assert.match(
 assert.match(evidenceRouteSource, /degraded: true/);
 assert.match(evidenceRouteSource, /공식 시장·경쟁 검색을 완료하지 못해/);
 assert.match(chatSource, /evidenceData\.degraded/);
-assert.match(chatSource, /Math\.ceil\(items\.length \/ 2\)/);
+assert.match(chatSource, /return items\.map\(\(item\) => \[item\]\)/);
 assert.match(chatSource, /PLAN_OUTPUT_KEY/);
 assert.match(chatSource, /loadSavedPlanOutput/);
 assert.match(chatSource, /convoId:?,?\s*selectedProgram|convoId,/);
@@ -967,10 +977,10 @@ assert.match(batchRouteSource, /draft_batch/);
 assert.match(auditRouteSource, /신청자 원답변과 작성 대화/);
 assert.match(auditRouteSource, /canAutoFix/);
 assert.match(auditRouteSource, /evidenceGuardIssues/);
-assert.match(auditRouteSource, /issues는 가장 중요한 것부터 최대 10개/);
-assert.match(auditRouteSource, /maxTokens: 6_500/);
+assert.match(auditRouteSource, /issues는 가장 중요한 것부터 최대 6개/);
+assert.match(auditRouteSource, /maxTokens: 9_000/);
 assert.match(auditRouteSource, /fallbackAudit/);
-assert.match(auditRouteSource, /향후 보안 설계를 현재 구현된 기능처럼/);
+assert.match(auditRouteSource, /reviewCompleted: false/);
 assert.match(auditRouteSource, /degraded: true/);
 assert.match(reviseRouteSource, /revision_batch/);
 assert.match(reviseRouteSource, /parseRevisionOutput/);
@@ -985,7 +995,7 @@ assert.match(presentationStudioSource, /주장·근거 장부/);
 assert.match(presentationStudioSource, /원본 사업계획서 데이터 부록/);
 assert.match(presentationStudioSource, /사업계획서 29,900원에는 포함되지 않는 별도 상품/);
 assert.match(presentationStudioSource, /현재 내용으로 검토용 발표자료 받기/);
-assert.match(presentationStudioSource, /제출·공유용 PDF 받기/);
+assert.match(presentationStudioSource, /발표자료 PDF 받기/);
 assert.match(presentationStudioSource, /묶음 AI 수정/);
 assert.match(presentationStudioSource, /serviceConsent/);
 assert.match(presentationChatRouteSource, /한 번에 질문은 정확히 하나만/);
@@ -1011,7 +1021,10 @@ assert.doesNotMatch(
   "사용자 파일 경로를 pptxgenjs 이미지 파서에 직접 넘기면 안 됨",
 );
 assert.match(orderVerifySource, /사업계획서 Word 또는 묶음 상품의 주문번호/);
-assert.match(webhookSource, /PRESENTATION_PAID_KEY/);
+assert.match(webhookSource, /await cancelOrder\(r,/);
+const paymentStateSource = readFileSync(new URL("../lib/plan/paymentState.ts", import.meta.url), "utf8");
+assert.match(paymentStateSource, /gp:presentation-paid:/);
+assert.match(paymentStateSource, /cjson\.decode\(paid\)\.orderNo == incoming\.orderNo/);
 assert.match(termsSource, /발표자료는 사업계획서 상품과 별도/);
 assert.match(refundSource, /최대 2회의 묶음 AI 수정/);
 assert.match(evidencePanelSource, /계획서에 쓸 공식 근거 찾기/);

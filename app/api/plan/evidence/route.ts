@@ -1,7 +1,7 @@
 import { paidGoogleLoginGate } from "@/lib/auth/googleUser";
 import { maintenanceGate } from "@/lib/config";
 import { researchJson } from "@/lib/llm/research";
-import type { ChatMsg } from "@/lib/llm/provider";
+import type { ChatMsg } from "@/lib/llm/types";
 import { aiBudgetExceededResponse, reservePaidAiCall } from "@/lib/plan/aiBudget";
 import { decideDraftApplication, draftApplicationError } from "@/lib/plan/applicationGuard";
 import { saveEvidencePack } from "@/lib/plan/artifacts";
@@ -46,6 +46,7 @@ const SYSTEM = `당신은 정부지원사업 사업계획서의 근거 조사 �
 - 운영 프로세스·로드맵·수익구조는 사용자가 직접 밝힌 실행계획을 user 근거로 보존할 수 있습니다.
 - 근거 충돌과 핵심 공백을 숨기지 말고 conflicts와 gaps에 명확히 남기세요.
 
+sources 최대 6개, gaps 최대 4개, 경쟁사 facts 각 최대 3개. 모든 설명 문자열은 120자 이하, summary는 200자 이하로 간결히 작성하세요. 사용자 경험을 외부 검증 실적으로 바꾸지 마세요.
 설명 없이 아래 JSON 하나만 출력하세요.
 {
   "checkedAt": "ISO 날짜",
@@ -183,7 +184,7 @@ export async function POST(req: Request) {
   const loginGate = await paidGoogleLoginGate(req, code);
   if (loginGate) return loginGate;
   const rl = await checkRateLimit(req, "planReview");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
   const access = await checkDraftAccess(req, code, program?.id);
   if (!access.ok) return paymentRequiredResponse(access.reason);
   const application = decideDraftApplication(program, documentConfirmed === true);
@@ -194,7 +195,9 @@ export async function POST(req: Request) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json({ error: "경쟁정보 출처 확인용 AI 키가 설정되지 않았어요." }, { status: 503 });
   }
-  if (access.user && program?.id) await markCreditUsed(access.user.id, program.id);
+  if (access.user && !access.admin && (!program?.id || !(await markCreditUsed(access.user.id, program.id, access.orderNo)))) {
+    return paymentRequiredResponse("credit_used");
+  }
 
   const reservation = await reservePaidAiCall({
     userId: access.user?.id,
@@ -203,7 +206,7 @@ export async function POST(req: Request) {
     provider: "claude",
     tier: "fast",
     estimatedInputTokens: 100_000,
-    maxOutputTokens: 4_000,
+    maxOutputTokens: 7_000,
     maxWebSearches: 4,
   });
   if (!reservation.ok) return aiBudgetExceededResponse(reservation);
@@ -225,7 +228,7 @@ export async function POST(req: Request) {
         ...compactResearchMessages(messages),
         { role: "user", content: prompt },
       ],
-      maxTokens: 4_000,
+      maxTokens: 7_000,
       maxSearches: 4,
       onUsage: async (usage) => {
         await reservation.complete(usage);

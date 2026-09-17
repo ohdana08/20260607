@@ -1,0 +1,34 @@
+{
+  "date": "2026-09-17T04:37:55.908322+00:00",
+  "environment": "final local production build, no authenticated external service calls",
+  "checks": [
+    {
+      "method": "GET",
+      "path": "/api/operations?month=2026-09",
+      "status": 401,
+      "cacheControl": "private, no-store",
+      "requestIdPresent": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/operations",
+      "status": 401,
+      "cacheControl": "private, no-store",
+      "requestIdPresent": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/groble/webhook",
+      "status": 403,
+      "cacheControl": null,
+      "requestIdPresent": false
+    },
+    {
+      "method": "GET",
+      "path": "/operations",
+      "status": 200,
+      "cacheControl": "private, no-cache, no-store, max-age=0, must-revalidate",
+      "requestIdPresent": false
+    }
+  ]
+}

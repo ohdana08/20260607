@@ -5,7 +5,7 @@ import { aiBudgetExceededResponse, reservePaidAiCall } from "@/lib/plan/aiBudget
 import { decideDraftApplication, draftApplicationError } from "@/lib/plan/applicationGuard";
 import { getEvidencePack, getStrategyPack } from "@/lib/plan/artifacts";
 import { checkDraftAccess, markCreditUsed, paymentRequiredResponse } from "@/lib/plan/paidAccess";
-import type { PlanDocxSection } from "@/lib/plan/docx";
+import type { PlanDocxSection } from "@/lib/plan/documentTypes";
 import {
   MISSING_INFO_PLACEHOLDER,
   PROOF_NEEDED_PLACEHOLDER,
@@ -14,7 +14,7 @@ import {
   sanitizeFormToc,
 } from "@/lib/plan/sections";
 import { evidencePackPrompt, type EvidencePack, type StrategyPack } from "@/lib/plan/strategy";
-import { parseRevisionOutput } from "@/lib/plan/revisionText";
+
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -37,12 +37,16 @@ interface RequestedSection {
   guide?: string;
 }
 
-const SYSTEM = `당신은 정부지원사업 평가기준에 맞춰 검증된 사실과 신청자의 계획을 공식 양식에 쓰는 수석 컨설턴트입니다.
+const SYSTEM = `초보자에게 유용한 문서를 작성하세요. 실적이 없으면 현재 상태를 솔직히 쓰고, 확인할 대상·질문·기록할 답변·다음 판단을 구체적으로 적으세요. 개인 경험을 시장 전체의 수요로 확대하지 마세요. 사업 구조와 실행 계획은 검토안 시각자료와 같은 내용이어야 합니다.
+- AI 전략팩·도우미 제안은 신청자가 승인한 계획의 출처가 아닙니다. 사용자 원답변에 없는 목표 인원·비율·금액·유료화 기준을 확정하지 마세요. 필요하면 별도 [제안·사용자 확인 필요] 문단으로만 제시하세요. 개인 경험에 하지 않은 행동을 덧붙이지 마세요.
+- 본문의 첫 줄에 목차 제목을 반복하지 마세요. stated 같은 내부 분류 코드는 일상적인 한국어로 바꾸세요.
+당신은 정부지원사업 평가기준에 맞춰 검증된 사실과 신청자의 계획을 공식 양식에 쓰는 수석 컨설턴트입니다.
 
 [절대 규칙]
 - 제공된 목차명과 순서를 그대로 유지하고, 각 목차의 본문만 작성하세요.
 - 사용자 원답변, 저장된 근거팩, 전략팩에 없는 숫자·기관명·고객·계약·매출·성과를 만들지 마세요.
 - verified/stated 사실과 앞으로의 plan을 문장에서 명확히 구분하세요.
+- 조사하지 않았다는 사실에서 경쟁사·대체재·전용 수단이 없다는 결론을 내리지 마세요. 사용자가 직접 확인한 범위만 쓰고 시장 전체의 부재나 유일성을 단정하지 마세요.
 - 자료가 없어도 확인된 사용자 설명으로 읽을 수 있는 초안을 먼저 작성하세요. 가짜 구체성은 만들지 말고 부족한 곳에 다음 보충 안내를 구체적으로 붙이세요.
 ${MISSING_INFO_PLACEHOLDER}
 ${PROOF_NEEDED_PLACEHOLDER}
@@ -52,35 +56,8 @@ ${PROOF_NEEDED_PLACEHOLDER}
 - 정부지원금은 허용 비목, 수량×단가, 실행시기, 산출물과 연결하고 근거가 없으면 보완 표시를 남기세요.
 - 각 목차 본문은 900~1,500자 내외로 작성하고, 1,800자를 넘기지 마세요.
 - 마크다운 제목·별표·코드펜스를 쓰지 말고, 공적인 평서체(~함/~임/~다)를 사용하세요.
-- 답변은 설명 없이 {"sections":[{"heading":"정확한 목차명","content":"본문"}]} JSON 하나만 출력하세요.`;
-
-function fallbackSectionContent(
-  heading: string,
-  conversation: string,
-  evidence: EvidencePack,
-): string {
-  const userContext = conversation
-    .split("\n")
-    .filter((line) => line.startsWith("신청자:"))
-    .slice(-8)
-    .join("\n")
-    .replace(/^신청자:\s*/gm, "")
-    .trim()
-    .slice(0, 1_200);
-  const gaps = evidence.gaps
-    .slice(0, 3)
-    .map((gap) => `- ${gap.label}: ${gap.suggestedAction}`)
-    .join("\n");
-  return ensureFormTableNotice(
-    heading,
-    [
-      `${heading}은 현재까지 신청자가 제공한 설명을 바탕으로 우선 정리한 검토용 초안임.`,
-      userContext || "신청자가 제공한 사업 설명을 해당 평가항목에 맞춰 추가 정리할 필요가 있음.",
-      PROOF_NEEDED_PLACEHOLDER,
-      gaps ? `보충하면 좋은 자료\n${gaps}` : "보충하면 좋은 자료: 고객 대화, 실행 화면, 매출·계약 자료, 공식 시장자료 중 해당 자료",
-    ].join("\n\n"),
-  );
-}
+- 이번 요청은 정확히 한 항목입니다. 제목과 JSON 없이 해당 항목의 본문만 출력하세요. 마지막에 별도 줄로 <END_SECTION>을 출력하세요.
+- 도우미가 제안했으나 신청자가 동의하지 않은 내용을 신청자의 확정 계획으로 쓰지 마세요. 선택지이면 제안이라고 명시하세요.`;
 
 export async function POST(req: Request) {
   let body: unknown;
@@ -116,7 +93,7 @@ export async function POST(req: Request) {
   const loginGate = await paidGoogleLoginGate(req, code);
   if (loginGate) return loginGate;
   const rl = await checkRateLimit(req, "planDraft");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
   const access = await checkDraftAccess(req, code, program?.id);
   if (!access.ok) return paymentRequiredResponse(access.reason);
   const application = decideDraftApplication(
@@ -124,7 +101,7 @@ export async function POST(req: Request) {
     documentConfirmed === true || (Array.isArray(formToc) && formToc.length > 0),
   );
   if (!application.ok) return draftApplicationError(application);
-  if (!Array.isArray(messages) || !Array.isArray(sections) || sections.length === 0 || sections.length > 30) {
+  if (!Array.isArray(messages) || !Array.isArray(sections) || sections.length === 0 || sections.length !== 1) {
     return Response.json({ error: "작성할 목차 묶음이 올바르지 않아요." }, { status: 400 });
   }
   const safeSections = sections
@@ -136,7 +113,6 @@ export async function POST(req: Request) {
   if (safeSections.length === 0) {
     return Response.json({ error: "작성할 목차명이 필요해요." }, { status: 400 });
   }
-  if (access.user && program?.id) await markCreditUsed(access.user.id, program.id);
   const [storedEvidence, storedStrategy] = access.user
     ? await Promise.all([
         getEvidencePack(access.user.id, access.admin),
@@ -150,6 +126,9 @@ export async function POST(req: Request) {
   const provider = parseProvider(rawProvider);
   if (!isProviderConfigured(provider)) {
     return Response.json({ error: "선택한 AI 키가 설정되지 않았어요." }, { status: 503 });
+  }
+  if (access.user && !access.admin && (!program?.id || !(await markCreditUsed(access.user.id, program.id, access.orderNo)))) {
+    return paymentRequiredResponse("credit_used");
   }
   const reservation = await reservePaidAiCall({
     userId: access.user?.id,
@@ -172,9 +151,9 @@ export async function POST(req: Request) {
     .join("\n")
     .slice(-45_000);
   const sectionPrompt = safeSections
-    .map((section, index) => {
+    .map((section) => {
       const checks = reviewChecklistForHeading(section.heading).map((item) => `  - ${item}`).join("\n");
-      return `${index + 1}. ${section.heading}\n안내: ${section.guide || "공식 항목 취지에 맞게 작성"}\n체크:\n${checks}`;
+      return `${section.heading}\n안내: ${section.guide || "공식 항목 취지에 맞게 작성"}\n체크:\n${checks}`;
     })
     .join("\n\n");
   const prompt = `[지원사업]
@@ -216,44 +195,17 @@ ${conversation}`;
     })) {
       rawText += chunk;
     }
-    const parsed = parseRevisionOutput(rawText, safeSections.map((section) => section.heading));
-    const received = parsed.sections;
-    const output: PlanDocxSection[] = safeSections.map((requested, index) => {
-      const exact = received.find((item) => String(item.heading ?? "").trim() === requested.heading);
-      const fallback = received[index];
-      const content = String(exact?.content ?? fallback?.content ?? "").trim().slice(0, 18_000);
-      return {
-        heading: requested.heading,
-        content: content
-          ? ensureFormTableNotice(requested.heading, content)
-          : fallbackSectionContent(requested.heading, conversation, storedEvidence),
-      };
-    });
-    return Response.json(
-      {
-        sections: output,
-        degraded: parsed.recoveredFromText || received.length < safeSections.length || stopReason === "max_tokens",
-        warning:
-          parsed.recoveredFromText || received.length < safeSections.length || stopReason === "max_tokens"
-            ? "AI 응답에서 확인 가능한 목차만 복구하고, 빠진 목차는 신청자 설명과 증거 보충 안내로 우선 작성했습니다."
-            : null,
-      },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    const bodyText = rawText.replace(/<END_SECTION>\s*$/, "").trim();
+    if (stopReason === "max_tokens" || !rawText.trimEnd().endsWith("<END_SECTION>") || bodyText.length < 250) {
+      throw new Error("작성 응답이 끝까지 도착하지 않았습니다. 해당 항목을 다시 작성해 주세요.");
+    }
+    const output: PlanDocxSection[] = [{ heading: safeSections[0].heading,
+      content: ensureFormTableNotice(safeSections[0].heading, bodyText) }];
+    return Response.json({ sections: output, degraded: false }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (!completed) await reservation.release();
     console.error("[/api/plan/draft-batch]", error);
-    return Response.json(
-      {
-        sections: safeSections.map((section) => ({
-          heading: section.heading,
-          content: fallbackSectionContent(section.heading, conversation, storedEvidence),
-        })),
-        degraded: true,
-        warning:
-          "초안 자동 작성 연결이 끊겨 신청자가 제공한 설명으로 검토용 초안을 우선 만들었습니다. 새 자료를 올린 뒤 해당 목차만 다시 작성할 수 있습니다.",
-      },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return Response.json({ error: "해당 항목 작성이 완료되지 않았어요. 기존 답변을 보존했으니 다시 시도해 주세요.", retryable: true },
+      { status: 502, headers: { "Cache-Control": "no-store" } });
   }
 }

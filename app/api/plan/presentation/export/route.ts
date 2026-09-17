@@ -16,7 +16,7 @@ import {
 } from "@/lib/plan/presentationExport";
 import { markFirstPresentationDelivery } from "@/lib/plan/presentationRevisions";
 import { buildCharts } from "@/lib/viz/svg";
-import { verifiedEvidenceIds } from "@/lib/plan/strategy";
+import { normalizeStrategyPack, verifiedEvidenceIds } from "@/lib/plan/strategy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,7 +82,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const charts = await buildCharts(strategy.diagrams, verifiedEvidenceIds(evidence));
+  const charts = await buildCharts(normalizeStrategyPack(strategy, evidence).diagrams, verifiedEvidenceIds(evidence));
   const buffer = selectedFormat === "pdf"
     ? await buildPresentationPdfBuffer(artifact.pack, charts)
     : await buildPresentationPptxBuffer(artifact.pack, charts);

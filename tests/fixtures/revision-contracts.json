@@ -1,0 +1,1639 @@
+{
+  "baseline": "Before the 2026-09-17 refactor; e2ee1f1 plus preserved local changes",
+  "products": {
+    "word": {
+      "empty": {
+        "result": {
+          "max": 3,
+          "used": 0,
+          "remaining": 3,
+          "deliveredAt": null,
+          "expiresAt": null,
+          "expired": false
+        },
+        "values": [],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ]
+        ]
+      },
+      "admin": {
+        "result": [
+          {
+            "max": 3,
+            "used": 0,
+            "remaining": 3,
+            "deliveredAt": null,
+            "expiresAt": null,
+            "expired": false
+          },
+          {
+            "max": 3,
+            "used": 0,
+            "remaining": 3,
+            "deliveredAt": null,
+            "expiresAt": null,
+            "expired": false
+          },
+          {
+            "ok": true,
+            "counted": false,
+            "status": {
+              "max": 3,
+              "used": 0,
+              "remaining": 3,
+              "deliveredAt": null,
+              "expiresAt": null,
+              "expired": false
+            }
+          }
+        ],
+        "values": [],
+        "calls": []
+      },
+      "anonymous": {
+        "result": {
+          "ok": true,
+          "counted": false,
+          "status": {
+            "max": 3,
+            "used": 0,
+            "remaining": 3,
+            "deliveredAt": null,
+            "expiresAt": null,
+            "expired": false
+          }
+        },
+        "values": [],
+        "calls": []
+      },
+      "missing-order": {
+        "result": [
+          {
+            "max": 3,
+            "used": 0,
+            "remaining": 3,
+            "deliveredAt": null,
+            "expiresAt": null,
+            "expired": false
+          },
+          {
+            "ok": false,
+            "counted": false,
+            "status": {
+              "max": 3,
+              "used": 0,
+              "remaining": 3,
+              "deliveredAt": null,
+              "expiresAt": null,
+              "expired": false
+            }
+          }
+        ],
+        "values": [],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ]
+        ]
+      },
+      "missing-storage": {
+        "result": [
+          {
+            "max": 3,
+            "used": 0,
+            "remaining": 3,
+            "deliveredAt": null,
+            "expiresAt": null,
+            "expired": false
+          },
+          {
+            "ok": false,
+            "counted": false,
+            "status": {
+              "max": 3,
+              "used": 0,
+              "remaining": 3,
+              "deliveredAt": null,
+              "expiresAt": null,
+              "expired": false
+            }
+          }
+        ],
+        "values": [],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ]
+        ]
+      },
+      "first-delivery": {
+        "result": [
+          {
+            "max": 3,
+            "used": 0,
+            "remaining": 3,
+            "deliveredAt": "2026-09-17T00:00:00.000Z",
+            "expiresAt": "2026-10-17T00:00:00.000Z",
+            "expired": false
+          },
+          {
+            "max": 3,
+            "used": 0,
+            "remaining": 3,
+            "deliveredAt": "2026-09-17T00:00:00.000Z",
+            "expiresAt": "2026-10-17T00:00:00.000Z",
+            "expired": false
+          }
+        ],
+        "values": [
+          [
+            "gp:delivery:order-1",
+            {
+              "deliveredAt": "2026-09-17T00:00:00.000Z",
+              "expiresAt": "2026-10-17T00:00:00.000Z"
+            }
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "set",
+            "gp:delivery:order-1",
+            {
+              "deliveredAt": "2026-09-17T00:00:00.000Z",
+              "expiresAt": "2026-10-17T00:00:00.000Z"
+            },
+            {
+              "nx": true
+            }
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "set",
+            "gp:delivery:order-1",
+            {
+              "deliveredAt": "2026-09-18T00:00:00.000Z",
+              "expiresAt": "2026-10-18T00:00:00.000Z"
+            },
+            {
+              "nx": true
+            }
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ]
+        ]
+      },
+      "before-delivery": {
+        "result": {
+          "ok": true,
+          "counted": false,
+          "status": {
+            "max": 3,
+            "used": 0,
+            "remaining": 3,
+            "deliveredAt": null,
+            "expiresAt": null,
+            "expired": false
+          }
+        },
+        "values": [],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ]
+        ]
+      },
+      "reserve-rollback": {
+        "result": [
+          {
+            "ok": true,
+            "counted": true,
+            "status": {
+              "max": 3,
+              "used": 1,
+              "remaining": 2,
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z",
+              "expired": false
+            }
+          },
+          {
+            "max": 3,
+            "used": 0,
+            "remaining": 3,
+            "deliveredAt": "2026-09-16T00:00:00.000Z",
+            "expiresAt": "2026-09-18T00:00:00.000Z",
+            "expired": false
+          }
+        ],
+        "values": [
+          [
+            "gp:delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z"
+            }
+          ],
+          [
+            "gp:revision-count:order-1",
+            0
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "incr",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "decr",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ]
+        ]
+      },
+      "limit": {
+        "result": {
+          "ok": false,
+          "counted": false,
+          "status": {
+            "max": 3,
+            "used": 3,
+            "remaining": 0,
+            "deliveredAt": "2026-09-16T00:00:00.000Z",
+            "expiresAt": "2026-09-18T00:00:00.000Z",
+            "expired": false
+          }
+        },
+        "values": [
+          [
+            "gp:delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z"
+            }
+          ],
+          [
+            "gp:revision-count:order-1",
+            3
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ]
+        ]
+      },
+      "expired": {
+        "result": {
+          "ok": false,
+          "counted": false,
+          "status": {
+            "max": 3,
+            "used": 0,
+            "remaining": 0,
+            "deliveredAt": "2026-09-16T00:00:00.000Z",
+            "expiresAt": "2026-09-16T23:59:59.999Z",
+            "expired": true
+          }
+        },
+        "values": [
+          [
+            "gp:delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-16T23:59:59.999Z"
+            }
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ]
+        ]
+      },
+      "expiry-boundary": {
+        "result": {
+          "ok": true,
+          "counted": true,
+          "status": {
+            "max": 3,
+            "used": 1,
+            "remaining": 2,
+            "deliveredAt": "2026-09-16T00:00:00.000Z",
+            "expiresAt": "2026-09-17T00:00:00.000Z",
+            "expired": false
+          }
+        },
+        "values": [
+          [
+            "gp:delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-17T00:00:00.000Z"
+            }
+          ],
+          [
+            "gp:revision-count:order-1",
+            1
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "incr",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ]
+        ]
+      },
+      "negative-count": {
+        "result": {
+          "max": 3,
+          "used": 0,
+          "remaining": 3,
+          "deliveredAt": "2026-09-16T00:00:00.000Z",
+          "expiresAt": "2026-09-18T00:00:00.000Z",
+          "expired": false
+        },
+        "values": [
+          [
+            "gp:delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z"
+            }
+          ],
+          [
+            "gp:revision-count:order-1",
+            -2
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ]
+        ]
+      },
+      "concurrent-limit": {
+        "result": [
+          {
+            "ok": true,
+            "counted": true
+          },
+          {
+            "ok": true,
+            "counted": true
+          },
+          {
+            "ok": true,
+            "counted": true
+          },
+          {
+            "ok": false,
+            "counted": false
+          },
+          {
+            "ok": false,
+            "counted": false
+          }
+        ],
+        "values": [
+          [
+            "gp:delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z"
+            }
+          ],
+          [
+            "gp:revision-count:order-1",
+            3
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "incr",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "incr",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "incr",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "incr",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "incr",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "decr",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "decr",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ]
+        ]
+      },
+      "response-expired": {
+        "result": {
+          "httpStatus": 409,
+          "body": {
+            "error": "수정 가능 기간이 끝났어요. 새로운 공고·양식 작성은 새 이용권으로 진행해 주세요.",
+            "reason": "revision_limit",
+            "revision": {
+              "max": 3,
+              "used": 0,
+              "remaining": 0,
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-16T23:59:59.999Z",
+              "expired": true
+            }
+          }
+        },
+        "values": [
+          [
+            "gp:delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-16T23:59:59.999Z"
+            }
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ]
+        ]
+      },
+      "response-limit": {
+        "result": {
+          "httpStatus": 409,
+          "body": {
+            "error": "포함된 묶음 수정 3회를 모두 사용했어요. 추가 수정이나 전면 재작성은 새 이용권이 필요해요.",
+            "reason": "revision_limit",
+            "revision": {
+              "max": 3,
+              "used": 3,
+              "remaining": 0,
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z",
+              "expired": false
+            }
+          }
+        },
+        "values": [
+          [
+            "gp:delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z"
+            }
+          ],
+          [
+            "gp:revision-count:order-1",
+            3
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:revision-count:order-1"
+          ]
+        ]
+      }
+    },
+    "presentation": {
+      "empty": {
+        "result": {
+          "max": 2,
+          "used": 0,
+          "remaining": 2,
+          "deliveredAt": null,
+          "expiresAt": null,
+          "expired": false
+        },
+        "values": [],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ]
+        ]
+      },
+      "admin": {
+        "result": [
+          {
+            "max": 2,
+            "used": 0,
+            "remaining": 2,
+            "deliveredAt": null,
+            "expiresAt": null,
+            "expired": false
+          },
+          {
+            "max": 2,
+            "used": 0,
+            "remaining": 2,
+            "deliveredAt": null,
+            "expiresAt": null,
+            "expired": false
+          },
+          {
+            "ok": true,
+            "counted": false,
+            "status": {
+              "max": 2,
+              "used": 0,
+              "remaining": 2,
+              "deliveredAt": null,
+              "expiresAt": null,
+              "expired": false
+            }
+          }
+        ],
+        "values": [],
+        "calls": []
+      },
+      "anonymous": {
+        "result": {
+          "ok": true,
+          "counted": false,
+          "status": {
+            "max": 2,
+            "used": 0,
+            "remaining": 2,
+            "deliveredAt": null,
+            "expiresAt": null,
+            "expired": false
+          }
+        },
+        "values": [],
+        "calls": []
+      },
+      "missing-order": {
+        "result": [
+          {
+            "max": 2,
+            "used": 0,
+            "remaining": 2,
+            "deliveredAt": null,
+            "expiresAt": null,
+            "expired": false
+          },
+          {
+            "ok": false,
+            "counted": false,
+            "status": {
+              "max": 2,
+              "used": 0,
+              "remaining": 2,
+              "deliveredAt": null,
+              "expiresAt": null,
+              "expired": false
+            }
+          }
+        ],
+        "values": [],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ]
+        ]
+      },
+      "missing-storage": {
+        "result": [
+          {
+            "max": 2,
+            "used": 0,
+            "remaining": 2,
+            "deliveredAt": null,
+            "expiresAt": null,
+            "expired": false
+          },
+          {
+            "ok": false,
+            "counted": false,
+            "status": {
+              "max": 2,
+              "used": 0,
+              "remaining": 2,
+              "deliveredAt": null,
+              "expiresAt": null,
+              "expired": false
+            }
+          }
+        ],
+        "values": [],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ]
+        ]
+      },
+      "first-delivery": {
+        "result": [
+          {
+            "max": 2,
+            "used": 0,
+            "remaining": 2,
+            "deliveredAt": "2026-09-17T00:00:00.000Z",
+            "expiresAt": "2026-10-17T00:00:00.000Z",
+            "expired": false
+          },
+          {
+            "max": 2,
+            "used": 0,
+            "remaining": 2,
+            "deliveredAt": "2026-09-17T00:00:00.000Z",
+            "expiresAt": "2026-10-17T00:00:00.000Z",
+            "expired": false
+          }
+        ],
+        "values": [
+          [
+            "gp:presentation-delivery:order-1",
+            {
+              "deliveredAt": "2026-09-17T00:00:00.000Z",
+              "expiresAt": "2026-10-17T00:00:00.000Z"
+            }
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "set",
+            "gp:presentation-delivery:order-1",
+            {
+              "deliveredAt": "2026-09-17T00:00:00.000Z",
+              "expiresAt": "2026-10-17T00:00:00.000Z"
+            },
+            {
+              "nx": true
+            }
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "set",
+            "gp:presentation-delivery:order-1",
+            {
+              "deliveredAt": "2026-09-18T00:00:00.000Z",
+              "expiresAt": "2026-10-18T00:00:00.000Z"
+            },
+            {
+              "nx": true
+            }
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ]
+        ]
+      },
+      "before-delivery": {
+        "result": {
+          "ok": true,
+          "counted": false,
+          "status": {
+            "max": 2,
+            "used": 0,
+            "remaining": 2,
+            "deliveredAt": null,
+            "expiresAt": null,
+            "expired": false
+          }
+        },
+        "values": [],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ]
+        ]
+      },
+      "reserve-rollback": {
+        "result": [
+          {
+            "ok": true,
+            "counted": true,
+            "status": {
+              "max": 2,
+              "used": 1,
+              "remaining": 1,
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z",
+              "expired": false
+            }
+          },
+          {
+            "max": 2,
+            "used": 0,
+            "remaining": 2,
+            "deliveredAt": "2026-09-16T00:00:00.000Z",
+            "expiresAt": "2026-09-18T00:00:00.000Z",
+            "expired": false
+          }
+        ],
+        "values": [
+          [
+            "gp:presentation-delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z"
+            }
+          ],
+          [
+            "gp:presentation-revision-count:order-1",
+            0
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "incr",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "decr",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ]
+        ]
+      },
+      "limit": {
+        "result": {
+          "ok": false,
+          "counted": false,
+          "status": {
+            "max": 2,
+            "used": 2,
+            "remaining": 0,
+            "deliveredAt": "2026-09-16T00:00:00.000Z",
+            "expiresAt": "2026-09-18T00:00:00.000Z",
+            "expired": false
+          }
+        },
+        "values": [
+          [
+            "gp:presentation-delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z"
+            }
+          ],
+          [
+            "gp:presentation-revision-count:order-1",
+            2
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ]
+        ]
+      },
+      "expired": {
+        "result": {
+          "ok": false,
+          "counted": false,
+          "status": {
+            "max": 2,
+            "used": 0,
+            "remaining": 0,
+            "deliveredAt": "2026-09-16T00:00:00.000Z",
+            "expiresAt": "2026-09-16T23:59:59.999Z",
+            "expired": true
+          }
+        },
+        "values": [
+          [
+            "gp:presentation-delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-16T23:59:59.999Z"
+            }
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ]
+        ]
+      },
+      "expiry-boundary": {
+        "result": {
+          "ok": true,
+          "counted": true,
+          "status": {
+            "max": 2,
+            "used": 1,
+            "remaining": 1,
+            "deliveredAt": "2026-09-16T00:00:00.000Z",
+            "expiresAt": "2026-09-17T00:00:00.000Z",
+            "expired": false
+          }
+        },
+        "values": [
+          [
+            "gp:presentation-delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-17T00:00:00.000Z"
+            }
+          ],
+          [
+            "gp:presentation-revision-count:order-1",
+            1
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "incr",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ]
+        ]
+      },
+      "negative-count": {
+        "result": {
+          "max": 2,
+          "used": 0,
+          "remaining": 2,
+          "deliveredAt": "2026-09-16T00:00:00.000Z",
+          "expiresAt": "2026-09-18T00:00:00.000Z",
+          "expired": false
+        },
+        "values": [
+          [
+            "gp:presentation-delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z"
+            }
+          ],
+          [
+            "gp:presentation-revision-count:order-1",
+            -2
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ]
+        ]
+      },
+      "concurrent-limit": {
+        "result": [
+          {
+            "ok": true,
+            "counted": true
+          },
+          {
+            "ok": true,
+            "counted": true
+          },
+          {
+            "ok": false,
+            "counted": false
+          },
+          {
+            "ok": false,
+            "counted": false
+          }
+        ],
+        "values": [
+          [
+            "gp:presentation-delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z"
+            }
+          ],
+          [
+            "gp:presentation-revision-count:order-1",
+            2
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "incr",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "incr",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "incr",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "incr",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "decr",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "decr",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ]
+        ]
+      },
+      "response-expired": {
+        "result": {
+          "httpStatus": 409,
+          "body": {
+            "error": "발표자료 수정 가능 기간이 끝났어요. 새 발표자료 이용권으로 진행해 주세요.",
+            "reason": "presentation_revision_limit",
+            "revision": {
+              "max": 2,
+              "used": 0,
+              "remaining": 0,
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-16T23:59:59.999Z",
+              "expired": true
+            }
+          }
+        },
+        "values": [
+          [
+            "gp:presentation-delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-16T23:59:59.999Z"
+            }
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ]
+        ]
+      },
+      "response-limit": {
+        "result": {
+          "httpStatus": 409,
+          "body": {
+            "error": "포함된 발표자료 묶음 수정 2회를 모두 사용했어요. 추가 수정은 새 이용권이 필요해요.",
+            "reason": "presentation_revision_limit",
+            "revision": {
+              "max": 2,
+              "used": 2,
+              "remaining": 0,
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z",
+              "expired": false
+            }
+          }
+        },
+        "values": [
+          [
+            "gp:presentation-delivery:order-1",
+            {
+              "deliveredAt": "2026-09-16T00:00:00.000Z",
+              "expiresAt": "2026-09-18T00:00:00.000Z"
+            }
+          ],
+          [
+            "gp:presentation-revision-count:order-1",
+            2
+          ]
+        ],
+        "calls": [
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "paid",
+            "user-1"
+          ],
+          [
+            "get",
+            "gp:presentation-delivery:order-1"
+          ],
+          [
+            "get",
+            "gp:presentation-revision-count:order-1"
+          ]
+        ]
+      }
+    }
+  }
+}

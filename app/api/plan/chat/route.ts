@@ -1,5 +1,5 @@
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
-import type { ChatMsg } from "@/lib/llm/provider";
+import type { ChatMsg } from "@/lib/llm/types";
 import { checkDraftAccess, paymentRequiredResponse } from "@/lib/plan/paidAccess";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
@@ -105,7 +105,8 @@ function systemFor(p: ProgInfo, elig?: EligReqs | null): string {
     `${title} ${p.summary ?? ""} ${p.supportField ?? ""}`,
   );
 
-  return `당신은 "${title}"에 지원할 사업계획서를 심사위원 관점에서 함께 완성하는 전문 컨설턴트예요.
+  return `근거 없는 시장 비율·매출·고객 수를 추측해 달라고 요청하거나 예시 숫자로 유도하지 마세요. 모르는 것은 모른다고 남기고 확인할 행동을 질문하세요. 미래 계획을 현재 확인된 사실 목록에 넣지 마세요. 가상 공고는 실제 신청 자격이 확정된 것처럼 안내하지 마세요.
+당신은 "${title}"에 지원할 사업계획서를 심사위원 관점에서 함께 완성하는 전문 컨설턴트예요.
 
 [이 지원사업 정보]
 ${ctx}
@@ -115,6 +116,14 @@ ${eligibilitySection(elig)}
 당신의 임무: 이 사업의 '사업계획서 양식'이 요구하는 항목·순서에 맞춰, 정부지원사업 심사위원처럼 코칭하며 사용자에게서 필요한 내용을 "충분히·구체적으로" 끌어내는 거예요.
 
 ${PLAIN_LANGUAGE_PROMPT}
+
+[사업계획서를 처음 쓰는 사람 돕기]
+- 자료·매출·고객이 없다는 이유로 작성 자체를 막지 마세요. 없는 실적을 만들지 말고 현재 사실, 본인의 생각, 앞으로 확인할 계획을 나누세요.
+- 어려운 근거 요구 대신 "최근 직접 겪은 불편이 있나요?", "누군가 부탁하거나 문의한 적 있나요?", "만든 것이나 작업한 사진이 있나요?"처럼 한 번에 하나씩 물으세요.
+- "없어요/모르겠어요"라고 하면 같은 질문을 반복하지 마세요. 누구에게 물어볼지 → 쉬운 질문 → 기록할 답변을 짧게 제안하고 사용자가 할 수 있는 방법을 고르게 하세요.
+- 제안한 예시·가격·일정은 사용자 확정 사실로 바꾸지 마세요. 실행 전에는 계획으로 표시하세요.
+- 각 주제를 마치면 확인된 내용과 아직 확인할 일을 짧게 정리하세요. 증거가 없는 항목도 사업 구조·고객 확인 계획·실행 계획의 시각자료로 정리할 수 있다고 안내하세요.
+- 준비도는 초안 작성 재료의 준비도이며, 선정 가능성이나 증거의 충분함을 뜻하지 않습니다. 미확인 사실을 명시하고 구체적인 확인 계획이 있으면 초안 재료로 인정하세요.
 
 [진행 방식 — 가장 중요]
 1) 대화 초반엔 먼저 사용자가 **공고문 / 사업계획서 양식**을 첨부(사진·캡처 포함)했는지 보세요.
@@ -204,7 +213,7 @@ ${officialEvidence}
   5) 1년 실행 일정, 단계별 목표, 지원금 사용 계획
   6) 대표·팀이 실행할 수 있는 구체적 경험·역량
   7) 공고 양식의 고유 질문과 평가항목에 필요한 내용
-- 단순 아이디어 한 줄, 추상적인 장점, 근거 없는 예상, "없음/모름/알아서"는 완료 답변으로 세지 마세요.
+- 단순 아이디어 한 줄, 추상적인 장점, 근거 없는 예상을 확정 사실로 세지 마세요. "없음/모름"은 현재 상태로 보존하고, 확인 대상·방법이 정리되면 계획 항목의 답변으로 인정하세요.
 - 매 응답의 **마지막 줄**에는 반드시 아래 JSON 마커 하나를 붙이세요. 화면에서는 숨겨집니다.
   [초안준비]{"ready":false,"score":35,"missing":["실제 고객이 겪는 구체적인 불편","경쟁 대안과 다른 점"]}[/초안준비]
 - score는 위 7개 항목과 답변의 구체성을 종합한 0~100 정수입니다. ready=true는 score가 80 이상이고, 핵심 누락이 하나도 없으며, 양식의 모든 필수 항목까지 답했을 때만 가능합니다.
@@ -238,7 +247,7 @@ export async function POST(req: Request) {
   if (loginGate) return loginGate;
   // rate limit을 코드 검증보다 먼저 — 코드 추측 시도도 제한에 걸리게(점검표 문제 3)
   const rl = await checkRateLimit(req, "planChat");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
   // 유료 관문(2026-07-09): 주문번호 인증(is_paid) 또는 마스터 코드
   const access = await checkDraftAccess(req, code, (program as ProgInfo | undefined)?.id);
   if (!access.ok) return paymentRequiredResponse(access.reason);

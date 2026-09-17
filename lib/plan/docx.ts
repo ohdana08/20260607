@@ -13,29 +13,8 @@ import {
   WidthType,
 } from "docx";
 
-export interface PlanDocxSection {
-  heading: string;
-  content: string;
-}
-
-export interface PlanDocxChart {
-  key?: string;
-  title: string;
-  png: string;
-  width: number;
-  height: number;
-  targetSection?: string;
-  sourceNote?: string;
-}
-
-export interface PlanDocxEvidenceSource {
-  id: string;
-  title: string;
-  publisher: string;
-  checkedAt: string;
-  url: string;
-  claim?: string;
-}
+import type { PlanDocxSection, PlanDocxChart, PlanDocxEvidenceSource } from "./documentTypes";
+export type { PlanDocxSection, PlanDocxChart, PlanDocxEvidenceSource } from "./documentTypes";
 
 const BLUE = "1D4ED8";
 const DARK = "18181B";
@@ -51,7 +30,8 @@ function textParagraph(text: string, bullet = false): Paragraph {
   const proof = text.includes("[증빙 필요");
   return new Paragraph({
     ...(bullet ? { bullet: { level: 0 } } : {}),
-    spacing: { after: 100, line: 330 },
+    keepNext: /^\d+개월차$/.test(text.trim()),
+    spacing: { before: /^\d+개월차$/.test(text.trim()) ? 120 : 0, after: 100, line: 330 },
     children: [
       new TextRun({
         text,
@@ -176,15 +156,23 @@ function normalizedHeading(value: string): string {
 function chartMatchesSection(chart: PlanDocxChart, sectionHeading: string): boolean {
   const target = normalizedHeading(chart.targetSection || "");
   const heading = normalizedHeading(sectionHeading);
-  if (!target || !heading) return false;
-  return heading.includes(target) || target.includes(heading);
+  if (!heading) return false;
+  if (target && (heading.includes(target) || target.includes(heading))) return true;
+  const planningSection: Record<string, RegExp> = {
+    concept: /해결|서비스구성|실현가능성/,
+    validationPlan: /고객확인|검증|시장검증/,
+    executionPlan: /실행일정|추진일정|일정과예산|성장전략/,
+  };
+  return Boolean(chart.key && planningSection[chart.key]?.test(heading));
 }
 
 function renderChart(chart: PlanDocxChart): Paragraph[] {
   const maxWidth = 480;
-  const width = Math.min(maxWidth, chart.width || maxWidth);
-  const rawHeight = Math.round((width / (chart.width || maxWidth)) * (chart.height || 300));
-  const height = Math.min(620, rawHeight);
+  const sourceWidth = chart.width || maxWidth;
+  const sourceHeight = chart.height || 300;
+  const scale = Math.min(1, maxWidth / sourceWidth, 560 / sourceHeight);
+  const width = Math.round(sourceWidth * scale);
+  const height = Math.round(sourceHeight * scale);
   const paragraphs = [
     new Paragraph({
       keepNext: true,

@@ -1,4 +1,5 @@
 import type { Program } from "@/lib/match/types";
+import { CollectionError } from "./collectionError.ts";
 import {
   cleanRegionalText,
   regionalNoticeToProgram,
@@ -12,6 +13,7 @@ const BASE_URL = "https://www.egbiz.or.kr";
 const MAX_PAGES = 20;
 const PAGE_SIZE = 10;
 const BATCH_SIZE = 3;
+const COLLECTION_BUDGET_MS = 35_000;
 const USER_AGENT = "DdakJiwonFit/1.0 (+https://ddakfit.bccconsulting.kr; regional-support-index)";
 
 function listUrl(page: number): string {
@@ -62,31 +64,72 @@ export function egbizFinalPage(html: string): number {
   return Math.min(MAX_PAGES, Math.max(1, byTotal, ...linkedPages));
 }
 
-async function fetchPage(page: number): Promise<string> {
-  const response = await fetch(listUrl(page), {
-    cache: "no-store",
-    headers: { "User-Agent": USER_AGENT },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`EGBIZ HTTP ${response.status}`);
-  return response.text();
+function inspectPage(html: string, page: number): { total: number; ids: string[] } {
+  const section = nativeGyeonggiSection(html);
+  const count = section.match(/경기도\s*지원사업[\s\S]*?class="num">\s*([\d,]+)/);
+  if (!section || !count) throw new CollectionError("SCHEMA_CHANGED", page);
+  const total = Number(count[1].replaceAll(",", ""));
+  if (!Number.isSafeInteger(total)) throw new CollectionError("SCHEMA_CHANGED", page);
+  const ids = [...section.matchAll(/fn_supportPrjDtl\('([^']+)'\)[^>]*>([\s\S]*?)<\/a>/g)].map((match) => match[1]);
+  // Compare unfiltered source IDs: excluded procurement/agency notices still count
+  // toward the source's total. Filtering happens only after completeness checks.
+  return { total, ids };
+}
+
+async function fetchPage(page: number, deadline: number): Promise<string> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new CollectionError("DEADLINE_EXCEEDED", page);
+  try {
+    const response = await fetch(listUrl(page), {
+      cache: "no-store",
+      headers: { "User-Agent": USER_AGENT },
+      signal: AbortSignal.timeout(Math.min(15_000, remaining)),
+    });
+    if (!response.ok) throw new CollectionError("HTTP_ERROR", page, { status: response.status });
+    const html = await response.text();
+    if (Date.now() >= deadline) throw new CollectionError("DEADLINE_EXCEEDED", page);
+    return html;
+  } catch (cause) {
+    if (cause instanceof CollectionError) throw cause;
+    const name = cause && typeof cause === "object" && "name" in cause ? cause.name : "";
+    throw new CollectionError(name === "TimeoutError" || name === "AbortError" ? "TIMEOUT" : "NETWORK_ERROR", page, { cause });
+  }
 }
 
 export async function fetchEgbizOpen(): Promise<Program[]> {
-  const firstHtml = await fetchPage(1);
+  const deadline = Date.now() + COLLECTION_BUDGET_MS;
+  const firstHtml = await fetchPage(1, deadline);
+  const first = inspectPage(firstHtml, 1);
+  const linkedPages = [...nativeGyeonggiSection(firstHtml).matchAll(/fn_opMovePage1\((\d+)\)/g)].map((match) => Number(match[1]));
+  if (Math.max(Math.ceil(first.total / PAGE_SIZE), ...linkedPages) > MAX_PAGES) {
+    throw new CollectionError("PAGE_LIMIT", 1);
+  }
   const finalPage = egbizFinalPage(firstHtml);
   const pages: string[] = [firstHtml];
+  const ids = new Set(first.ids);
 
   for (let start = 2; start <= finalPage; start += BATCH_SIZE) {
     const batch = Array.from(
       { length: Math.min(BATCH_SIZE, finalPage - start + 1) },
       (_, index) => start + index,
     );
-    const results = await Promise.allSettled(batch.map(fetchPage));
-    results.forEach((result, index) => {
-      if (result.status === "fulfilled") pages.push(result.value);
-      else console.error(`[egbiz] page ${batch[index]} 실패`, result.reason);
-    });
+    const results = await Promise.allSettled(batch.map((page) => fetchPage(page, deadline)));
+    for (const [index, result] of results.entries()) {
+      // Never return partial success: upsertAndDiff interprets missing rows as closed.
+      if (result.status === "rejected") throw result.reason;
+      const inspected = inspectPage(result.value, batch[index]);
+      if (inspected.total !== first.total) throw new CollectionError("INCOMPLETE_SNAPSHOT", batch[index]);
+      for (const id of inspected.ids) ids.add(id);
+      pages.push(result.value);
+    }
+  }
+
+  if (ids.size < first.total) throw new CollectionError("INCOMPLETE_SNAPSHOT", finalPage);
+  // The live source can under-report its total (2026-09-17: 43 displayed, 50
+  // distinct notices). Keep usable notices, but never infer closure from absence:
+  // persistence treats EGBIZ as non-exhaustive independently of this fetcher.
+  if (ids.size > first.total) {
+    console.warn(JSON.stringify({ component: "egbiz", event: "collection_count_mismatch", expected: first.total, observed: ids.size }));
   }
 
   const unique = new Map<string, Program>();
