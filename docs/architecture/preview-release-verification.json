@@ -1,67 +1,86 @@
 {
-  "recordedAt": "2026-09-17T13:39:00.000Z",
-  "status": "authenticated_preview_storage_verified",
-  "candidateCommit": "00ae18be56d2aed5fe4f90f5cc9e1ed246d1ac27",
-  "previewDeploymentId": "dpl_EkB2Sdw6TwDvpNEaSao8gvcSqEZc",
-  "previewDeploymentUrl": "https://20260607-i6hpr9yss-jinjoos-projects.vercel.app",
+  "recordedAt": "2026-09-17T15:13:30.000Z",
+  "status": "preview_promotion_gates_verified",
+  "candidateCommit": "d4f7dd2",
   "previewUrl": "https://ddakfit-operations-preview.vercel.app/operations",
+  "finalHealthyDeployment": {
+    "id": "dpl_2rR3tBQYCr22yuoYG5JsiAoD52Vw",
+    "url": "https://20260607-2gd7880ub-jinjoos-projects.vercel.app",
+    "recoveryRequestId": "dd9b70d1-3cbc-44a8-8506-2baef76ce821",
+    "httpStatus": 200,
+    "revision": 2
+  },
   "productionDeployed": false,
   "gitRemotePushed": false,
-  "supabase": {
-    "projectRef": "jhjxrkypnigcohgnzhvq",
-    "migration": "operations_postgres_rpc",
-    "scopeCount": 1,
-    "operatorCount": 1,
-    "serviceRoleExposedToPreview": false,
+  "authorization": {
+    "deploymentId": "dpl_GeA7ZdnHZkuy5DovHhAySsCe4meo",
+    "scenario": "authenticated Google user with empty ADMIN_EMAILS",
+    "httpStatus": 403,
+    "phase": "auth",
+    "requestId": "a9084cb9-e8d8-4943-b8c7-a9f2edca4efb",
+    "storageReached": false,
+    "externalAlertSent": false
+  },
+  "restoreDrill": {
+    "scope": "synthetic preview scope only",
+    "sourceRevision": 2,
+    "sourceAuditCount": 2,
+    "sourceStateSha256": "0e4b3489fd7dc264b3d1f8c33b010c40ff4c01d76fcd3cfd15382cf9fa0b544b",
+    "restoredStateSha256": "0e4b3489fd7dc264b3d1f8c33b010c40ff4c01d76fcd3cfd15382cf9fa0b544b",
+    "restoreMs": 51,
+    "nextRevision": 3,
+    "staleConflict": true,
+    "finalAuditCount": 3,
+    "actorMatches": true,
     "anonRpcExecute": false,
-    "authenticatedRpcExecute": true,
     "authenticatedPrivateSchemaUsage": false,
     "authenticatedPrivateTableSelect": false,
-    "finalState": {
-      "month": "2026-09",
-      "revision": 2,
-      "auditCount": 2,
-      "auditActorMatchesUpdatedBy": true
-    }
+    "managedFullProjectRestore": false,
+    "scheduledOffsiteBackupConfigured": false
   },
-  "checks": [
-    { "name": "Local PostgreSQL migration", "result": "pass" },
-    { "name": "Anonymous RPC denied", "result": "pass" },
-    { "name": "Private schema and table direct access denied", "result": "pass" },
-    { "name": "Database-authoritative audit", "result": "pass" },
-    { "name": "16-way initial CAS", "result": "pass", "saved": 1, "conflicts": 15 },
-    { "name": "16-way update CAS", "result": "pass", "saved": 1, "conflicts": 15 },
-    { "name": "Related tests", "result": "pass", "passed": 61, "failed": 0 },
-    { "name": "Full release tests", "result": "pass", "passed": 207, "failed": 0 },
-    { "name": "Product guards", "result": "pass" },
-    { "name": "ESLint", "result": "pass" },
-    { "name": "Local webpack production build", "result": "pass" },
-    { "name": "Vercel Turbopack build and TypeScript", "result": "pass" },
-    { "name": "Authenticated hosted operations GET", "result": "pass", "httpStatus": 200 },
-    { "name": "Hosted synthetic zero save", "result": "pass", "httpStatus": 200 },
-    { "name": "Saved state reload", "result": "pass" },
-    { "name": "Month isolation", "result": "pass", "otherMonthRevision": 0 },
-    { "name": "Stale revision conflict", "result": "pass", "httpStatus": 409 },
-    { "name": "Normal Google user forbidden", "result": "not_run", "reason": "No existing non-admin account was available; no account was created." }
-  ],
-  "review": {
-    "reviewer": { "blocker": 0, "major": 0, "minor": 0, "approved": true },
-    "sreOptimizer": { "blocker": 0, "major": 0, "minor": 0, "approved": true },
-    "originalWorktreeBaselineFiles": 22,
-    "originalWorktreeUnchanged": true
+  "externalAlert": {
+    "deploymentId": "dpl_UapQZh7Z851ZHBHFKN2skN6fpghs",
+    "failureInjection": "missing synthetic Preview storage capability",
+    "httpStatus": 503,
+    "phase": "read",
+    "requestId": "c4286239-713a-428e-a6ba-ab9407e2afdd",
+    "deliveryOutcome": "sent",
+    "receiver": "existing private BCC Slack channel",
+    "receivedAt": "2026-09-17T15:11:44.050Z",
+    "sameRequestIdObserved": true,
+    "fourHundredAlertSuppressed": true
   },
-  "limits": {
-    "documentBytes": 1048576,
-    "rpcClientAbortMs": 3000,
+  "oauthRedirect": {
+    "issueFound": true,
+    "rootCause": "Preview embed callback missing from Supabase redirect allowlist",
+    "addedRedirect": "https://ddakfit-operations-preview.vercel.app/embed",
+    "oldSessionSignedOut": true,
+    "newLoginReturnedToPreview": true,
+    "postFixAdminGetStatus": 200
+  },
+  "tests": {
+    "fullReleasePassed": 219,
+    "fullReleaseFailed": 0,
+    "alertRelatedPassed": 61,
+    "alertRelatedFailed": 0,
+    "eslint": "pass",
+    "vercelBuildAndTypeScript": "pass"
+  },
+  "knownLimits": {
     "authClientAbortMs": 2000,
+    "transientAuthTimeoutObserved": true,
+    "rpcClientAbortMs": 3000,
     "casLockTimeoutMs": 500,
-    "databaseStatementTimeoutGuaranteed": false
+    "alertTimeoutMs": 2000,
+    "alertRetries": 0,
+    "durableAlertQueue": false,
+    "supabasePlan": "free"
   },
-  "remainingReleaseGates": [
-    "Hosted 403 with an existing non-admin user",
-    "Production backup/restore with revision and audit preservation",
-    "External alert delivery",
-    "Fresh production-environment deployment and regression verification"
+  "remainingProductionGates": [
+    "Automated scheduled offsite database backup and recurring isolated restore drill",
+    "Durable external alerting or independent monitor",
+    "Auth timeout metrics and alerting",
+    "Fresh production-domain deployment and regression verification"
   ],
   "secretsRecorded": false
 }
