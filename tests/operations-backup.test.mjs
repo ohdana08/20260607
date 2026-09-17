@@ -75,6 +75,7 @@ test('actual psql subprocess receives neither unrelated secrets nor local sslroo
     const remote = await psql('select 1;', { url: 'postgresql://reader:synthetic@db.example/postgres?sslmode=verify-full', readOnly: true });
     assert.match(remote, new RegExp(`^PGSSLROOTCERT=${SUPABASE_ROOT_CERT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
     assert.match(remote, /^PGSSLMODE=verify-full$/m);
+    assert.doesNotMatch(remote, /^PGSERVICE=/m); assert.match(remote, /^PGSERVICEFILE=\/dev\/null$/m);
     assert.doesNotMatch(remote, /PGHOSTADDR=|OPS_BACKUP_|synthetic-secret/);
     assert.match(remote, /default_transaction_read_only=on/);
   } finally {

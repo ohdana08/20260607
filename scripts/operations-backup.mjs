@@ -119,7 +119,7 @@ export async function psql(sql, { url, docker = false, database, readOnly = fals
     const child = exec(command, args, { cwd: ROOT, encoding: 'utf8', maxBuffer: MAX_BYTES, timeout: 45_000,
       env: { ...processEnvironment(), ...pg, PGOPTIONS: options, PGCONNECT_TIMEOUT: '10',
         ...(pg.PGSSLMODE === 'verify-full' ? { PGSSLROOTCERT: SUPABASE_ROOT_CERT } : {}),
-        PGPASSFILE: '/dev/null', PGSERVICE: '', PGSERVICEFILE: '/dev/null' } });
+        PGPASSFILE: '/dev/null', PGSERVICEFILE: '/dev/null' } });
     child.child.stdin.on('error', () => {}); child.child.stdin.end(sql);
     return (await child).stdout.trim();
   } catch { fail('database_query_failed'); }
