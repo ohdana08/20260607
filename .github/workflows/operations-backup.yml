@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: '23 */6 * * *'
   workflow_dispatch: {}
+  # One isolated same-repository PR run verifies offsite artifact upload and
+  # download without merging into the Vercel Production branch. Removed after
+  # the run completes; forks and other branches cannot receive this job's secrets.
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/operations-backup.yml']
 
 permissions:
   contents: read
@@ -16,7 +22,11 @@ jobs:
   backup:
     # Requires an explicit opt-in and secrets in the operations-backup GitHub
     # environment. This workflow is not activated by merging code alone.
-    if: vars.OPS_BACKUP_ENABLED == 'true'
+    if: >-
+      vars.OPS_BACKUP_ENABLED == 'true' &&
+      (github.event_name != 'pull_request' ||
+        (github.event.pull_request.head.repo.full_name == github.repository &&
+         github.head_ref == 'codex/ddakfit-operations-20260917'))
     environment: operations-backup
     runs-on: ubuntu-24.04
     timeout-minutes: 15
