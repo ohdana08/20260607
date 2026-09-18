@@ -1,6 +1,7 @@
 import { send, type SendOptions, type SendResult, type MessageMetadata, type RetryDirective } from "@vercel/queue";
 import { operationsAlertPayload, sendOperationsAlertAttempt, type AlertAttempt, type AlertOptions } from "./alert.ts";
 import type { OperationsEvent } from "./http.ts";
+import { BACKUP_ALERT_PHASES } from "./backupFreshness.ts";
 
 export const OPERATIONS_ALERT_TOPIC = "operations-alerts-v1";
 export const OPERATIONS_ALERT_DEAD_TOPIC = "operations-alerts-dead-v1";
@@ -19,7 +20,7 @@ export function validOperationsAlertPayload(value: unknown): value is AlertPaylo
   return Object.keys(v).length === keys.length && keys.every((key) => Object.hasOwn(v, key)) &&
     v.version === 1 && typeof v.requestId === "string" && uuid.test(v.requestId) &&
     ["GET", "PUT", "OTHER"].includes(v.method as string) &&
-    ["method", "auth", "origin", "input", "read", "write"].includes(v.phase as string) &&
+    ["method", "auth", "origin", "input", "read", "write", ...BACKUP_ALERT_PHASES].includes(v.phase as string) &&
     Number.isInteger(v.status) && Number(v.status) >= 500 && Number(v.status) <= 599 &&
     Number.isInteger(v.durationMs) && Number(v.durationMs) >= 0 && Number(v.durationMs) <= 300_000 &&
     ["production", "preview", "development", "unknown"].includes(v.deployment as string);

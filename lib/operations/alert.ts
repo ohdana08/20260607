@@ -1,4 +1,5 @@
 import type { OperationsEvent } from "./http.ts";
+import { BACKUP_ALERT_PHASES } from "./backupFreshness.ts";
 
 export const OPERATIONS_ALERT_TIMEOUT_MS = 2_000;
 export type AlertResult = "sent" | "skipped" | "failed";
@@ -6,7 +7,7 @@ export interface AlertOptions {
   env?: Record<string, string | undefined>;
   transport?: typeof fetch;
 }
-const phases = new Set(["method", "auth", "origin", "input", "read", "write"]);
+const phases = new Set<string>(["method", "auth", "origin", "input", "read", "write", ...BACKUP_ALERT_PHASES]);
 
 // This projection is intentionally independent of event serialization: future
 // event fields must not silently become outbound account or request data.

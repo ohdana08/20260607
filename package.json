@@ -19,14 +19,15 @@
     "benchmark:scale": "node scripts/scale-benchmark.mjs",
     "test:performance": "node --test tests/performance.test.mjs",
     "test:team": "node --test tests/performance.test.mjs tests/team-review.test.mjs tests/team-sre.test.mjs",
-    "test:release": "node --experimental-transform-types --test tests/operations-backup.test.mjs tests/operations.test.ts tests/operations-alert.test.ts tests/operations-resilience.test.mjs tests/refactor-contracts.test.mjs tests/form-headings.test.mjs tests/collection-rca.test.mjs tests/scale-unit.test.mjs tests/performance.test.mjs tests/team-review.test.mjs tests/team-sre.test.mjs tests/release-operations.test.ts tests/release-operations-hook.test.mjs tests/release-plan.test.mjs tests/release-sre.test.mjs",
+    "test:release": "node --experimental-transform-types --test tests/backup-freshness.test.ts tests/operations-backup.test.mjs tests/operations.test.ts tests/operations-alert.test.ts tests/operations-resilience.test.mjs tests/refactor-contracts.test.mjs tests/form-headings.test.mjs tests/collection-rca.test.mjs tests/scale-unit.test.mjs tests/performance.test.mjs tests/team-review.test.mjs tests/team-sre.test.mjs tests/release-operations.test.ts tests/release-operations-hook.test.mjs tests/release-plan.test.mjs tests/release-sre.test.mjs",
     "test:release:integration": "node --test tests/scale-integration.test.mjs tests/release-payment-state.test.mjs tests/release-reviewer.test.mjs",
     "benchmark:team": "node --expose-gc scripts/performance-team-benchmark.mjs",
     "benchmark:performance:before": "node --expose-gc scripts/performance-benchmark.mjs --before",
     "benchmark:performance": "node --expose-gc scripts/performance-benchmark.mjs",
     "benchmark:performance:db": "node scripts/performance-db-benchmark.mjs",
     "check:architecture": "node scripts/analyze-architecture.mjs --check",
-    "report:architecture": "node scripts/analyze-architecture.mjs --write"
+    "report:architecture": "node scripts/analyze-architecture.mjs --write",
+    "test:backup:monitor": "node --experimental-transform-types --test tests/backup-freshness.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",

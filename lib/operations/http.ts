@@ -10,6 +10,7 @@ import {
 } from "./domain.ts";
 import { OperationsStorageAccessError, type OperationsStore } from "./storage.ts";
 import { randomUUID } from "node:crypto";
+import type { BackupAlertPhase } from "./backupFreshness.ts";
 export interface Operator {
   id: string;
   isAdmin: boolean;
@@ -25,7 +26,7 @@ export interface OperationsEvent {
   event: "operations_request";
   requestId: string;
   method: string;
-  phase: "method" | "auth" | "origin" | "input" | "read" | "write";
+  phase: "method" | "auth" | "origin" | "input" | "read" | "write" | BackupAlertPhase;
   status: number;
   // Request handling time before optional alert delivery; excludes Slack wait.
   durationMs: number;
