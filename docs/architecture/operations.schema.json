@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "딱지원핏 운영 월 문서",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000000000000
+    },
+    "goal": {
+      "$ref": "#/$defs/Goal"
+    },
+    "snapshots": {
+      "type": "array",
+      "maxItems": 31,
+      "items": {
+        "$ref": "#/$defs/Snapshot"
+      }
+    },
+    "videos": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/Video"
+      }
+    },
+    "audit": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/AuditEntry"
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "revision",
+    "goal",
+    "snapshots",
+    "videos",
+    "audit"
+  ],
+  "$defs": {
+    "Goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "month": {
+          "type": "string",
+          "pattern": "^20\\d{2}-(0[1-9]|1[0-2])$"
+        },
+        "startDate": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^20\\d{2}-\\d{2}-\\d{2}$"
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^20\\d{2}-\\d{2}-\\d{2}$"
+        },
+        "targetKrw": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000000
+        },
+        "plannedVideos": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "wordPriceKrw": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000000
+        }
+      },
+      "required": [
+        "month",
+        "startDate",
+        "deadline",
+        "targetKrw",
+        "plannedVideos",
+        "wordPriceKrw"
+      ]
+    },
+    "Snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "asOf": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^20\\d{2}-\\d{2}-\\d{2}$"
+        },
+        "grossKrw": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        "refundsKrw": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        "wordOrders": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        "bundleOrders": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        "presentationOrders": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        "publishedVideos": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "views": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "siteVisits": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attributedOrders": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attributedNetKrw": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 300
+        }
+      },
+      "required": [
+        "asOf",
+        "grossKrw",
+        "refundsKrw",
+        "wordOrders",
+        "bundleOrders",
+        "presentationOrders",
+        "publishedVideos",
+        "views",
+        "siteVisits",
+        "attributedOrders",
+        "attributedNetKrw",
+        "note"
+      ]
+    },
+    "Video": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "plannedDate": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^20\\d{2}-\\d{2}-\\d{2}$"
+        },
+        "product": {
+          "enum": ["word", "bundle", "presentation"]
+        },
+        "status": {
+          "enum": ["planned", "ready", "published"]
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Empty for an unpublished plan, otherwise https YouTube URL. Published status requires non-empty URL."
+        },
+        "views24h": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "views72h": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "plannedDate",
+        "product",
+        "status",
+        "url",
+        "views24h",
+        "views72h"
+      ]
+    },
+    "AuditEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000000000
+        },
+        "kind": {
+          "enum": ["goal", "snapshot", "video"]
+        },
+        "key": {
+          "type": "string"
+        },
+        "actorId": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["revision", "kind", "key", "actorId", "at"]
+    }
+  }
+}

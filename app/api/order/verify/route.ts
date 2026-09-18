@@ -1,7 +1,7 @@
 import { Redis } from "@upstash/redis";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
-import { GROBLE_PRODUCT_ID } from "@/lib/config";
+import { isBundleProductId, isPlanProductId } from "@/lib/config";
 import {
   GROBLE_RAW_EVENTS,
   getAuthedUser,
@@ -10,13 +10,13 @@ import {
   MAX_ORDER_TRIES,
   ORDER_NO_RE,
   ORDER_TRIES_KEY,
-  ORDER_USED_KEY,
   PAID_KEY,
   VALID_ORDER_KEY,
   type AuthedUser,
   type PaidRecord,
   type ValidOrder,
 } from "@/lib/plan/paidAccess";
+import { claimOrder, registerOrder } from "@/lib/plan/paymentState";
 
 interface RawPaymentEvent {
   saved: Record<string, unknown>;
@@ -82,7 +82,7 @@ async function recoverOrderFromRawEvents(r: Redis, orderNo: string): Promise<Val
     const content = item.object.content as Record<string, unknown> | undefined;
     const productId = typeof content?.id === "string" ? content.id : undefined;
     // 자동 복구는 현재 판매 상품임이 확인된 원본만 허용한다.
-    if (!cancelled && productId !== GROBLE_PRODUCT_ID) return null;
+    if (!cancelled && !isPlanProductId(productId)) return null;
 
     const recovered: ValidOrder = {
       orderNo,
@@ -91,8 +91,7 @@ async function recoverOrderFromRawEvents(r: Redis, orderNo: string): Promise<Val
       status: cancelled ? "cancelled" : "valid",
       ...(productId ? { productId } : {}),
     };
-    await r.set(VALID_ORDER_KEY(orderNo), recovered);
-    return recovered;
+    return registerOrder(r, recovered);
   }
   return null;
 }
@@ -119,28 +118,27 @@ async function claimRecentOrderByEmail(
     if (rawBuyerEmail(item) !== email) continue;
     const content = item.object.content as Record<string, unknown> | undefined;
     const productId = typeof content?.id === "string" ? content.id : undefined;
-    if (productId !== GROBLE_PRODUCT_ID) continue;
-
-    const bound = await r.set(ORDER_USED_KEY(orderNo), user.id, { nx: true });
-    if (bound === null && (await r.get<string>(ORDER_USED_KEY(orderNo))) !== user.id) continue;
+    if (!isPlanProductId(productId)) continue;
 
     const registeredAt =
       typeof item.saved.at === "string" ? item.saved.at : new Date().toISOString();
-    await r.set(VALID_ORDER_KEY(orderNo), {
+    const valid = await registerOrder(r, {
       orderNo,
       registeredAt,
       via: "webhook",
       status: "valid",
       productId,
     } satisfies ValidOrder);
+    if (valid.status !== "valid" || !isPlanProductId(valid.productId)) continue;
     const record: PaidRecord = {
       orderNo,
       email: user.email,
       verifiedAt: new Date().toISOString(),
     };
-    await r.set(PAID_KEY(user.id), record);
-    console.log(`[order/verify] 결제 이메일 자동 연결: ${orderNo} (user: ${user.id})`);
-    return record;
+    const granted = await claimOrder(r, { userId: user.id, record, mode: "word", productId: valid.productId, bundle: isBundleProductId(valid.productId) });
+    if (granted.status < 0) continue;
+    console.info(JSON.stringify({ event: "payment_claim", mode: "email", result: granted.status === 0 ? "granted" : "existing" }));
+    return JSON.parse(granted.record) as PaidRecord;
   }
   return null;
 }
@@ -180,31 +178,27 @@ async function verifyRealOrderAndRespond(
     );
   }
 
-  // 재구매 갱신 전용(2026-07-14): 상품 필터 — 재구매 대상은 신상품(RJczGx)만.
-  // productId 를 확인할 수 없는(구형·미확인) 원장은 막지 않는다 — 실결제를 오탐으로
-  // 막는 쪽이 훨씬 위험하므로 fail-open.
-  if (opts.repurchase && valid.productId && valid.productId !== GROBLE_PRODUCT_ID) {
+  // 발표자료 단품 주문으로 더 비싼 Word 상품이 열리지 않도록 최초·재구매 모두 상품을 분리한다.
+  // productId가 없는 과거 수동·구형 주문만 기존 고객 보호를 위해 통과시킨다.
+  if (valid.productId && !isPlanProductId(valid.productId)) {
     return Response.json(
-      { ok: false, error: "재구매 대상 상품의 주문번호가 아니에요. 최신 상품으로 다시 결제해 주세요." },
+      { ok: false, error: "사업계획서 Word 또는 묶음 상품의 주문번호가 아니에요." },
       { status: 400 },
     );
   }
 
-  // 주문번호 재사용 차단 — 최초 1계정에만 묶인다 (동시요청 대비 NX)
-  const bound = await r.set(ORDER_USED_KEY(orderNo), user.id, { nx: true });
-  if (bound === null) {
-    const owner = await r.get<string>(ORDER_USED_KEY(orderNo));
-    if (owner !== user.id) {
-      return Response.json(
-        { ok: false, error: "이미 사용된 주문번호예요. 본인 결제가 맞다면 문의하기로 연락 주세요." },
-        { status: 409 },
-      );
-    }
-  }
-
-  // 새 레코드로 통째로 덮어쓴다 — 재구매면 이전 usedProgramId 는 자동으로 사라진다(=소진 해제).
+  // One atomic decision: current ledger + owner + current credit. Historical
+  // orders cannot become new credits, and a retry preserves the bound program.
   const record = { orderNo, email: user.email, verifiedAt: new Date().toISOString() };
-  await r.set(PAID_KEY(user.id), record);
+  const granted = await claimOrder(r, { userId: user.id, record, mode: "word", productId: valid.productId, bundle: isBundleProductId(valid.productId) });
+  if (granted.status < 0) {
+    console.warn(JSON.stringify({ event: "payment_claim", mode: "manual", result: "rejected", code: granted.status }));
+    return Response.json({ ok: false, error: "이미 사용되었거나 결제 상태가 변경된 주문번호예요. 현재 이용권을 확인해 주세요." }, { status: 409 });
+  }
+  if (granted.status === 1) {
+    const existing = JSON.parse(granted.record) as PaidRecord;
+    return Response.json({ ok: true, orderNo: existing.orderNo, usedProgramId: existing.usedProgramId ?? null });
+  }
 
   // 감사 기록 → BCC CRM(bcc-admin) leads 테이블 (그로블 판매 리스트 대조용).
   // 실패해도 인증 자체는 유효 — best effort.
@@ -224,7 +218,7 @@ async function verifyRealOrderAndRespond(
     /* CRM 기록 실패는 무시 (Redis 가 원본) */
   }
 
-  console.log(`[order/verify] ${opts.repurchase ? "재구매 갱신" : "최초 인증"}: ${orderNo} (user: ${user.id})`);
+  console.info(JSON.stringify({ event: "payment_claim", mode: "manual", result: "granted", repurchase: opts.repurchase }));
   return Response.json({ ok: true, orderNo, ...(opts.repurchase ? { renewed: true } : {}) });
 }
 
@@ -242,6 +236,15 @@ function getRedis(): Redis | null {
 export async function GET(req: Request) {
   const user = await getAuthedUser(req);
   if (!user) return Response.json({ paid: false, loggedIn: false });
+  if (user.isAdmin) {
+    return Response.json({
+      paid: true,
+      loggedIn: true,
+      admin: true,
+      orderNo: null,
+      usedProgramId: null,
+    });
+  }
   let paid = await getPaidRecord(user.id);
   if (!paid) {
     const r = getRedis();
@@ -259,11 +262,14 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   // 무차별 대입 방지: IP 단위 rate limit을 인증보다 먼저 (기존 verify 버킷 재사용)
   const rl = await checkRateLimit(req, "verify");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
 
   const user = await getAuthedUser(req);
   if (!user) {
     return Response.json({ ok: false, error: "로그인이 필요해요." }, { status: 401 });
+  }
+  if (user.isAdmin) {
+    return Response.json({ ok: true, admin: true, orderNo: null });
   }
 
   let body: unknown;

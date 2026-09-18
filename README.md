@@ -1,4 +1,32 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 딱지원핏
+
+지원사업 탐색·신청 조건 확인·근거 기반 Word·발표자료 생성 서비스를 운영하는 Next.js 프로젝트입니다.
+
+기능·비기능 요구사항, 사용자 흐름, 도메인, DB, API, 인증, 배포는 [시스템 설계](docs/architecture/README.md)에 정리했습니다.
+
+모듈 경계·의존성·상태 관리·기술 부채와 단계별 개선은 [인수인계와 리팩터링](docs/architecture/handoff-refactor.md)을 참고하세요.
+
+```bash
+npm run check:architecture
+npm run test:refactor
+```
+
+## 운영 화면 실행
+
+```bash
+npm ci
+npm run dev:operations
+```
+
+http://127.0.0.1:3107/operations 에서 월 목표·날짜별 성과·영상 계획을 저장할 수 있습니다. 이 명령은 localhost 전용 파일 저장소를 사용하며 운영 데이터와 연결하지 않습니다. 실제 인증·Redis 사용과 배포는 [실행 안내](docs/architecture/runbook.md)를 참고하세요.
+
+```bash
+npm run test:operations
+npm run test:guards
+npm run build
+```
+
+## 기존 본체 실행
 
 ## Getting Started
 

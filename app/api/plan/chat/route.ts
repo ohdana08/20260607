@@ -1,12 +1,13 @@
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
-import type { ChatMsg } from "@/lib/llm/provider";
+import type { ChatMsg } from "@/lib/llm/types";
 import { checkDraftAccess, paymentRequiredResponse } from "@/lib/plan/paidAccess";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
-import { googleLoginGate } from "@/lib/auth/googleUser";
+import { paidGoogleLoginGate } from "@/lib/auth/googleUser";
 import { decideDraftApplication, draftApplicationError } from "@/lib/plan/applicationGuard";
 import { buildPublicEvidencePrompt } from "@/lib/data/publicEvidence";
 import { PLAIN_LANGUAGE_PROMPT } from "@/lib/plain-language";
+import { aiBudgetExceededResponse, reservePaidAiCall } from "@/lib/plan/aiBudget";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,32 @@ interface EligReqs {
   required?: string[];
   disqualifiers?: string[];
   obligations?: string[];
+}
+
+function compactPlanMessages(messages: ChatMsg[]): ChatMsg[] {
+  const selected = messages.length > 31 ? [messages[0], ...messages.slice(-30)] : messages.slice();
+  const firstContent = selected[0]?.content ?? "";
+  const firstAllowance = Math.min(12_000, firstContent.length);
+  let remaining = 70_000 - firstAllowance;
+  let latestAttachment = -1;
+  for (let index = selected.length - 1; index >= 0; index--) {
+    if (selected[index].images?.length || selected[index].files?.length) {
+      latestAttachment = index;
+      break;
+    }
+  }
+  const output: ChatMsg[] = selected.map((message) => ({ ...message, images: undefined, files: undefined }));
+  if (output[0]) output[0].content = firstContent.slice(0, firstAllowance);
+  for (let index = output.length - 1; index >= 1; index--) {
+    const allowance = Math.min(remaining, selected[index].content.length);
+    output[index].content = selected[index].content.slice(-allowance);
+    remaining = Math.max(0, remaining - allowance);
+  }
+  if (latestAttachment >= 0) {
+    output[latestAttachment].images = selected[latestAttachment].images?.slice(0, 1);
+    output[latestAttachment].files = selected[latestAttachment].files?.slice(0, 1);
+  }
+  return output.filter((message) => message.content || message.images?.length || message.files?.length);
 }
 
 // 자격 판정 모듈 (2026-07-12) — 판정 없이 "써드릴게요"로 넘어가는 경로를 막는다.
@@ -78,7 +105,8 @@ function systemFor(p: ProgInfo, elig?: EligReqs | null): string {
     `${title} ${p.summary ?? ""} ${p.supportField ?? ""}`,
   );
 
-  return `당신은 "${title}"에 지원할 사업계획서를 사용자와 함께 완성하는 전문 컨설턴트예요.
+  return `근거 없는 시장 비율·매출·고객 수를 추측해 달라고 요청하거나 예시 숫자로 유도하지 마세요. 모르는 것은 모른다고 남기고 확인할 행동을 질문하세요. 미래 계획을 현재 확인된 사실 목록에 넣지 마세요. 가상 공고는 실제 신청 자격이 확정된 것처럼 안내하지 마세요.
+당신은 "${title}"에 지원할 사업계획서를 심사위원 관점에서 함께 완성하는 전문 컨설턴트예요.
 
 [이 지원사업 정보]
 ${ctx}
@@ -88,6 +116,14 @@ ${eligibilitySection(elig)}
 당신의 임무: 이 사업의 '사업계획서 양식'이 요구하는 항목·순서에 맞춰, 정부지원사업 심사위원처럼 코칭하며 사용자에게서 필요한 내용을 "충분히·구체적으로" 끌어내는 거예요.
 
 ${PLAIN_LANGUAGE_PROMPT}
+
+[사업계획서를 처음 쓰는 사람 돕기]
+- 자료·매출·고객이 없다는 이유로 작성 자체를 막지 마세요. 없는 실적을 만들지 말고 현재 사실, 본인의 생각, 앞으로 확인할 계획을 나누세요.
+- 어려운 근거 요구 대신 "최근 직접 겪은 불편이 있나요?", "누군가 부탁하거나 문의한 적 있나요?", "만든 것이나 작업한 사진이 있나요?"처럼 한 번에 하나씩 물으세요.
+- "없어요/모르겠어요"라고 하면 같은 질문을 반복하지 마세요. 누구에게 물어볼지 → 쉬운 질문 → 기록할 답변을 짧게 제안하고 사용자가 할 수 있는 방법을 고르게 하세요.
+- 제안한 예시·가격·일정은 사용자 확정 사실로 바꾸지 마세요. 실행 전에는 계획으로 표시하세요.
+- 각 주제를 마치면 확인된 내용과 아직 확인할 일을 짧게 정리하세요. 증거가 없는 항목도 사업 구조·고객 확인 계획·실행 계획의 시각자료로 정리할 수 있다고 안내하세요.
+- 준비도는 초안 작성 재료의 준비도이며, 선정 가능성이나 증거의 충분함을 뜻하지 않습니다. 미확인 사실을 명시하고 구체적인 확인 계획이 있으면 초안 재료로 인정하세요.
 
 [진행 방식 — 가장 중요]
 1) 대화 초반엔 먼저 사용자가 **공고문 / 사업계획서 양식**을 첨부(사진·캡처 포함)했는지 보세요.
@@ -109,16 +145,23 @@ ${PLAIN_LANGUAGE_PROMPT}
 - 사용자가 머릿속 생각을 쉽게 떠올리도록, 질문에 **쉬운 비유나 예시를 곁들여** 물어보세요.
   (예: "가게로 치면 어떤 손님이 문을 열고 들어올까요?", "친구한테 자랑한다면 뭐라고 말하실 거예요?", "하루를 떠올려보면 어떤 순간에 이게 필요할까요?")
 - ⚠️ 비유·예시는 '생각의 마중물'일 뿐이에요. **절대 그 예시 내용을 사용자의 답인 것처럼 정리하거나 채워 넣지 마세요.** 항상 "이건 그냥 예시고, ○○님 사업의 진짜 이야기를 들려주세요"처럼 본인 것을 끌어내세요. (사용자가 예시를 그대로 베껴 답하면, 본인 경우로 다시 구체화해 달라고 하세요.)
-- **최대한 구체적으로** 끌어내세요: 실제로 겪은 일, 진짜 숫자, 구체적인 상황·장면으로. 답이 두루뭉술하면 "예를 들어 실제로 어떤 일이 있었어요?", "그 장면을 좀 더 자세히 그려주실 수 있어요?" 하고 계속 파고드세요. 한 주제도 대충 넘어가지 말고 충분히 깊게.
+- **최대한 구체적으로** 끌어내세요: 실제로 겪은 일, 진짜 숫자, 구체적인 상황·장면으로. 답이 두루뭉술하면 "예를 들어 실제로 어떤 일이 있었어요?", "그 장면을 좀 더 자세히 그려주실 수 있어요?" 하고 그 주제에서 한 번 더 파고드세요. 그래도 모르면 [보완 필요]로 남길 것을 알리고 다음 주제로 넘어가세요.
+
+[증거 확인 — 초안을 막지 않는 보완 안내]
+- 한 주제에서 자료 여부는 최대 한 번만 가볍게 물으세요. 없다고 하면 같은 자료를 반복해 요구하지 말고 다음 주제로 넘어가세요.
+- 자료 예시는 주제에 맞는 것 하나만 짧게 드세요: 고객 대화 메모, 결제·매출 내역, 견적서, 계약서·MOU, 사용 화면, 시험성적서, 특허·인증, 담당자 이메일, 통계 원문 등.
+- 사용자가 자료명·출처·확인 경로를 말하면 "확인 가능한 근거"로, 구체적으로 설명했지만 자료가 없으면 "신청자 설명을 토대로 한 초안"으로, 내용 자체가 없으면 "아직 빈칸"으로 구분하세요.
+- 증빙 파일 자체를 올리지 않았는데 "검증됐다"고 단정하지 마세요. 업로드한 타사 사례나 공고문의 일반 설명을 사용자의 실적으로 취급하지 마세요.
+- 증거가 없어도 현재 확인된 사실로 초안을 먼저 만들 수 있다고 안내하세요. 초안에는 "이 주장은 고객 대화 캡처를 붙이면 좋아요"처럼 구체적인 증거 보충 방법을 남기고, 제출 전에 확인하도록 설명하세요.
 
 [시장규모·경쟁사·통계 숫자 — 객관적 데이터 원칙 (매우 중요)]
 - ⚠️ 시장 크기, 고객 수, 산업 규모, 경쟁사 정보 같은 **"객관적 숫자"는 절대 사용자에게 추측하게 하지 마세요.** ("몇 명일 것 같아요?", "주변에 몇 명 있어요?" 식의 어림짐작 금지 — 심사위원은 출처 있는 데이터를 원해요.)
-- 대신 **어디서·어떻게 찾는지 구체적으로 알려주고, 직접 찾아서 가져오게** 하세요. 가능하면 검색 키워드까지 정확히 알려주세요. 예:
+- 대신 **어디서·어떻게 보충할지 구체적으로 알려주되, 초안 작성 전에 반드시 가져오라고 요구하지 마세요.** 가능하면 검색 키워드까지 정확히 알려주세요. 예:
   · 시장 규모 / 인구·사업체 수 → **통계청 KOSIS(kosis.kr)**, **공공데이터포털(data.go.kr)**, 또는 네이버·구글에 "**[업종] 시장 규모 2025**", "**[업종] 사업체 수 통계**" 검색
   · 검색 트렌드·수요 → **네이버 데이터랩(datalab.naver.com)**, 구글 트렌드
   · 경쟁사 매출·규모 → **DART 전자공시(dart.fss.or.kr)**, 잡코리아·사람인(직원수), 앱이면 모바일인덱스/와이즈앱(사용자수), 앱스토어 리뷰 수
   · 업계 동향·전망 → "**[업종] 시장 전망 보고서**", 관련 협회·진흥원 자료
-- 안내 문구 예: "이 숫자는 추측하면 심사에서 약해져요. **통계청 KOSIS(kosis.kr)**에 들어가서 '○○' 검색하시거나, 구글에 '**○○ 시장 규모 2025**'라고 쳐보세요. 거기 나온 숫자랑 출처를 알려주시면(캡처해서 📎로 올리셔도 돼요!) 제가 계획서에 출처와 함께 넣어드릴게요."
+- 안내 문구 예: "지금은 확인된 내용으로 초안을 먼저 만들게요. 제출 전 **통계청 KOSIS(kosis.kr)**에서 '○○'를 검색하거나 구글에 '**○○ 시장 규모 2025**'라고 검색한 결과와 출처를 덧붙이면 이 문단이 더 강해져요."
 - 사용자가 찾아온 숫자는 **출처와 함께** 계획서에 반영하세요.
 - 사용자가 "도저히 못 찾겠다"고 할 때만 → 합리적 가정에 근거한 **추정치**로 채우되, 반드시 "추정", 근거(가정)와 함께 표기하고 "지원 전에 실제 통계로 보강하면 좋아요"라고 안내하세요.
 
@@ -154,14 +197,14 @@ ${officialEvidence}
  - 해결(Solution): "기존 방법(또는 경쟁 제품)으로는 왜 안 되나요? 사장님 것만의 다른 점이 뭔가요?"
  - 시장/확장(Scale-up): "이걸 살 사람이 얼마나 될 것 같으세요? 어떻게 더 많은 사람에게 팔 계획인가요?" (단, '객관적 숫자'는 위 [객관적 데이터 원칙]대로 추측 말고 찾아오게 하세요.)
  - 역량(Team): "왜 이걸 본인이 잘 만들 수 있다고 생각하세요? 관련 경험이나 강점이 있나요?"
-- 위 4개가 충분히 채워지기 전에는 초안을 완성하지 마세요. 답이 부족하면 칭찬 대신 정직하게: "이 부분이 더 채워져야 심사를 통과해요"라고 말하고 더 끌어내세요.
+- 위 4개의 기본 이야기는 먼저 듣되, 증거가 부족하다는 이유로 초안 생성을 막지 마세요. 확인된 답만 반영하고 부족한 부분에는 구체적인 보충 방법을 안내하세요.
 
 [질문 의무화 — "알아서 해줘" 대응]
 - 사용자가 짧게 답하거나 "알아서 해줘"라고 해도 절대 임의로 지어 채우지 마세요. "이건 심사에서 가장 중요한 부분이라, 사장님만 아는 답이 필요해요"라며 구체적 질문 1개를 던져 반드시 답을 받아내세요.
 
 [답변 완성도 검사 — 매 턴 필수]
 - 사용자의 방금 답이 ① 질문에 직접 답했는지, ② 실제 상황·대상·방법이 구체적인지, ③ 사실 근거나 증빙 가능한 숫자가 필요한 항목이면 그 근거가 있는지를 검사하세요.
-- 셋 중 하나라도 부족하면 다음 주제로 넘어가지 말고, 부족한 한 부분만 더 구체적으로 묻는 꼬리질문을 하세요.
+- 질문에 대한 내용 자체가 없을 때만 꼬리질문을 최대 1회 하세요. 증거가 없다는 답을 받으면 반복 질문하지 말고 보충 안내를 남긴 뒤 다음 주제로 넘어가세요.
 - 아래 필수 정보가 모두 사업계획서에 바로 쓸 수 있을 만큼 구체적이어야 합니다:
   1) 해결하려는 문제와 실제 고객 장면·기존 해결 방식
   2) 제품·서비스의 작동 방식과 경쟁 대안 대비 차이
@@ -170,14 +213,14 @@ ${officialEvidence}
   5) 1년 실행 일정, 단계별 목표, 지원금 사용 계획
   6) 대표·팀이 실행할 수 있는 구체적 경험·역량
   7) 공고 양식의 고유 질문과 평가항목에 필요한 내용
-- 단순 아이디어 한 줄, 추상적인 장점, 근거 없는 예상, "없음/모름/알아서"는 완료 답변으로 세지 마세요.
+- 단순 아이디어 한 줄, 추상적인 장점, 근거 없는 예상을 확정 사실로 세지 마세요. "없음/모름"은 현재 상태로 보존하고, 확인 대상·방법이 정리되면 계획 항목의 답변으로 인정하세요.
 - 매 응답의 **마지막 줄**에는 반드시 아래 JSON 마커 하나를 붙이세요. 화면에서는 숨겨집니다.
   [초안준비]{"ready":false,"score":35,"missing":["실제 고객이 겪는 구체적인 불편","경쟁 대안과 다른 점"]}[/초안준비]
 - score는 위 7개 항목과 답변의 구체성을 종합한 0~100 정수입니다. ready=true는 score가 80 이상이고, 핵심 누락이 하나도 없으며, 양식의 모든 필수 항목까지 답했을 때만 가능합니다.
 - ready=false일 때 missing에는 지금부터 더 받아야 할 핵심 정보만 쉬운 말로 최대 7개 적으세요.
-- ready=false인데 "초안 만들기 버튼을 누르세요"라고 안내하면 안 됩니다.
+- ready=false여도 기본 사업 이야기가 모였으면 "현재 답변으로 초안을 먼저 만들고, 부족한 증거는 보충 안내로 표시할 수 있다"고 안내하세요.
 
-- 양식의 모든 항목(또는 위 일반 주제)을 충분히·구체적으로 다 들었고, **신청 자격 판정이 끝났을 때만**(충족이거나, 사용자가 미충족·불확실을 인지하고 진행을 원할 때): "이제 충분히 들었어요! 아래 '사업계획서 초안 만들기' 버튼을 눌러주세요 😊" 라고 안내하세요. 그 전엔 계속 질문하세요.`;
+- 기본 사업 이야기와 **신청 자격 판정이 끝났을 때**(충족이거나, 사용자가 미충족·불확실을 인지하고 진행을 원할 때): "현재 확인된 내용으로 초안을 먼저 만들 수 있어요. 아래 '사업계획서 초안 만들기' 버튼을 눌러주세요 😊 부족한 증거는 초안에 보충 방법으로 표시할게요."라고 안내하세요.`;
 }
 
 export async function POST(req: Request) {
@@ -188,26 +231,27 @@ export async function POST(req: Request) {
     return Response.json({ error: "요청을 읽지 못했어요." }, { status: 400 });
   }
 
-  const { messages, code, program, programTitle, eligibility, provider: rawProvider } = (body ?? {}) as {
+  const { messages, code, program, programTitle, eligibility, documentConfirmed, provider: rawProvider } = (body ?? {}) as {
     messages?: ChatMsg[];
     code?: string;
     program?: ProgInfo;
     programTitle?: string;
     eligibility?: EligReqs | null;
+    documentConfirmed?: boolean;
     provider?: unknown;
   };
 
   const gate = maintenanceGate();
   if (gate) return gate;
-  const loginGate = await googleLoginGate(req);
+  const loginGate = await paidGoogleLoginGate(req, code);
   if (loginGate) return loginGate;
   // rate limit을 코드 검증보다 먼저 — 코드 추측 시도도 제한에 걸리게(점검표 문제 3)
   const rl = await checkRateLimit(req, "planChat");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
   // 유료 관문(2026-07-09): 주문번호 인증(is_paid) 또는 마스터 코드
   const access = await checkDraftAccess(req, code, (program as ProgInfo | undefined)?.id);
   if (!access.ok) return paymentRequiredResponse(access.reason);
-  const application = decideDraftApplication(program);
+  const application = decideDraftApplication(program, documentConfirmed === true);
   if (!application.ok) return draftApplicationError(application);
 
   const provider = parseProvider(rawProvider);
@@ -227,13 +271,24 @@ export async function POST(req: Request) {
   }
 
   const firstUser = messages.findIndex((m) => m.role === "user");
-  const trimmed = firstUser === -1 ? [] : messages.slice(firstUser);
+  const trimmed = firstUser === -1 ? [] : compactPlanMessages(messages.slice(firstUser));
   if (trimmed.length === 0) {
     return Response.json({ error: "먼저 답변을 입력해 주세요." }, { status: 400 });
   }
 
   const llm = getLlm(provider, "fast");
+  const reservation = await reservePaidAiCall({
+    userId: access.user?.id,
+    bypassBudget: access.admin,
+    stage: "plan_chat",
+    provider,
+    tier: "fast",
+    estimatedInputTokens: 100_000,
+    maxOutputTokens: 2_000,
+  });
+  if (!reservation.ok) return aiBudgetExceededResponse(reservation);
   const encoder = new TextEncoder();
+  let completed = false;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
@@ -242,10 +297,15 @@ export async function POST(req: Request) {
           messages: trimmed,
           // 1024에서 자격 판정 표+질문이 단어 중간에 잘리던 문제 (2026-07-12 통합진단 ⓒ)
           maxTokens: 2000,
+          onUsage: async (usage) => {
+            await reservation.complete(usage);
+            completed = true;
+          },
         })) {
           controller.enqueue(encoder.encode(chunk));
         }
       } catch (err) {
+        if (!completed) await reservation.release();
         console.error("[/api/plan/chat]", err);
         controller.enqueue(encoder.encode("\n\n(잠시 문제가 생겼어요. 다시 보내주시겠어요?)"));
       } finally {

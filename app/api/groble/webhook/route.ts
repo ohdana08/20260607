@@ -3,11 +3,10 @@ import { isMasterCode } from "@/lib/plan/access";
 import {
   GROBLE_RAW_EVENTS,
   ORDER_NO_RE,
-  ORDER_USED_KEY,
-  PAID_KEY,
   VALID_ORDER_KEY,
   type ValidOrder,
 } from "@/lib/plan/paidAccess";
+import { cancelOrder, registerOrder } from "@/lib/plan/paymentState";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -81,6 +80,7 @@ async function forwardClaude101Event(payload: unknown): Promise<void> {
 
   const response = await fetch(url, {
     method: "POST",
+    signal: AbortSignal.timeout(10_000),
     headers: {
       "Content-Type": "application/json",
       "X-BCC-Groble-Secret": secret,
@@ -88,8 +88,7 @@ async function forwardClaude101Event(payload: unknown): Promise<void> {
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`BCC Groble forward failed (${response.status}): ${detail.slice(0, 180)}`);
+    throw new Error(`BCC Groble forward failed (${response.status})`);
   }
 }
 
@@ -152,36 +151,45 @@ export async function POST(req: Request) {
   if (isCancelEvent(payload)) {
     // 결제 취소/해지: 원장에서 취소 표시 + 이미 인증에 쓰였다면 해당 계정 is_paid 회수
     const existing = await r.get<ValidOrder>(VALID_ORDER_KEY(orderNo));
-    await r.set(VALID_ORDER_KEY(orderNo), {
+    const productId = findProductId(payload) ?? existing?.productId;
+    const revoked = await cancelOrder(r, {
       orderNo,
       registeredAt: existing?.registeredAt ?? new Date().toISOString(),
       via: existing?.via ?? "webhook",
       status: "cancelled",
+      ...(productId ? { productId } : {}),
     } satisfies ValidOrder);
-    const usedBy = await r.get<string>(ORDER_USED_KEY(orderNo));
-    if (usedBy) await r.del(PAID_KEY(usedBy));
+    console.info(JSON.stringify({ event: "payment_cancel", result: "applied", revoked }));
     try {
       await forwardClaude101Event(payload);
-    } catch (error) {
-      console.error("[groble webhook] Claude101 forwarding failed", error);
+    } catch {
+      console.error(JSON.stringify({ event: "payment_forward", result: "failed" }));
       return Response.json({ error: "downstream unavailable" }, { status: 502 });
     }
     return Response.json({ ok: true, orderNo, action: "cancelled" });
   }
 
-  // 결제 완료: 유효 주문번호 원장에 등록 (productId 확인되면 함께 기록 — 재구매 상품 필터용)
+  const type = payload && typeof payload === "object" ? String((payload as Record<string, unknown>).type ?? "").toLowerCase() : "";
+  if (!type.endsWith(".completed")) {
+    console.info(JSON.stringify({ event: "payment_event", result: "ignored_unknown_type" }));
+    return Response.json({ ok: true, action: "ignored" });
+  }
+  // Delayed completion events must not resurrect a cancelled order.
   const productId = findProductId(payload);
-  await r.set(VALID_ORDER_KEY(orderNo), {
+  const registered = await registerOrder<ValidOrder>(r, {
     orderNo,
     registeredAt: new Date().toISOString(),
     via: "webhook",
     status: "valid",
     ...(productId ? { productId } : {}),
   } satisfies ValidOrder);
+  if (registered.status === "cancelled") {
+    return Response.json({ ok: true, orderNo, action: "cancelled" });
+  }
   try {
     await forwardClaude101Event(payload);
-  } catch (error) {
-    console.error("[groble webhook] Claude101 forwarding failed", error);
+  } catch {
+    console.error(JSON.stringify({ event: "payment_forward", result: "failed" }));
     return Response.json({ error: "downstream unavailable" }, { status: 502 });
   }
   return Response.json({ ok: true, orderNo, action: "registered" });

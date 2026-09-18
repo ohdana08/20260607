@@ -1,0 +1,8 @@
+{
+  "lib/auth/googleUser.ts": "d45f403db8c632de2c666e9558f52b25e51f42f1605c6c7795ccf326696e1bad",
+  "lib/match/buttonFilter.ts": "666b5e0590f81515dbdb1e7b26398ff4217db641ca0a9c1a4e33f52164135075",
+  "lib/data/dedupePrograms.ts": "c3cfca778d175f95a8137140c7928e585f25b272ea40a200cb7a8ff7b4d3a573",
+  "lib/scale/snapshotCache.ts": "10138ef802a187cf17715fb436eecfbdf5f33e761a3d729a11c2fab92a717d46",
+  "lib/supabase/programs.ts": "cd616b5ff06707e08995485585dd2c8b7ea48a0c88fdb377e10bb0077808ea16",
+  "components/chat/Chat.tsx": "37c8804af9e8141d45ef4ebf626148312a442045b9373e2ee29a3a0daaf438c2"
+}

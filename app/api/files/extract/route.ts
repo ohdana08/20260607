@@ -9,7 +9,7 @@ const MAX_FILE_BYTES = 3 * 1024 * 1024;
 // 브라우저에서 구형 HWP 파서가 깨지는 문제를 피하기 위해 서버에서 안전하게 텍스트만 추출한다.
 export async function POST(req: Request) {
   const rl = await checkRateLimit(req, "fitcheck");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
 
   let form: FormData;
   try {

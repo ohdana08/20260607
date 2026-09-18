@@ -1,0 +1,479 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "딱지원핏 운영 API",
+    "version": "1.0.0",
+    "description": "관리자 전용. 수동 대조 성과를 저장하며 자동 수집하지 않습니다. 로컬 전용 실행 모드만 별도 인증·파일 저장소를 사용합니다."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:3107",
+      "description": "local development"
+    },
+    {
+      "url": "https://ddakfit.bccconsulting.kr",
+      "description": "deployment target; this change has not been deployed"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/operations": {
+      "get": {
+        "operationId": "getOperationsMonth",
+        "parameters": [
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^20\\d{2}-(0[1-9]|1[0-2])$"
+            },
+            "description": "Default: current month in Asia/Seoul"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current persisted state and calculated summary",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON, dates, values, URL or body over 16 KB",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid Google user token",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not an administrator or rejected Origin",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage or upstream service unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateOperationsMonth",
+        "description": "Compare-and-set update; conflict returns 409 without overwriting data. Snapshot dates cannot be in the future. Goal dates belong to the selected month. Cumulative snapshots are not summed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "month": {
+                    "type": "string",
+                    "pattern": "^20\\d{2}-(0[1-9]|1[0-2])$"
+                  },
+                  "expectedRevision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  "command": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "goal"
+                          },
+                          "value": {
+                            "$ref": "./operations.schema.json#/$defs/Goal"
+                          }
+                        },
+                        "required": ["kind", "value"]
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "snapshot"
+                          },
+                          "value": {
+                            "$ref": "./operations.schema.json#/$defs/Snapshot"
+                          }
+                        },
+                        "required": ["kind", "value"]
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "video"
+                          },
+                          "value": {
+                            "$ref": "./operations.schema.json#/$defs/Video"
+                          }
+                        },
+                        "required": ["kind", "value"]
+                      }
+                    ]
+                  }
+                },
+                "required": ["month", "expectedRevision", "command"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current persisted state and calculated summary",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON, dates, values, URL or body over 16 KB",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No valid Google user token",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not an administrator or rejected Origin",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale revision or concurrent writer; no overwrite",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage or upstream service unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "private, no-store"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Supabase JWT"
+      }
+    },
+    "schemas": {
+      "OperationsView": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "$ref": "./operations.schema.json"
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "latest": {
+                "anyOf": [
+                  {
+                    "$ref": "./operations.schema.json#/$defs/Snapshot"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "netKrw": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "remainingKrw": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "remainingDays": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 31
+              },
+              "neededWordOrders": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "remainingVideos": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "progress": {
+                "type": ["number", "null"]
+              },
+              "dailyRevenueKrw": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "ordersPer100Visits": {
+                "type": ["number", "null"]
+              },
+              "nextAction": {
+                "type": "string"
+              },
+              "today": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^20\\d{2}-\\d{2}-\\d{2}$"
+              }
+            },
+            "required": [
+              "latest",
+              "netKrw",
+              "remainingKrw",
+              "remainingDays",
+              "neededWordOrders",
+              "remainingVideos",
+              "progress",
+              "dailyRevenueKrw",
+              "ordersPer100Visits",
+              "nextAction",
+              "today"
+            ]
+          },
+          "mode": {
+            "enum": ["local", "production"]
+          },
+          "source": {
+            "const": "manual_verified"
+          },
+          "automaticCollection": {
+            "const": false
+          }
+        },
+        "required": [
+          "state",
+          "summary",
+          "mode",
+          "source",
+          "automaticCollection"
+        ]
+      },
+      "OperationsError": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "enum": [
+              "unauthorized",
+              "forbidden",
+              "origin_forbidden",
+              "invalid_input",
+              "revision_conflict",
+              "storage_unavailable",
+              "method_not_allowed"
+            ]
+          }
+        },
+        "required": ["error", "code"]
+      }
+    }
+  }
+}

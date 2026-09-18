@@ -1,4 +1,5 @@
 import type { Program } from "@/lib/match/types";
+import { kstToday } from "@/lib/data/openFilter";
 import { createAdminClient } from "./admin";
 
 // programs 테이블 read/write — 배치 수집기(scripts/collect-programs.mts)와
@@ -66,7 +67,12 @@ const CHUNK = 500;
 // e나라도움 API는 연도 조건을 줘도 한 해 전체 상세사업을 10만 건 이상 반환할 수 있다.
 // 현재 수집기는 호출 시간·일일 한도를 지키기 위해 일부 페이지만 읽으므로, 이번 실행에
 // 보이지 않았다는 이유만으로 기존 공고를 종료하면 안 된다. 수집 범위가 완전해진 뒤 제거한다.
-const NON_EXHAUSTIVE_SOURCES = new Set<Program["source"]>(["bojo"]);
+// EGBIZ also lacks a reliable completeness signal: its live count and returned
+// pages can disagree. Successful HTTP responses cannot authorize deletion by
+// absence. Preserve prior rows; the read path still filters expired apply_end.
+// K-Startup and Bizinfo also accept partial page successes and cap pagination.
+// Without a completeness signal, a missing notice is not evidence of closure.
+const NON_EXHAUSTIVE_SOURCES = new Set<Program["source"]>(["bojo", "egbiz", "kstartup", "bizinfo"]);
 
 // 소스 하나를 upsert하고 diff(신규/마감변경/종료)를 계산한다.
 // mark-and-sweep: 이번 배치의 last_seen_at(runAt)보다 과거인, 아직 안 닫힌 같은 소스 행은
@@ -133,14 +139,19 @@ export async function upsertAndDiff(
 }
 
 // 앱(무료 버튼 매칭 경로)이 읽는 함수 — DB 조회 1회, 외부 API·LLM 호출 없음.
-export async function getOpenPrograms(limit = 3000): Promise<Program[]> {
+export async function getOpenPrograms(limit = 3000, signal?: AbortSignal): Promise<Program[]> {
   const db = createAdminClient();
-  const { data, error } = await db
+  let query = db
     .from("programs")
-    .select("*")
+    .select("id,source,title,summary,target,support_field,region,apply_end,url,form_url")
     .is("closed_at", null)
+    // Non-exhaustive sources retain unseen rows. Exclude expired dates before
+    // LIMIT so those preserved rows cannot crowd current notices out of the page.
+    .or(`apply_end.is.null,apply_end.gte.${kstToday()}`)
     .order("apply_end", { ascending: true, nullsFirst: false })
     .limit(limit);
+  if (signal) query = query.abortSignal(signal);
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).map(fromRow);
 }

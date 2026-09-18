@@ -1,5 +1,5 @@
 import { getLlm, isProviderConfigured, parseProvider } from "@/lib/llm/provider";
-import type { ChatMsg } from "@/lib/llm/provider";
+import type { ChatMsg } from "@/lib/llm/types";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { maintenanceGate } from "@/lib/config";
 import { googleLoginGate } from "@/lib/auth/googleUser";
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
   const loginGate = await googleLoginGate(req);
   if (loginGate) return loginGate;
   const rl = await checkRateLimit(req, "chat");
-  if (!rl.ok) return tooManyRequests(rl.retryAfter);
+  if (!rl.ok) return tooManyRequests(rl.retryAfter, rl.unavailable);
 
   let body: unknown;
   try {

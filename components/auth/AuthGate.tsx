@@ -67,6 +67,7 @@ interface AuthCtx {
   token: string | null;
   email: string | null;
   paid: boolean;
+  admin: boolean;
   localReview: boolean;
   setPaid: (v: boolean) => void;
   signOut: () => Promise<void>;
@@ -90,6 +91,7 @@ export default function AuthGate({
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [paid, setPaid] = useState(false);
+  const [admin, setAdmin] = useState(false);
 
   useEffect(() => {
     const sb = authClient();
@@ -109,12 +111,18 @@ export default function AuthGate({
   useEffect(() => {
     const token = session?.access_token;
     if (!token) {
-      Promise.resolve().then(() => setPaid(false));
+      Promise.resolve().then(() => {
+        setPaid(false);
+        setAdmin(false);
+      });
       return;
     }
     fetch("/api/order/verify", { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
-      .then((d) => setPaid(Boolean(d?.paid)))
+      .then((d) => {
+        setPaid(Boolean(d?.paid));
+        setAdmin(Boolean(d?.admin));
+      })
       .catch(() => {});
   }, [session?.access_token]);
 
@@ -122,6 +130,7 @@ export default function AuthGate({
     await authClient().auth.signOut();
     setSession(null);
     setPaid(false);
+    setAdmin(false);
   }, []);
 
   const ctx = useMemo<AuthCtx>(
@@ -130,11 +139,12 @@ export default function AuthGate({
       token: session?.access_token ?? null,
       email: session?.user?.email ?? null,
       paid,
+      admin,
       localReview: allowLocalReview,
       setPaid,
       signOut,
     }),
-    [session, paid, allowLocalReview, signOut],
+    [session, paid, admin, allowLocalReview, signOut],
   );
 
   if (!ready) {

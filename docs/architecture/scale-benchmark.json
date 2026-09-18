@@ -1,0 +1,40 @@
+{
+  "measuredAt": "2026-09-17T02:31:24.935Z",
+  "scope": "single-host component benchmark; real Redis; synthetic source; excludes HTTP/auth/DB/AI",
+  "node": "v24.14.1",
+  "catalogRows": 3000,
+  "catalogBytes": 1689781,
+  "cold": {
+    "requests": 100,
+    "instances": 10,
+    "sourceReads": 1,
+    "durationMs": 312
+  },
+  "phases": [
+    {
+      "offeredRps": 1,
+      "requests": 3,
+      "durationMs": 2037,
+      "p95Ms": 34.85,
+      "maxMs": 34.85,
+      "schedulingLagP95Ms": 2.01
+    },
+    {
+      "offeredRps": 10,
+      "requests": 30,
+      "durationMs": 2910,
+      "p95Ms": 26.88,
+      "maxMs": 28.73,
+      "schedulingLagP95Ms": 2.76
+    },
+    {
+      "offeredRps": 100,
+      "requests": 300,
+      "durationMs": 2996,
+      "p95Ms": 3.86,
+      "maxMs": 7.07,
+      "schedulingLagP95Ms": 3.17
+    }
+  ],
+  "totalSourceReads": 1
+}

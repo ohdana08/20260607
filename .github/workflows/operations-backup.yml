@@ -1,0 +1,92 @@
+name: Operations encrypted offsite backup
+
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: operations-offsite-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    # Requires an explicit opt-in and secrets in the operations-backup GitHub
+    # environment. This workflow is not activated by merging code alone.
+    if: vars.OPS_BACKUP_ENABLED == 'true'
+    environment: operations-backup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: drill
+          POSTGRES_PASSWORD: local-disposable-drill
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, resolved 2026-09-18
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
+      - name: Test backup safety contracts
+        run: node --test tests/operations-backup.test.mjs
+      - name: Encrypt a consistent read-only scope snapshot
+        run: node scripts/operations-backup.mjs create "$RUNNER_TEMP/operations-backup/backup.enc" "$RUNNER_TEMP/operations-backup/export-report.json"
+        env:
+          OPS_BACKUP_DATABASE_URL: ${{ secrets.OPS_BACKUP_DATABASE_URL }}
+          OPS_BACKUP_SCOPE: ${{ secrets.OPS_BACKUP_SCOPE }}
+          OPS_BACKUP_KEY_BASE64: ${{ secrets.OPS_BACKUP_KEY_BASE64 }}
+      - name: Upload encrypted offsite copy
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: operations-backup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/operations-backup/backup.enc
+            ${{ runner.temp }}/operations-backup/export-report.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+      - name: Download the stored copy into a different directory
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: operations-backup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/operations-downloaded
+      - name: Reject missing, changed, undecryptable or stale offsite copy
+        run: node scripts/operations-backup.mjs verify "$RUNNER_TEMP/operations-downloaded/backup.enc" "$RUNNER_TEMP/operations-backup/export-report.json"
+        env:
+          OPS_BACKUP_KEY_BASE64: ${{ secrets.OPS_BACKUP_KEY_BASE64 }}
+          OPS_BACKUP_VERIFIED_REPORT: ${{ runner.temp }}/operations-verified.json
+      - name: Restore the downloaded copy into fresh local PostgreSQL 17 and verify
+        run: node scripts/operations-backup-drill.mjs "$RUNNER_TEMP/operations-downloaded/backup.enc" "$RUNNER_TEMP/operations-restored.json"
+        env:
+          OPS_BACKUP_KEY_BASE64: ${{ secrets.OPS_BACKUP_KEY_BASE64 }}
+          OPS_RESTORE_LOCAL_DATABASE_URL: postgresql://drill:local-disposable-drill@127.0.0.1:5432/postgres
+      - name: Store verified RPO and isolated RTO evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: operations-backup-verified-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/operations-verified.json
+            ${{ runner.temp }}/operations-restored.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Report any backup, offsite storage or restore failure
+        if: failure()
+        run: node scripts/operations-backup-notify.mjs
+        env:
+          OPS_BACKUP_SLACK_BOT_TOKEN: ${{ secrets.OPS_BACKUP_SLACK_BOT_TOKEN }}
+          OPS_BACKUP_SLACK_CHANNEL_ID: ${{ secrets.OPS_BACKUP_SLACK_CHANNEL_ID }}

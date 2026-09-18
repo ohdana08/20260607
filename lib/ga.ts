@@ -45,6 +45,14 @@ export type GaEvent =
   | "consult_cta_click" // 사업계획서 컨설팅 문의(카톡채널) 클릭
   | "repurchase_cta_click" // 초안 완성 후 "추가 이용권 결제" CTA 클릭 (2026-07-13 소진 정책)
   | "repurchase_verified" // 소진 후 새 주문번호로 이용권 갱신 성공 (2026-07-14, QA 제외)
+  // 발표자료 베타 — 최종 사업계획서 근거를 재사용하는 후속 퍼널
+  | "presentation_interview_start" // 발표자료 티키타카 시작
+  | "presentation_checkout_click" // 별도 발표자료 그로블 결제 진입
+  | "presentation_order_verified" // 발표자료 단품/묶음 주문번호 인증 완료
+  | "presentation_outline_generate" // 슬라이드 원고·대본 생성
+  | "presentation_brief_download" // 검증 통과 발표 원고·데이터 부록 다운로드
+  | "presentation_pptx_download" // 편집 가능한 발표자료 PPTX 다운로드
+  | "presentation_pdf_download" // 제출·공유용 발표자료 PDF 다운로드
   // 랜딩 리뉴얼(2026-07-14) — /landing 전용 클릭 이벤트
   | "cta_free_diagnosis" // "무료 진단 시작" 계열 CTA 클릭 (location 파라미터로 위치 구분)
   | "cta_direct_program" // 이미 지원할 공고가 있는 사람의 바로 시작 CTA 클릭
@@ -52,7 +60,17 @@ export type GaEvent =
   | "cta_view_demo" // "가상 결과 예시 보기" CTA 클릭
   | "cta_paid_checkout" // 가격 카드 "DOCX 받기" 결제 CTA 클릭
   | "demo_tab_view" // 랜딩 데모 탭 전환(초기창업자/예비창업자/기관납품형)
-  | "faq_open"; // 랜딩 FAQ 항목 펼침
+  | "faq_open" // 랜딩 FAQ 항목 펼침
+  // 모두의창업 2차 전용 모드(2026-09-02)
+  | "modoo_campaign_click" // 랜딩 상단 캠페인 안내 클릭
+  | "view_modoo_2026_campaign" // 캠페인 페이지 진입
+  | "modoo_draft_start" // 작성 초안 생성 시작
+  | "modoo_material_upload" // 작성 근거 자료 읽기 완료
+  | "modoo_draft_complete" // 작성 초안 생성 완료
+  | "modoo_draft_error" // 작성 초안 생성 실패
+  | "modoo_answer_copy" // 항목별 답변 복사
+  | "modoo_draft_docx_download" // 작성 초안 Word 다운로드
+  | "modoo_official_apply_click"; // 공식 온라인 지원서 이동
 
 type GtagWindow = Window & {
   dataLayer?: Record<string, unknown>[];

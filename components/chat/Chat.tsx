@@ -2,6 +2,8 @@
 /* eslint-disable react-hooks/set-state-in-effect -- 브라우저 저장소·URL·외부 인증 결과를 마운트 후 복원하는 상태 머신입니다. */
 
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { extractFormHeadings } from "@/lib/plan/formHeadings";
+import dynamic from "next/dynamic";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import type { Recommendation, Program } from "@/lib/match/types";
@@ -15,10 +17,30 @@ import {
   preferredRegionNoticeHeading,
   sanitizeFormToc,
 } from "@/lib/plan/sections";
+import {
+  type PlanReviewReport,
+} from "@/lib/plan/reviewer";
+import type { EvidencePack, StrategyPack } from "@/lib/plan/strategy";
+import type { RevisionStatus } from "@/lib/plan/revisionTypes";
+import {
+  PLAN_OUTCOME_NOTICE,
+  PLAN_REVISION_NOTICE,
+} from "@/lib/plan/productPolicy";
 import { track } from "@/lib/ga";
 import { captureUtm, getLeadSource } from "@/lib/utm";
+import {
+  CHECKOUT_STARTED_KEY,
+  isReturningFromPayment,
+} from "@/lib/paymentReturn";
 import { useAuth, authedHeaders, forceRefreshToken, AuthModal } from "@/components/auth/AuthGate";
-import { GROBLE_CHECKOUT_URL, PRICE_LABEL, PRICE_KRW } from "@/lib/config";
+import {
+  BUNDLE_PRICE_KRW,
+  BUNDLE_PRICE_LABEL,
+  GROBLE_BUNDLE_CHECKOUT_URL,
+  GROBLE_CHECKOUT_URL,
+  PRICE_LABEL,
+  PRICE_KRW,
+} from "@/lib/config";
 import {
   EvidenceDiagnosisForm,
   EvidenceSheetCard,
@@ -47,6 +69,14 @@ import {
   plainProgramExplanation,
   plainSupportOption,
 } from "@/lib/plain-language";
+
+const PresentationStudio = dynamic(() => import("@/components/chat/PresentationStudio"), {
+  loading: () => (
+    <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
+      발표자료 준비 기능을 불러오는 중…
+    </div>
+  ),
+});
 
 type Role = "user" | "assistant";
 interface ChatImage {
@@ -81,9 +111,9 @@ const VIEWED_KEY = "gp_viewed_v1";
 // 공고 선택·추천 결과 세션 보존(2026-07-12) — 화면 이동·위저드 리마운트·새로고침에도 유지
 const SELPROG_KEY = "gp_selprog_v1";
 const FIND_KEY = "gp_find_v1";
-// 그로블 결제창을 연 흔적. 결제 후 돌아온 화면에서는 결제 버튼을 다시 보여주지 않는다.
-const CHECKOUT_STARTED_KEY = "gp_checkout_started_v1";
-const CHECKOUT_MARK_TTL_MS = 2 * 60 * 60 * 1000;
+// 생성 결과는 대화 메시지와 별도 상태다. 새로고침·저장 대화 복원 뒤에도
+// 심사/Word 생성이 끊기지 않도록 같은 탭의 세션에 함께 보존한다.
+const PLAN_OUTPUT_KEY = "gp_plan_output_v1";
 // 사업계획서 표준 양식(구글드라이브, 공개 뷰어) + K-Startup 모집중 공고 목록.
 // 드라이브 폴더에 공고문·별첨 양식이 들어 있어 사용자가 바로 받아 써볼 수 있다.
 const OFFICIAL_LINKS: { label: string; href: string }[] = [
@@ -113,6 +143,25 @@ interface Chart {
   png: string;
   width: number;
   height: number;
+  targetSection?: string;
+  sourceNote?: string;
+}
+
+interface FinalAcknowledgements {
+  reviewedIssues: boolean;
+  factsConfirmed: boolean;
+  outcomeUnderstood: boolean;
+  revisionPolicyUnderstood: boolean;
+}
+interface SavedPlanOutput {
+  convoId?: string;
+  program: Program;
+  draft: Draft;
+  charts?: Chart[] | null;
+  evidence?: EvidencePack | null;
+  strategy?: StrategyPack | null;
+  review?: PlanReviewReport | null;
+  formToc?: string[];
 }
 // 합격 가능성 진단 결과 (2026-07-10 확정 설계 — 전부 무료 공개, LLM 호출 0회)
 type EvidenceResult =
@@ -199,7 +248,7 @@ const KIT_PROMPT_TEMPLATE = `이 프롬프트를 분석하거나 요약하지 �
 // 채점 루브릭 (30_dev/루브릭_초안채점_260710 확정안)
 const KIT_RUBRIC = `□ 심사위원이 지적할 지점을 명시하는가 (0/1)
 □ 삭감 1순위 비목(광고선전비 등)을 피하는가 (0/1)
-□ '~할 예정입니다' → 과정·결과로 바꾸는가 (문장 3개 중 2개 이상 전환 시 1)
+□ 현재 실적과 향후 계획을 구분하고, 계획에는 확인할 방법·일정·판단 기준을 명시하는가 (0/1)
 □ 공고문을 파싱해 평가 항목에 배치하는가 (0/1)`;
 
 // 컨설팅 문의 — 카톡채널 (가격·약속 문구 없음)
@@ -207,38 +256,6 @@ const KAKAO_CONSULT_URL = "https://pf.kakao.com/_xbrxjxkxj/chat";
 
 const SUMMARY_PREFIX =
   "[공고·양식 요약] 아래는 사용자가 올린 공고문·양식의 요약입니다. 원본 파일 대신 이 요약을 기준으로 진행하세요. 특히 '양식 목차'가 있으면 그 항목명·순서를 그대로 따르세요.\n\n";
-
-// 양식 목차 결정적 추출(2026-07-12) — LLM 요약이 목차를 압축·누락할 수 있어(검증에서 확인됨),
-// 업로드된 양식 텍스트에서 항목 라인(□, n., n-n.)을 코드로 직접 뽑아 요약에 원문 그대로 결합한다.
-// 2026-07-14 보강: 실제 프리팁스·예창·초창 양식 3종으로 검증 중 발견한 오염 2가지 —
-// ① hwpx 추출 시 <hp:lineBreak/> 같은 내부 XML 태그가 텍스트에 그대로 남아, 같은 항목이
-//    태그 차이만으로 다른 문자열이 돼 있음 → 태그 제거로 정리.
-// ② 표지 요약 페이지의 짧은 제목과 본문 섹션 제목이 같은 번호/기호로 두 번씩 잡히고
-//    "00.00 ~ 00.00" 같은 날짜 표 칸까지 숫자 접두사 정규식에 걸림 → 한글 없는 줄 배제 +
-//    같은 번호("2." "2-1.")·같은 □항목(부가어 무시 후 동일)은 가장 정보량 많은 한 줄만 채택.
-function formHeadingDedupKey(l: string): string {
-  const num = l.match(/^[0-9]{1,2}(-[0-9]{1,2})?\./)?.[0];
-  if (num) return num;
-  if (/^(□|■)/.test(l)) return l.replace(/^(□|■)\s*/, "").replace(/창업\s*아이템\s*/g, "").trim();
-  return l;
-}
-function extractFormHeadings(text: string): string[] {
-  const candidates = text
-    .split(/\n/)
-    .map((l) => l.replace(/<[^>]+>/g, "").trim()) // hwpx 내부 XML 태그 잔존분 제거
-    .filter((l) => l.length >= 2 && l.length <= 60 && /^(□|■|[0-9]{1,2}(-[0-9]{1,2})?\.\s*\S)/.test(l))
-    .filter((l) => /[가-힣]/.test(l)); // 날짜 표 칸 등 한글 없는 잡음 배제
-
-  const bestByKey = new Map<string, string>();
-  const order: string[] = [];
-  for (const l of candidates) {
-    const key = formHeadingDedupKey(l);
-    const prev = bestByKey.get(key);
-    if (!prev) order.push(key);
-    if (!prev || l.length > prev.length) bestByKey.set(key, l);
-  }
-  return order.map((key) => bestByKey.get(key)!);
-}
 
 const GREETING =
   "안녕하세요! 사장님께 맞는 정부지원사업을 같이 찾아볼게요. 😊\n무료로 어디까지 받을 수 있는지 아래에서 먼저 확인해 주세요!";
@@ -328,6 +345,16 @@ function persistConvos(list: SavedConvo[]) {
     /* 용량 초과 등은 무시 */
   }
 }
+function loadSavedPlanOutput(): SavedPlanOutput | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(PLAN_OUTPUT_KEY) || "null") as SavedPlanOutput | null;
+    if (!parsed?.program || !parsed.draft || !Array.isArray(parsed.draft.sections)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 function genId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -336,7 +363,7 @@ export default function Chat() {
   // 유료 전환 파이프(2026-07-09): 로그인 세션 + 결제 확인(is_paid) 상태.
   // ⚠️ 토큰은 컨텍스트 값을 저장해 쓰지 말 것 — 만료 버그(§11) 재발.
   //    모든 인증 요청은 authedHeaders()로 요청 직전에 신선한 토큰을 받는다.
-  const { session, paid, localReview, setPaid, email, signOut } = useAuth();
+  const { session, paid, admin, localReview, setPaid, email, signOut } = useAuth();
   const [payOpen, setPayOpen] = useState(false); // 상단 [결제 확인] 메뉴로 여는 모달
   const [paymentAfterAuth, setPaymentAfterAuth] = useState(false); // 로그인 후 주문번호 입력창 재오픈
   const [returningFromPayment, setReturningFromPayment] = useState(false);
@@ -372,7 +399,16 @@ export default function Chat() {
   const [code, setCode] = useState<string>("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [drafting, setDrafting] = useState(false);
+  const [reviewingDraft, setReviewingDraft] = useState(false);
+  const [revisingDraft, setRevisingDraft] = useState(false);
+  const [planReview, setPlanReview] = useState<PlanReviewReport | null>(null);
   const [charts, setCharts] = useState<Chart[] | null>(null);
+  const [evidencePack, setEvidencePack] = useState<EvidencePack | null>(null);
+  const [strategyPack, setStrategyPack] = useState<StrategyPack | null>(null);
+  // 근거팩을 만든 시점의 사용자 발화 수. 시스템 경고·진행 안내는 재심사 사유가 아니다.
+  const [evidenceMessageCount, setEvidenceMessageCount] = useState(0);
+  const [generationStage, setGenerationStage] = useState("");
+  const [revisionStatus, setRevisionStatus] = useState<RevisionStatus | null>(null);
   const [planStartIdx, setPlanStartIdx] = useState(0); // 2차 대화 시작 지점
   // 합격 가능성 진단 (2026-07-10 확정 설계) — 매핑표는 evidence_map 테이블(하드코딩 금지)
   const [evMap, setEvMap] = useState<EvidenceRow[] | null>(null);
@@ -457,6 +493,24 @@ export default function Chat() {
   const [convoId, setConvoId] = useState<string>("");
   const [convos, setConvos] = useState<SavedConvo[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  useEffect(() => {
+    if (!selectedProgram || !draft) return;
+    try {
+      const saved: SavedPlanOutput = {
+        convoId,
+        program: selectedProgram,
+        draft,
+        charts,
+        evidence: evidencePack,
+        strategy: strategyPack,
+        review: planReview,
+        formToc,
+      };
+      sessionStorage.setItem(PLAN_OUTPUT_KEY, JSON.stringify(saved));
+    } catch {
+      /* 도식 data URL로 세션 용량을 넘으면 현재 화면 상태를 유지한다 */
+    }
+  }, [convoId, selectedProgram, draft, charts, evidencePack, strategyPack, planReview, formToc]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -464,6 +518,11 @@ export default function Chat() {
   const planUserTurns = messages.slice(planStartIdx).filter((m) => m.role === "user").length;
   const draftAnswersReady =
     draftReadiness?.ready === true && draftReadiness.score >= 80 && draftReadiness.missing.length === 0;
+  const reviewNeedsRefresh = Boolean(
+    draft &&
+      evidenceMessageCount > 0 &&
+      messages.filter((message) => message.role === "user").length > evidenceMessageCount,
+  );
   // 인테이크에서 핵심 정보(운영상태·업력·지역·나이·업종·필요한 도움)를 다 들으면 AI가 신호를 보냄.
   // 신호를 못 받아도 충분히 대화(6턴)하면 잠기지 않게 풀어줌(안전장치).
   const readyToRecommend =
@@ -554,18 +613,11 @@ export default function Chat() {
     const mc = params.get("code");
     if (mc) setCode(mc);
     // 그로블 결제 완료 화면의 '도우미로 돌아가기'로 복귀하면 주문번호 입력창만 바로 연다.
-    let fromGroble = params.get("payment") === "complete";
-    try {
-      fromGroble ||= new URL(document.referrer).hostname.endsWith("groble.im");
-    } catch {
-      /* referrer가 없으면 일반 진입으로 처리 */
-    }
-    try {
-      const checkoutAt = Number(localStorage.getItem(CHECKOUT_STARTED_KEY) ?? 0);
-      fromGroble ||= checkoutAt > 0 && Date.now() - checkoutAt < CHECKOUT_MARK_TTL_MS;
-    } catch {
-      /* localStorage 차단 환경에서는 referrer만 사용 */
-    }
+    const fromGroble = isReturningFromPayment({
+      search: window.location.search,
+      referrer: document.referrer,
+      storage: window.localStorage,
+    });
     if (fromGroble) {
       setReturningFromPayment(true);
       setPayOpen(true);
@@ -624,6 +676,22 @@ export default function Chat() {
       if (!startsNewFlow) {
         const sp = sessionStorage.getItem(SELPROG_KEY);
         if (sp) setSelectedProgram(JSON.parse(sp) as Program);
+        const savedOutput = loadSavedPlanOutput();
+        if (
+          recent &&
+          restoreMode(recent.mode) === "plan" &&
+          savedOutput &&
+          (!savedOutput.convoId || savedOutput.convoId === recent.id)
+        ) {
+          setSelectedProgram(savedOutput.program);
+          persistProgram(savedOutput.program);
+          setDraft(savedOutput.draft);
+          setCharts(savedOutput.charts ?? null);
+          setEvidencePack(savedOutput.evidence ?? null);
+          setStrategyPack(savedOutput.strategy ?? null);
+          setPlanReview(savedOutput.review ?? null);
+          setFormToc(savedOutput.formToc ?? []);
+        }
         const fd = sessionStorage.getItem(FIND_KEY);
         if (fd) {
           const parsed = JSON.parse(fd) as { cache?: FindState; seen?: Recommendation[] };
@@ -637,6 +705,28 @@ export default function Chat() {
     // 첫 진입 URL과 저장 대화는 마운트 시 한 번만 해석한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 오래된 저장 대화는 작성 단계와 메시지만 남고 선택 공고 세션이 빠질 수 있다.
+  // 이 상태에서는 초안 버튼이 보이지만 generateDraft가 selectedProgram 관문에서 조용히 끝난다.
+  // 직접 업로드 작성 흐름으로 복원해 관리자·유료 사용자 모두 이어서 생성할 수 있게 한다.
+  useEffect(() => {
+    if (mode !== "plan" || selectedProgram) return;
+    const restoredProgram: Program = {
+      id: `custom:${convoId || genId()}`,
+      title: "직접 올린 안내문·작성 파일",
+      summary: "",
+      target: "",
+      supportField: "",
+      region: "",
+      applyEnd: null,
+      url: "",
+      formUrl: null,
+      source: "sample",
+      requiresBusinessPlan: true,
+    };
+    setSelectedProgram(restoredProgram);
+    persistProgram(restoredProgram);
+  }, [mode, selectedProgram, convoId]);
 
   // 대화가 바뀔 때마다 이 브라우저에 자동 저장(이미지 제외, 사용자 발화 있을 때만)
   useEffect(() => {
@@ -676,12 +766,18 @@ export default function Chat() {
     setSeenRecs([]);
     try {
       sessionStorage.removeItem(FIND_KEY);
+      sessionStorage.removeItem(PLAN_OUTPUT_KEY);
     } catch {
       /* ignore */
     }
     setRecs(null);
     setDraft(null);
     setCharts(null);
+    setEvidencePack(null);
+    setStrategyPack(null);
+    setEvidenceMessageCount(0);
+    setGenerationStage("");
+    setRevisionStatus(null);
     setSelectedProgram(null);
     setCode("");
     setMode("intake");
@@ -695,6 +791,9 @@ export default function Chat() {
   }
 
   function loadChat(c: SavedConvo) {
+    const savedOutput = loadSavedPlanOutput();
+    const matchingOutput =
+      restoreMode(c.mode) === "plan" && savedOutput?.convoId === c.id ? savedOutput : null;
     setMessages(
       c.messages.length > 0
         ? c.messages.map((m) => ({ role: m.role, content: m.content }))
@@ -705,9 +804,15 @@ export default function Chat() {
     resetEligibility();
     setRetryable(false);
     setRecs(null);
-    setDraft(null);
-    setCharts(null);
-    setSelectedProgram(null);
+    setDraft(matchingOutput?.draft ?? null);
+    setCharts(matchingOutput?.charts ?? null);
+    setEvidencePack(matchingOutput?.evidence ?? null);
+    setStrategyPack(matchingOutput?.strategy ?? null);
+    setRevisionStatus(null);
+    setPlanReview(matchingOutput?.review ?? null);
+    setFormToc(matchingOutput?.formToc ?? []);
+    setSelectedProgram(matchingOutput?.program ?? null);
+    persistProgram(matchingOutput?.program ?? null);
     setMode(restoreMode(c.mode)); // 진행 단계 복원(2026-07-13 T3)
     setProfile(c.profile ?? null); // 3문항 프로필 복원(2026-07-14 P1) — 이전 대화 프로필 누수도 차단
     setPlanStartIdx(Math.min(c.planStartIdx ?? 0, c.messages.length));
@@ -752,6 +857,9 @@ export default function Chat() {
     setFormToc([]);
     setKitSheet(null);
     setDraftReadiness(null);
+    setPlanReview(null);
+    setReviewingDraft(false);
+    setRevisingDraft(false);
     setKickoffError(null);
     planKickoffRef.current = null;
   }
@@ -1234,7 +1342,14 @@ export default function Chat() {
             : "/api/chat";
     const payload =
       mode === "plan"
-        ? { messages: lightenForPlan(history), code, program: selectedProgram, eligibility: eligReqs, provider }
+        ? {
+            messages: lightenForPlan(history),
+            code,
+            program: selectedProgram,
+            eligibility: eligReqs,
+            documentConfirmed: Boolean(docSummary || formToc.length || draft),
+            provider,
+          }
         : mode === "fitcheck"
           ? { messages: foldDocs(history), program: selectedProgram, provider }
           : mode === "diagnose"
@@ -1501,6 +1616,9 @@ export default function Chat() {
     setRecs(null);
     setDraft(null);
     setCharts(null);
+    setEvidencePack(null);
+    setStrategyPack(null);
+    setRevisionStatus(null);
     resetEvidence();
     setWizAnalysis({ text: "", busy: false });
     setWizardStart("find");
@@ -1508,6 +1626,11 @@ export default function Chat() {
 
   // '직접 올린 공고' 프로그램 세팅 — 위저드 도움 방식 2(정한 공고 진단)의 공통 준비
   function makeCustomProgram() {
+    try {
+      sessionStorage.removeItem(PLAN_OUTPUT_KEY);
+    } catch {
+      /* ignore */
+    }
     const custom: Program = {
       id: `custom:${genId()}`,
       title: "직접 올린 안내문·작성 파일",
@@ -1525,6 +1648,10 @@ export default function Chat() {
     setMode("fitcheck");
     setDraft(null);
     setCharts(null);
+    setEvidencePack(null);
+    setStrategyPack(null);
+    setEvidenceMessageCount(0);
+    setRevisionStatus(null);
     resetEvidence();
     resetEligibility();
     setWizAnalysis({ text: "", busy: false });
@@ -1684,7 +1811,7 @@ export default function Chat() {
     doSubmitEvidence(revenue, items);
   }
 
-  // 분기 실행: 실적 1개 이상 = 진단지 / 실적 0개 = pre 전용 화면
+  // 실적 유무는 보완 안내에 사용하고, 작성 가능 여부는 공고의 제출서류 기준으로 판단한다.
   function doSubmitEvidence(revenue: string, items: string[]) {
     // 체크 조합이 곧 시장 데이터 (GA4 이벤트 파라미터는 스칼라만 — 콤마 문자열로)
     const realItems = items.filter((i) => i !== "해당 없음");
@@ -1700,8 +1827,7 @@ export default function Chat() {
     });
 
     if (isPreStage(items)) {
-      // 아직 실적이 쌓이기 전 단계 — 유료 CTA 노출 금지, leads stage='pre' 저장
-      setEvResult({ kind: "pre" });
+      // 실적 없는 상태는 기록하되 공고 분석·작성 경로를 막지 않는다.
       track("no_evidence_view");
       void (async () => {
         try {
@@ -1719,7 +1845,8 @@ export default function Chat() {
         .then((d) => setEvPrograms(Array.isArray(d?.programs) ? d.programs : []))
         .catch(() => setEvPrograms([]))
         .finally(() => setEvProgramsLoading(false));
-    } else {
+    }
+    {
       const sheet = buildSheet(evMap ?? [], items);
       setEvResult({ kind: "sheet", sheet });
       setKitSheet(sheet); // 완성 키트용 — 결제 후에도 유지
@@ -1782,11 +1909,20 @@ export default function Chat() {
     planKickoffRef.current = kickoffKey;
 
     // 결제 완료 측정 — 현재는 코드 검증 통과 시점. (// TODO: PG 연동 후 실제 결제 완료로 교체)
-    track("complete_payment", { program: p.title ?? "", price: PRICE_KRW });
+    if (!admin) track("complete_payment", { program: p.title ?? "", price: PRICE_KRW });
     setWizardStart(null); // 위저드 종료 → 결제 후 작성은 챗에서 이어간다
+    try {
+      sessionStorage.removeItem(PLAN_OUTPUT_KEY);
+    } catch {
+      /* ignore */
+    }
     setMode("plan");
     setDraft(null);
     setCharts(null);
+    setEvidencePack(null);
+    setStrategyPack(null);
+    setEvidenceMessageCount(0);
+    setPlanReview(null);
     setDraftReadiness(null);
     resetEvidence();
     setKickoffError(null);
@@ -1797,7 +1933,7 @@ export default function Chat() {
     // 결제 안내·빈 슬롯·API 입력이 모두 같은 스냅샷을 사용하도록 고정한다.
     const paidNotice: Msg = {
       role: "assistant",
-      content: `✅ 결제가 확인됐어요! 이제 '${p.title}' 사업계획서를 본격적으로 써드릴게요. 📝\n\n⚠️ 사업계획서의 모든 내용은 사실이어야 합니다. 허위 기재는 선정 취소·지원금 환수·형사처벌 사유가 됩니다. 본인이 증빙할 수 있는 내용만 답해 주세요.`,
+      content: `✅ 결제가 확인됐어요! 이제 '${p.title}'의 공고·평가기준에 맞춰, 심사위원이 점수를 줄 수 있는 답변부터 함께 만들게요. 📝\n\n⚠️ 사업계획서의 모든 내용은 사실이어야 합니다. 허위 기재는 선정 취소·지원금 환수·형사처벌 사유가 됩니다. 본인이 설명하고 증빙할 수 있는 내용만 답해 주세요.`,
     };
     const kickoffBase = [...messages, paidNotice];
     setMessages([...kickoffBase, { role: "assistant", content: "" }]);
@@ -1824,6 +1960,7 @@ export default function Chat() {
           code,
           program: p,
           eligibility: eligReqs,
+          documentConfirmed: Boolean(docSummary || formToc.length),
           provider,
         }),
       });
@@ -1927,126 +2064,334 @@ export default function Chat() {
     return { ok: false, error: String(data?.error || "확인에 실패했어요. 다시 시도해 주세요.") };
   }
 
+  async function refreshPlanStatus() {
+    if (!paid || !session) return;
+    try {
+      const res = await fetch("/api/plan/status", { headers: await authedHeaders() });
+      const data = (await res.json().catch(() => null)) as
+        | { paid?: boolean; revision?: RevisionStatus }
+        | null;
+      if (res.ok && data?.paid && data.revision) setRevisionStatus(data.revision);
+    } catch {
+      /* 상태 표시는 보조 정보이며 작성 흐름을 막지 않는다 */
+    }
+  }
+
+  useEffect(() => {
+    if (paid && session) void refreshPlanStatus();
+    // 인증 상태가 바뀔 때만 서버의 주문별 수정 상태를 복원한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paid, session?.access_token]);
+
+  function planTextMessages(): Msg[] {
+    return stripImages(lightenForPlan(messages));
+  }
+
+  function planEvidenceMessages(): Msg[] {
+    const prepared = lightenForPlan(messages).slice(-40);
+    let latestAttachment = -1;
+    for (let index = prepared.length - 1; index >= 0; index--) {
+      if (prepared[index].images?.length || prepared[index].files?.length) {
+        latestAttachment = index;
+        break;
+      }
+    }
+    return prepared.map((message, index) =>
+      index === latestAttachment
+        ? message
+        : { role: message.role, content: message.content },
+    );
+  }
+
+  async function auditDraftSections(
+    sections: DraftSection[],
+    artifacts?: { evidence: EvidencePack; strategy: StrategyPack },
+  ): Promise<PlanReviewReport | null> {
+    if (!selectedProgram || sections.length === 0) return null;
+    setReviewingDraft(true);
+    setGenerationStage("근거 충돌과 필수 데이터 부족을 최종 점검하는 중");
+    try {
+      const res = await fetch("/api/plan/audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
+        body: JSON.stringify({
+          messages: planTextMessages(),
+          sections,
+          code,
+          program: selectedProgram,
+          formToc,
+          evidence: artifacts?.evidence ?? evidencePack,
+          strategy: artifacts?.strategy ?? strategyPack,
+          provider,
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as
+        | (PlanReviewReport & { error?: string; warning?: string; degraded?: boolean })
+        | null;
+      if (!res.ok || !data) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: data?.error ?? "초안 모의심사를 완료하지 못했어요. 다시 심사해 주세요." },
+        ]);
+        return null;
+      }
+      setPlanReview(data);
+      return data;
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "초안 모의심사 중 연결이 끊겼어요. 초안 아래에서 다시 심사할 수 있어요." },
+      ]);
+      return null;
+    } finally {
+      setReviewingDraft(false);
+      setGenerationStage("");
+    }
+  }
+
+  async function organizeEvidenceAndStrategy(): Promise<{
+    evidence: EvidencePack;
+    strategy: StrategyPack;
+    charts: Chart[];
+  } | null> {
+    if (!selectedProgram) return null;
+    try {
+      setGenerationStage("공식 출처와 가까운 경쟁사 2곳을 확인하는 중");
+      const evidenceRes = await fetch("/api/plan/evidence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
+        body: JSON.stringify({
+          messages: planEvidenceMessages(),
+          code,
+          program: selectedProgram,
+          documentConfirmed: Boolean(docSummary || formToc.length || draft),
+        }),
+      });
+      const evidenceData = (await evidenceRes.json().catch(() => null)) as
+        | { evidence?: EvidencePack; error?: string; warning?: string; degraded?: boolean }
+        | null;
+      if (!evidenceRes.ok || !evidenceData?.evidence) {
+        throw new Error(evidenceData?.error || "근거를 정리하지 못했어요.");
+      }
+      setEvidencePack(evidenceData.evidence);
+      if (evidenceData.degraded && evidenceData.warning) {
+        setMessages((prev) => [...prev, { role: "assistant", content: `⚠️ ${evidenceData.warning}` }]);
+      }
+
+      setGenerationStage("사업 내용과 확인할 계획을 시각자료로 정리하는 중");
+      const strategyRes = await fetch("/api/plan/strategy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
+        body: JSON.stringify({
+          messages: planTextMessages(),
+          code,
+          program: selectedProgram,
+          formToc,
+          evidence: evidenceData.evidence,
+          documentConfirmed: Boolean(docSummary || formToc.length || draft),
+          provider,
+        }),
+      });
+      const strategyData = (await strategyRes.json().catch(() => null)) as
+        | { strategy?: StrategyPack; charts?: Chart[]; error?: string; warning?: string; degraded?: boolean }
+        | null;
+      if (!strategyRes.ok || !strategyData?.strategy) {
+        throw new Error(strategyData?.error || "전략과 도식을 설계하지 못했어요.");
+      }
+      const selectedCharts = Array.isArray(strategyData.charts) ? strategyData.charts.slice(0, 6) : [];
+      setStrategyPack(strategyData.strategy);
+      setCharts(selectedCharts);
+      if (strategyData.degraded && strategyData.warning) {
+        setMessages((prev) => [...prev, { role: "assistant", content: `⚠️ ${strategyData.warning}` }]);
+      }
+      setEvidenceMessageCount(messages.filter((message) => message.role === "user").length);
+      return { evidence: evidenceData.evidence, strategy: strategyData.strategy, charts: selectedCharts };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "근거 조사 중 문제가 생겼어요.";
+      setMessages((prev) => [...prev, { role: "assistant", content: message }]);
+      return null;
+    } finally {
+      setGenerationStage("");
+    }
+  }
+
+  function splitDraftBatches<T>(items: T[]): T[][] {
+    // 사용자 수정 횟수와 내부 생성 호출 수는 별개다. 한 항목씩 완료 여부를 검사한다.
+    return items.map((item) => [item]);
+  }
+
   async function generateDraft() {
-    if (!selectedProgram || drafting || !(paid || code) || !draftAnswersReady) return;
+    if (!selectedProgram || drafting || !(admin || paid || code) || planUserTurns < PLAN_MIN_TURNS) return;
+    setPlanReview(null);
     setDrafting(true);
     setCharts(null);
     const title = `${selectedProgram.title} 사업계획서`;
     const formSections = formTocToPlanSections(formToc);
     const draftPlanSections = formSections ?? PLAN_SECTIONS;
-    const draftFormToc = formSections?.map((s) => s.heading) ?? [];
-    const userTextForRegion = messages.filter((m) => m.role === "user").map((m) => m.content).join("\n");
-    const regionRequirementText = [
-      docSummary ?? "",
-      selectedProgram.target,
-      selectedProgram.summary,
-      ...(eligReqs?.required ?? []),
-      ...(eligReqs?.disqualifiers ?? []),
-      ...(eligReqs?.obligations ?? []),
-    ].join("\n");
+    const draftFormToc = formSections?.map((section) => section.heading) ?? [];
+    const initialSections = draftPlanSections.map((section) => {
+      const prior = draft?.sections.find(item => item.heading === section.heading);
+      return { heading: section.heading, content: prior && prior.content.length >= 250 && !prior.content.includes("자동 작성이 완료되지 않았습니다") ? prior.content : "" };
+    });
+    setDraft({ title, sections: initialSections });
+
+    const artifacts = await organizeEvidenceAndStrategy();
+    if (!artifacts) {
+      setDrafting(false);
+      return;
+    }
+    const userTextForRegion = messages.filter((message) => message.role === "user").map((message) => message.content).join("\n");
     const regionNotice = buildRegionNotice(
-      regionRequirementText,
+      [
+        docSummary ?? "",
+        selectedProgram.target,
+        selectedProgram.summary,
+        ...(eligReqs?.required ?? []),
+        ...(eligReqs?.disqualifiers ?? []),
+        ...(eligReqs?.obligations ?? []),
+      ].join("\n"),
       extractBusinessRegion(userTextForRegion, profile?.region ?? null),
     );
-    const regionNoticeHeading = preferredRegionNoticeHeading(draftPlanSections.map((s) => s.heading));
-    const sections: DraftSection[] = [];
-    setDraft({ title, sections: [] });
+    const regionNoticeHeading = preferredRegionNoticeHeading(draftPlanSections.map((section) => section.heading));
+    const completedSections = initialSections.map((section) => ({ ...section }));
+    const batches = splitDraftBatches(draftPlanSections.filter(section => !completedSections.find(item => item.heading === section.heading)?.content));
 
-    for (const sec of draftPlanSections) {
-      sections.push({ heading: sec.heading, content: "" });
-      setDraft({ title, sections: [...sections] });
-      try {
-        const res = await fetch("/api/plan/draft", {
+    try {
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        setGenerationStage(`항목 ${batchIndex + 1}/${batches.length} 작성 중`);
+        const batch = batches[batchIndex];
+        const res = await fetch("/api/plan/draft-batch", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
           body: JSON.stringify({
-            // 작성요약(양식 목차 포함)을 앞에 실어 초안이 공고·양식 맥락을 유지하게 (2026-07-12)
-            messages: [...summaryHead(), ...stripImages(messages)],
+            messages: planTextMessages(),
             code,
             program: selectedProgram,
-            section: { heading: sec.heading, guide: sec.guide },
+            sections: batch,
             formToc: draftFormToc.length > 0 ? draftFormToc : undefined,
-            readiness: draftReadiness,
+            evidence: artifacts.evidence,
+            strategy: artifacts.strategy,
+            documentConfirmed: Boolean(docSummary || formToc.length || draft),
             provider,
           }),
         });
-        if (res.status === 429) {
-          sections[sections.length - 1].content = "(잠시 너무 많이 사용했어요. 잠깐 후 다시 시도해 주세요.)";
-          setDraft({ title, sections: [...sections] });
-          break;
+        const data = (await res.json().catch(() => null)) as
+          | { sections?: DraftSection[]; error?: string; warning?: string; degraded?: boolean }
+          | null;
+        if (!res.ok || !Array.isArray(data?.sections)) {
+          throw new Error(data?.error || `목차 묶음 ${batchIndex + 1} 작성에 실패했어요.`);
         }
-        if (res.status === 402) {
-          // 이용권 소진 등 — 서버 사유를 그대로 보여주고 중단 (2026-07-13)
-          const d = (await res.json().catch(() => null)) as { error?: string } | null;
-          sections[sections.length - 1].content =
-            typeof d?.error === "string" ? `(${d.error})` : "(추가 이용권 결제가 필요해요.)";
-          setDraft({ title, sections: [...sections] });
-          break;
-        }
-        if (!res.ok || !res.body) {
-          sections[sections.length - 1].content = "(이 항목 작성에 실패했어요.)";
-          setDraft({ title, sections: [...sections] });
-          continue;
-        }
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let acc = "";
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          acc += decoder.decode(value, { stream: true });
-          sections[sections.length - 1].content = ensureConditionalRegionNotice(
-            sec.heading,
-            ensureFormTableNotice(sec.heading, acc),
+        for (const written of data.sections) {
+          const target = completedSections.find((section) => section.heading === written.heading);
+          if (!target) continue;
+          target.content = ensureConditionalRegionNotice(
+            target.heading,
+            ensureFormTableNotice(target.heading, written.content),
             regionNotice,
             regionNoticeHeading,
           );
-          setDraft({ title, sections: [...sections] });
         }
-        sections[sections.length - 1].content = ensureConditionalRegionNotice(
-          sec.heading,
-          ensureFormTableNotice(sec.heading, acc),
-          regionNotice,
-          regionNoticeHeading,
-        );
-        setDraft({ title, sections: [...sections] });
-      } catch {
-        sections[sections.length - 1].content = ensureConditionalRegionNotice(
-          sec.heading,
-          ensureFormTableNotice(sec.heading, "(이 항목 작성 중 연결이 끊겼어요.)"),
-          regionNotice,
-          regionNoticeHeading,
-        );
-        setDraft({ title, sections: [...sections] });
+        setDraft({ title, sections: completedSections.map((section) => ({ ...section })) });
+        if (data.degraded && data.warning) {
+          setMessages((prev) => [...prev, { role: "assistant", content: `⚠️ ${data.warning}` }]);
+        }
       }
+      const completeDraft = { title, sections: completedSections };
+      setDraft(completeDraft);
+      const initialReview = await auditDraftSections(completedSections, artifacts);
+      const fixable = initialReview?.reviewCompleted !== false ? initialReview?.issues.filter(issue => issue.canAutoFix).slice(0, 4) ?? [] : [];
+      if (fixable.length) {
+        setGenerationStage("현재 답변만으로 고칠 수 있는 문장을 보완하는 중");
+        const repair = await fetch("/api/plan/revise", {
+          method: "POST", headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
+          body: JSON.stringify({ messages: planTextMessages(), code, program: selectedProgram,
+            sections: completedSections, findings: fixable, provider,
+            requestNote: "제공된 자동 수정 가능 지적만 반영하세요. 사용자에게 새 증빙이 필요한 문제는 그대로 남기세요. 사용자가 말하지 않은 계획·수치·경쟁사 이름은 추가하지 마세요. 수정 대상 본문만 반환하세요." }),
+        });
+        const repaired = await repair.json().catch(() => null) as { sections?: DraftSection[]; error?: string; degraded?: boolean } | null;
+        if (repair.ok && repaired?.sections?.length === completedSections.length && !repaired.degraded) {
+          setPlanReview(null);
+          setDraft({ title, sections: repaired.sections });
+          await auditDraftSections(repaired.sections, artifacts);
+        } else {
+          setMessages(prev => [...prev, { role: "assistant", content: repaired?.error || "자동 보완을 완료하지 못했습니다. 작성된 본문과 심사 결과를 보존했으니 아래에서 다시 보완할 수 있어요." }]);
+        }
+      }
+      track("complete_draft", { program: selectedProgram.title });
+      if (!reviewDone) {
+        track("review_prompt_shown");
+        setReviewOpen(true);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "사업계획서를 만들지 못했어요.";
+      setMessages((prev) => [...prev, { role: "assistant", content: `${message}\n작성된 내용은 유지됩니다. 잠시 후 다시 시도해 주세요.` }]);
+    } finally {
+      setDrafting(false);
+      setGenerationStage("");
+      void refreshPlanStatus();
     }
+  }
 
-    // 도식 자료 생성 (TAM/SAM/SOM·고객여정맵·퍼널·수익모델)
+  async function reviseDraftFromReview(requestNote = "") {
+    if (draft?.sections.some(section => !section.content.trim() || section.content.includes("자동 작성이 완료되지 않았습니다"))) {
+      await generateDraft();
+      return;
+    }
+    if (!draft || !planReview || !selectedProgram || revisingDraft || reviewingDraft) return;
+    if (planReview.issues.length === 0 && !requestNote.trim()) return;
+    setRevisingDraft(true);
+    setGenerationStage("묶음 수정 요청을 전체 문서에 반영하는 중");
     try {
-      const res = await fetch("/api/plan/visuals", {
+      let artifacts =
+        evidencePack && strategyPack ? { evidence: evidencePack, strategy: strategyPack, charts: charts ?? [] } : null;
+      // 초안 이후 새 답변·첨부가 들어오면, 그 자료를 근거팩에 먼저 저장하고 전략·도식을 다시 검증한다.
+      if (
+        !artifacts ||
+        messages.filter((message) => message.role === "user").length > evidenceMessageCount
+      ) {
+        artifacts = await organizeEvidenceAndStrategy();
+        if (!artifacts) return;
+      }
+      const res = await fetch("/api/plan/revise", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
         body: JSON.stringify({
-          messages: [...summaryHead(), ...stripImages(messages)],
+          messages: planTextMessages(),
           code,
           program: selectedProgram,
+          sections: draft.sections,
+          findings: planReview.issues,
+          requestNote,
           provider,
         }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.charts) && data.charts.length > 0) setCharts(data.charts);
+      const data = (await res.json().catch(() => null)) as
+        | {
+            sections?: DraftSection[];
+            revision?: RevisionStatus;
+            degraded?: boolean;
+            warning?: string;
+            error?: string;
+          }
+        | null;
+      if (!res.ok || !Array.isArray(data?.sections)) {
+        throw new Error(data?.error || "묶음 수정을 완료하지 못했어요.");
       }
-    } catch {
-      /* 도식 실패해도 초안은 유지 */
-    }
-
-    setDrafting(false);
-    // 결과물 도달 측정 + 만족도 최고점에 후기 팝업 (한 번만)
-    track("complete_draft", { program: selectedProgram?.title ?? "" });
-    if (!reviewDone) {
-      track("review_prompt_shown");
-      setReviewOpen(true);
+      const revisedDraft = { ...draft, sections: data.sections };
+      setDraft(revisedDraft);
+      setPlanReview(null);
+      if (data.revision) setRevisionStatus(data.revision);
+      if (data.degraded && data.warning) {
+        setMessages((prev) => [...prev, { role: "assistant", content: data.warning! }]);
+      }
+      await auditDraftSections(data.sections, artifacts);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "묶음 수정 중 문제가 생겼어요.";
+      setMessages((prev) => [...prev, { role: "assistant", content: message }]);
+    } finally {
+      setRevisingDraft(false);
+      setGenerationStage("");
+      void refreshPlanStatus();
     }
   }
 
@@ -2077,20 +2422,8 @@ export default function Chat() {
     }
   }
 
-  async function downloadDocx() {
-    if (!draft || !(paid || code)) return;
-    // 자격 미충족·불확실 강행 시 — 문서 맨 앞에도 경고 섹션을 넣는다 (2026-07-12)
-    const eligWarnSections: DraftSection[] =
-      eligOverride && (eligStatus === "미충족" || eligStatus === "불확실")
-        ? [
-            {
-              heading: "⚠️ 신청 자격 확인 필요",
-              content: `이 초안은 신청 자격이 ${
-                eligStatus === "미충족" ? "충족되지 않은" : "확인되지 않은"
-              } 상태에서 작성되었습니다. 제출 전에 공고문의 신청 자격 요건(업력·매출·투자 실적·추천서 등)을 반드시 직접 확인하세요.`,
-            },
-          ]
-        : [];
+  async function downloadDocx(acknowledgements: FinalAcknowledgements) {
+    if (!draft || !(admin || paid || code) || !planReview || reviewNeedsRefresh) return;
     const res = await fetch("/api/plan/docx", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(await authedHeaders()) },
@@ -2098,12 +2431,15 @@ export default function Chat() {
         code,
         programId: selectedProgram?.id,
         title: draft.title,
-        sections: [...eligWarnSections, ...draft.sections],
+        sections: draft.sections,
         charts: charts ?? [],
+        reviewStatus: planReview.status,
+        acknowledgements,
       }),
     });
     if (!res.ok) {
-      alert("다운로드에 실패했어요. 다시 시도해 주세요.");
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      alert(data?.error || "다운로드에 실패했어요. 다시 시도해 주세요.");
       return;
     }
     const blob = await res.blob();
@@ -2115,6 +2451,13 @@ export default function Chat() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    const remaining = Number(res.headers.get("X-Revision-Remaining"));
+    if (Number.isFinite(remaining)) {
+      setRevisionStatus((current) =>
+        current ? { ...current, remaining } : current,
+      );
+    }
+    void refreshPlanStatus();
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -2162,12 +2505,12 @@ export default function Chat() {
                 setNeedsRepurchase(false); // 상단 메뉴는 일반 상태 확인 — 소진 입력폼으로 고정되지 않게
                 setPayOpen(true);
               }}
-              title="그로블 주문번호로 결제 확인"
+              title={admin ? "관리자 권한 확인" : "그로블 주문번호로 결제 확인"}
               className={`flex h-8 items-center rounded-lg px-2 text-xs font-semibold ${
                 paid ? "text-emerald-600 hover:bg-emerald-50" : "text-blue-600 hover:bg-blue-50"
               }`}
             >
-              💳 결제 확인{paid ? " ✓" : ""}
+              {admin ? "🛡️ 관리자 모드" : `💳 결제 확인${paid ? " ✓" : ""}`}
             </button>
             {localReview ? (
               <span className="rounded-lg bg-amber-50 px-2 py-1.5 text-xs font-semibold text-amber-700">
@@ -2300,6 +2643,7 @@ export default function Chat() {
             <Paywall
               program={mode === "paywall" ? selectedProgram : null}
               paid={paid && !needsRepurchase}
+              admin={admin}
               loggedIn={Boolean(session)}
               returningFromPayment={returningFromPayment}
               onRequireLogin={() => {
@@ -2620,8 +2964,17 @@ export default function Chat() {
           <DraftView
             draft={draft}
             drafting={drafting}
+            reviewing={reviewingDraft}
+            revising={revisingDraft}
+            review={planReview}
             charts={charts}
+            evidence={evidencePack}
+            revisionStatus={revisionStatus}
+            reviewNeedsRefresh={reviewNeedsRefresh}
+            generationStage={generationStage}
             onDownload={downloadDocx}
+            onReview={() => void auditDraftSections(draft.sections)}
+            onRevise={(note) => void reviseDraftFromReview(note)}
             eligWarn={
               eligOverride && (eligStatus === "미충족" || eligStatus === "불확실") ? eligStatus : null
             }
@@ -2631,6 +2984,18 @@ export default function Chat() {
               setNeedsRepurchase(true); // 초안 완주 = 이번 이용권 소진 — 새 주문번호 입력폼부터
               setPayOpen(true);
             }}
+          />
+        )}
+        {draft && selectedProgram && evidencePack && strategyPack && planReview && !reviewNeedsRefresh && !drafting && !reviewingDraft && !revisingDraft && (
+          <PresentationStudio
+            program={selectedProgram}
+            sections={draft.sections}
+            evidence={evidencePack}
+            strategy={strategyPack}
+            sourceConversation={planTextMessages()}
+            provider={provider}
+            code={code}
+            convertFiles={convertFiles}
           />
         )}
       </div>
@@ -2769,7 +3134,7 @@ export default function Chat() {
               </button>
             </div>
           )}
-          {mode === "plan" && (
+          {mode === "plan" && (!draft || draft.sections.some(section => !section.content.trim() || section.content.includes("자동 작성이 완료되지 않았습니다"))) && (
             <div className="border-t border-zinc-100 px-4 pt-3">
               {kickoffError && (
                 <div className="mb-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-800">
@@ -2826,20 +3191,19 @@ export default function Chat() {
                       drafting ||
                       busy ||
                       planUserTurns < PLAN_MIN_TURNS ||
-                      !draftAnswersReady ||
                       (Boolean(eligReqs?.found) && eligStatus === null)
                     }
                     className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
                   >
                     {drafting
-                      ? "초안과 도식을 만드는 중이에요…"
+                        ? generationStage || (reviewingDraft ? "근거와 초안을 최종 점검하는 중…" : "사업계획서를 만드는 중이에요…")
                       : Boolean(eligReqs?.found) && eligStatus === null
                         ? "📄 초안 만들기 — 먼저 신청 자격 확인 질문에 답해 주세요"
                         : planUserTurns < PLAN_MIN_TURNS
                           ? `📄 초안 만들기 — 대화를 조금 더 해주세요 (${planUserTurns}/${PLAN_MIN_TURNS})`
                           : !draftAnswersReady
-                            ? `📄 초안 만들기 — 답변을 더 채워주세요 (${draftReadiness?.score ?? 0}%)`
-                            : "📄 사업계획서 초안 만들기"}
+                            ? "📝 현재 답변으로 초안 먼저 만들기"
+                            : "📝 현재 내용으로 사업계획서 초안 만들기"}
                   </button>
                   {planUserTurns < PLAN_MIN_TURNS && (
                     <p className="mt-1.5 text-center text-[11px] text-zinc-400">
@@ -2848,7 +3212,8 @@ export default function Chat() {
                   )}
                   {planUserTurns >= PLAN_MIN_TURNS && !draftAnswersReady && (
                     <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-5 text-amber-800">
-                      <b>아직 초안을 만들기엔 답변이 부족해요.</b>
+                      <b>지금 내용으로도 초안을 먼저 만들 수 있어요.</b>
+                      <p>부족한 사실과 증거는 초안에 ‘어떤 자료를 어떻게 보충하면 되는지’ 안내로 표시합니다.</p>
                       {draftReadiness?.missing.length ? (
                         <ul className="mt-1 list-disc pl-4">
                           {draftReadiness.missing.slice(0, 3).map((item) => (
@@ -3360,6 +3725,7 @@ function Recommendations({
 function Paywall({
   program,
   paid,
+  admin,
   loggedIn,
   returningFromPayment,
   onRequireLogin,
@@ -3369,6 +3735,7 @@ function Paywall({
 }: {
   program: Program | null;
   paid: boolean;
+  admin: boolean;
   loggedIn: boolean;
   returningFromPayment: boolean;
   onRequireLogin: () => void;
@@ -3379,6 +3746,7 @@ function Paywall({
   const [entered, setEntered] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
+  const [checkoutOpened, setCheckoutOpened] = useState(false);
   const [done, setDone] = useState(false);
   // 결제 진입 전 정책 확인과, 결제 확인 후 유료 맞춤 작성 시작 동의를 분리한다.
   const [refundConsent, setRefundConsent] = useState(false);
@@ -3413,16 +3781,39 @@ function Paywall({
     } catch {
       /* ignore */
     }
+    setCheckoutOpened(true);
     // GA4 퍼널: 그로블 결제 링크 클릭 (③ 결정 — 전환 트리거 측정)
     track("groble_click", { program: program?.title ?? "", price: PRICE_KRW });
+  }
+
+  function clickBundle(e: MouseEvent<HTMLAnchorElement>) {
+    if (!refundConsent) {
+      e.preventDefault();
+      return;
+    }
+    try {
+      localStorage.setItem(CHECKOUT_STARTED_KEY, String(Date.now()));
+    } catch {
+      /* ignore */
+    }
+    setCheckoutOpened(true);
+    track("groble_click", {
+      program: program?.title ?? "",
+      price: BUNDLE_PRICE_KRW,
+      product: "word_presentation_bundle",
+    });
   }
 
   if (paid || done) {
     return (
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-5">
-        <h3 className="text-sm font-bold text-zinc-900">✅ 결제 확인 완료</h3>
+        <h3 className="text-sm font-bold text-zinc-900">
+          {admin ? "🛡️ 관리자 권한 확인 완료" : "✅ 결제 확인 완료"}
+        </h3>
         <p className="mt-1 text-sm leading-6 text-zinc-700">
-          사업계획서 초안 작성 기능이 열렸어요. 이 계정으로 로그인하면 언제든 이용할 수 있어요.
+          {admin
+            ? "관리자 계정은 별도 결제나 주문번호 입력 없이 Word·발표자료 작성 기능을 검증할 수 있어요."
+            : "사업계획서 초안 작성 기능이 열렸어요. 이 계정으로 로그인하면 언제든 이용할 수 있어요."}
         </p>
         {program && (
           <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-emerald-200 bg-white p-3 text-[11px] leading-4 text-zinc-700">
@@ -3434,7 +3825,8 @@ function Paywall({
             />
             <span>
               유료 맞춤 작성 서비스를 시작합니다. 시작 후에는 개인화된 디지털콘텐츠 제공 특성상 관련 법령이
-              허용하는 범위에서 청약철회가 제한될 수 있음을 확인했습니다.{" "}
+              허용하는 범위에서 청약철회가 제한될 수 있음을 확인했습니다. 최초 최종본 1회와 최대 3회의 묶음
+              AI 수정이 포함되며 선정 결과는 보장되지 않음을 확인했습니다.{" "}
               <a href="/refund" target="_blank" rel="noopener noreferrer" className="underline">
                 환불정책 보기
               </a>
@@ -3478,25 +3870,27 @@ function Paywall({
     );
   }
 
+  const paymentStep = returningFromPayment || checkoutOpened;
+
   return (
     <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-5">
       <h3 className="text-lg font-extrabold leading-7 text-zinc-900">
-        {returningFromPayment ? "결제 내역을 연결해 주세요" : "대표님이 들려주신 사업 이야기로"}
-        {!returningFromPayment && (
+        {paymentStep ? "결제 완료 화면의 주문번호를 연결해 주세요" : "대표님이 들려주신 사업 이야기로"}
+        {!paymentStep && (
           <>
             <br />
-            공식 사업계획서 워드 초안을 만듭니다
+            심사 기준에 맞춘 사업계획서를 함께 만듭니다
           </>
         )}
       </h3>
       <p className="mt-1 text-[13px] text-zinc-500">
-        {returningFromPayment
-          ? "이미 결제하셨으므로 다시 결제할 필요가 없습니다."
+        {paymentStep
+          ? "다시 결제하지 마세요. 그로블 결제 완료 화면의 주문번호만 복사하면 됩니다."
           : "결제 전, 무엇을 받는지 마지막으로 확인하세요."}
       </p>
 
       {/* 결제 상품 요약 — 무엇을 사는지 한 박스에 (2026-07-11 디자인수정 §8) */}
-      {!returningFromPayment && <div className="mt-3 overflow-hidden rounded-xl border border-zinc-200 bg-white">
+      {!paymentStep && <div className="mt-3 overflow-hidden rounded-xl border border-zinc-200 bg-white">
         {program && (
           <div className="flex gap-3 border-b border-zinc-100 px-4 py-3 text-sm">
             <span className="shrink-0 font-semibold text-zinc-500">선택한 지원</span>
@@ -3506,20 +3900,22 @@ function Paywall({
         <div className="px-4 py-3">
           <p className="text-xs font-semibold text-zinc-500">{PRICE}에 포함되는 내용</p>
           <ul className="mt-1.5 space-y-1 text-sm leading-6 text-zinc-700">
-            <li>✓ 받은 작성 파일 순서에 맞춘 사업계획서 초안 (Word 파일, 그림 포함)</li>
-            <li>✓ 고객·매출·계약 기록을 담당자가 찾기 쉬운 자리에 배치</li>
-            <li>✓ 복사·수정 가능한 문장</li>
-            <li>✓ 제출 전에 더 확인할 숫자와 자료 안내</li>
+            <li>✓ 공고 평가항목·공식 작성 파일 순서에 맞춘 질문</li>
+            <li>✓ 공식 출처 확인 + 경쟁 후보 최대 5곳 중 가까운 2곳 비교</li>
+            <li>✓ 근거 기반 전략 설계와 A4용 도식 최대 6종 자동선택·목차 배치</li>
+            <li>✓ 완성 초안의 사실 대조·모의심사·근거 충돌·필수 데이터 안내</li>
+            <li>✓ 제출 가능한 상태에서만 수정 가능한 최종 Word 1회 제공</li>
+            <li>✓ 같은 공고·아이템·양식의 묶음 AI 수정 최대 3회</li>
           </ul>
         </div>
         <div className="flex items-center justify-between border-t border-zinc-100 bg-zinc-50 px-4 py-3">
           <span className="text-sm font-bold text-zinc-700">가격</span>
-          <span className="text-base font-extrabold text-zinc-900">1회 생성 {PRICE}</span>
+          <span className="text-base font-extrabold text-zinc-900">최종 Word 1회 + 묶음 수정 3회 · {PRICE}</span>
         </div>
       </div>}
 
       {/* 1단계: 그로블에서 결제 */}
-      {!returningFromPayment && <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3">
+      {!paymentStep && <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3">
         <div className="text-xs font-semibold text-zinc-500">① 그로블에서 결제</div>
 
         {/* 결제 전 유료 제공 범위·환불정책 확인 — 미동의 시 결제 버튼 비활성 */}
@@ -3531,7 +3927,8 @@ function Paywall({
             className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-blue-600"
           />
           <span>
-            유료 제공 범위와 환불정책을 확인했습니다. 결제 후 <b>유료 맞춤 작성을 시작하기 전</b>에는
+            유료 제공 범위, 선정 비보장, 동일 공고·사업아이템·양식에 한한 최대 3회 묶음 수정, 새 공고·아이템
+            변경·전면 재작성은 별도 주문이라는 점과 환불정책을 확인했습니다. 결제 후 <b>유료 맞춤 작성을 시작하기 전</b>에는
             고객문의 채널로 청약철회를 요청할 수 있습니다.{" "}
             <a href="/refund" target="_blank" rel="noopener noreferrer" className="underline">
               환불정책 자세히 보기
@@ -3550,12 +3947,28 @@ function Paywall({
               refundConsent ? "bg-blue-600 hover:bg-blue-700" : "cursor-not-allowed bg-zinc-300"
             }`}
           >
-            {PRICE} 결제하고 초안 생성하기
+            {PRICE} 결제하고 심사형 작성 시작하기
           </a>
         ) : (
           <p className="mt-1.5 text-xs leading-5 text-zinc-500">
             결제 링크 준비 중이에요. 이미 결제하셨다면 아래에 주문번호를 입력해 주세요.
           </p>
+        )}
+        {GROBLE_BUNDLE_CHECKOUT_URL && !paymentStep && (
+          <a
+            href={GROBLE_BUNDLE_CHECKOUT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-disabled={!refundConsent}
+            onClick={clickBundle}
+            className={`mt-2 block rounded-xl border py-3 text-center text-sm font-bold ${
+              refundConsent
+                ? "border-violet-300 bg-violet-50 text-violet-800 hover:bg-violet-100"
+                : "cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-400"
+            }`}
+          >
+            Word + 발표자료 묶음 · {BUNDLE_PRICE_LABEL} (4,900원 할인)
+          </a>
         )}
         <p className="mt-1.5 text-[11px] leading-4 text-zinc-400">
           카드 명세서에는 결제대행사 <b>‘주식회사 페이플’</b>로 표기돼요 (정상 결제입니다).
@@ -3567,9 +3980,9 @@ function Paywall({
       </div>}
 
       {/* 2단계: 주문번호 입력 → 즉시 오픈 */}
-      <div className={`${returningFromPayment ? "mt-4 border-emerald-300" : "mt-2 border-zinc-200"} rounded-xl border bg-white p-3`}>
+      <div className={`${paymentStep ? "mt-4 border-emerald-300" : "mt-2 border-zinc-200"} rounded-xl border bg-white p-3`}>
         <div className="text-xs font-semibold text-zinc-500">
-          {returningFromPayment ? "결제 이메일 자동 확인 후, 필요하면 " : "② 결제 후, "}
+          {paymentStep ? "결제 이메일 자동 확인 후, 필요하면 " : "② 결제 후, "}
           그로블 주문내역의 <b>주문번호(숫자 18~19자리)</b>를 입력하면 즉시 열려요
         </div>
         <p className="mt-1 text-[11px] leading-4 text-zinc-400">
@@ -3604,10 +4017,10 @@ function Paywall({
 
       {/* 신뢰·리스크 완화 문구 (2026-07-11 디자인수정 §8) */}
       <ul className="mt-3 space-y-1 text-[11px] leading-4 text-zinc-500">
-        <li>· 생성된 초안은 직접 복사·수정할 수 있습니다.</li>
+        <li>· {PLAN_OUTCOME_NOTICE}</li>
+        <li>· {PLAN_REVISION_NOTICE}</li>
         <li>· 입력한 사업정보는 초안 생성 목적으로만 사용됩니다.</li>
-        <li>· 결과 보완 기준과 수정 가이드를 함께 제공합니다.</li>
-        <li>· 최종 제출 전에는 사실관계와 증빙자료 확인이 필요합니다.</li>
+        <li>· 사업 구조와 실행 계획을 시각자료로 정리하며, 계획과 확인된 성과를 구분합니다.</li>
       </ul>
 
       <button onClick={onCancel} className="mt-3 text-xs text-zinc-400 hover:underline">
@@ -3621,21 +4034,58 @@ function Paywall({
 function DraftView({
   draft,
   drafting,
+  reviewing,
+  revising,
+  review,
   charts,
+  evidence,
+  revisionStatus,
+  reviewNeedsRefresh,
+  generationStage,
   onDownload,
+  onReview,
+  onRevise,
   eligWarn,
   kitPrompt,
   onRepurchase,
 }: {
   draft: Draft;
   drafting: boolean;
+  reviewing: boolean;
+  revising: boolean;
+  review: PlanReviewReport | null;
   charts: Chart[] | null;
-  onDownload: () => void;
+  evidence: EvidencePack | null;
+  revisionStatus: RevisionStatus | null;
+  reviewNeedsRefresh: boolean;
+  generationStage: string;
+  onDownload: (acknowledgements: FinalAcknowledgements) => void;
+  onReview: () => void;
+  onRevise: (requestNote: string) => void;
   eligWarn?: "미충족" | "불확실" | null;
   kitPrompt: string;
   onRepurchase: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [revisionNote, setRevisionNote] = useState("");
+  const [acknowledgements, setAcknowledgements] = useState<FinalAcknowledgements>({
+    reviewedIssues: false,
+    factsConfirmed: false,
+    outcomeUnderstood: false,
+    revisionPolicyUnderstood: false,
+  });
+  const allAcknowledged = Object.values(acknowledgements).every(Boolean);
+  const submissionReady = Boolean(review?.submissionReady) && !reviewNeedsRefresh;
+  const reviewedDraftReady = Boolean(review) && !reviewNeedsRefresh && draft.sections.every(section => section.content.trim().length >= 250 && !section.content.includes("자동 작성이 완료되지 않았습니다"));
+  const canDownload = reviewedDraftReady && allAcknowledged && !drafting && !reviewing && !revising;
+  useEffect(() => {
+    setAcknowledgements({
+      reviewedIssues: false,
+      factsConfirmed: false,
+      outcomeUnderstood: false,
+      revisionPolicyUnderstood: false,
+    });
+  }, [review]);
   async function copyKitPrompt() {
     try {
       await navigator.clipboard.writeText(kitPrompt);
@@ -3674,13 +4124,61 @@ function DraftView({
         ))}
       </div>
 
-      {drafting && (
-        <p className="mt-3 text-xs text-zinc-400">초안과 도식을 만드는 중이에요…</p>
+      {(drafting || revising) && (
+        <p className="mt-3 text-xs text-zinc-500">
+          {generationStage || (revising
+            ? "심사 의견 중 현재 자료로 고칠 수 있는 문장과 구조를 다시 다듬는 중이에요…"
+            : reviewing
+              ? "초안의 주장과 숫자를 원답변에 대조하고, 심사 위험을 찾는 중이에요…"
+              : "초안과 도식을 만드는 중이에요…")}
+        </p>
+      )}
+
+      {evidence && (
+        <details className="mt-4 rounded-xl border border-blue-200 bg-blue-50/50 p-3" open={evidence.conflicts.length > 0 || evidence.gaps.length > 0}>
+          <summary className="cursor-pointer text-sm font-bold text-zinc-900">
+            근거·경쟁정보 확인 결과 — 출처 {evidence.sources.filter((source) => source.verified).length}개,
+            가까운 경쟁사 {evidence.competitors.length}곳
+          </summary>
+          <p className="mt-2 text-xs leading-5 text-zinc-700">{evidence.summary}</p>
+          {evidence.competitors.length > 0 && (
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {evidence.competitors.map((competitor) => (
+                <a
+                  key={competitor.name}
+                  href={competitor.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-lg border border-blue-100 bg-white p-2 text-xs text-blue-800 hover:underline"
+                >
+                  <b>{competitor.name}</b> — {competitor.selectionReason}
+                </a>
+              ))}
+            </div>
+          )}
+          {(evidence.conflicts.length > 0 || evidence.gaps.length > 0) && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs leading-5 text-amber-900">
+              <b>Word 확정 전에 확인할 내용</b>
+              <ul className="mt-1 list-disc pl-4">
+                {evidence.conflicts.map((item) => <li key={`conflict-${item}`}>근거 충돌: {item}</li>)}
+                {evidence.gaps.map((item) => <li key={item.id}>{item.label} — {item.suggestedAction}</li>)}
+              </ul>
+            </div>
+          )}
+          <div className="mt-2 space-y-1 text-[11px] leading-4 text-zinc-500">
+            {evidence.sources.filter((source) => source.verified).slice(0, 10).map((source) => (
+              <p key={source.id}>
+                [{source.id}] {source.publisher || source.title} · 확인일 {source.checkedAt.slice(0, 10)}{" "}
+                {source.url && <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-blue-700 underline">원문</a>}
+              </p>
+            ))}
+          </div>
+        </details>
       )}
 
       {charts && charts.length > 0 && (
         <div className="mt-4 border-t border-zinc-100 pt-3">
-          <div className="text-sm font-semibold text-zinc-800">📊 포함된 도식</div>
+          <div className="text-sm font-semibold text-zinc-800">📊 사업 내용과 확인할 계획을 정리한 시각자료 {charts.length}/6</div>
           <div className="mt-2 space-y-3">
             {charts.map((c) => (
               <div key={c.key}>
@@ -3691,36 +4189,258 @@ function DraftView({
                   alt={c.title}
                   className="w-full rounded-lg border border-zinc-100"
                 />
+                {c.sourceNote && <p className="mt-1 text-[10px] leading-4 text-zinc-400">출처·기준: {c.sourceNote}</p>}
               </div>
             ))}
           </div>
         </div>
       )}
 
-      <button
-        onClick={onDownload}
-        disabled={drafting}
-        className="mt-4 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-      >
-        {drafting ? "작성이 끝나면 다운로드할 수 있어요…" : "⬇️ Word(.docx)로 다운로드 (도식 포함)"}
-      </button>
-      {/* 허위기재 고지(2026-07-12) — 다운로드 화면 고정 문구, 코드 정적 삽입 */}
-      {!drafting && (
-        <p className="mt-1.5 text-center text-[11px] leading-4 text-zinc-500">
-          ⚠️ 제출 전 모든 수치·실적의 증빙 자료를 확인하세요.
-        </p>
+      <div className="mt-5 border-t border-zinc-100 pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-bold text-zinc-900">심사위원 관점 모의심사</p>
+            <p className="mt-0.5 text-[11px] leading-4 text-zinc-500">
+              합격확률이 아니라 공고·양식·원답변을 기준으로 한 제출 준비도입니다.
+            </p>
+          </div>
+          {review && (
+            <span
+              className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${
+                review.status === "ready"
+                  ? "bg-emerald-100 text-emerald-800"
+                  : review.status === "blocked"
+                    ? "bg-red-100 text-red-800"
+                    : "bg-amber-100 text-amber-800"
+              }`}
+            >
+              {review.reviewCompleted === false ? "검수 미완료" : `${review.score}/100`}
+            </span>
+          )}
+        </div>
+
+        {reviewing ? (
+          <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-3 text-xs leading-5 text-blue-800">
+            초안의 모든 숫자·실적·고객 주장을 대화 원문과 대조하고 있습니다.
+          </div>
+        ) : review ? (
+          <div
+            className={`mt-3 rounded-xl border p-3 ${
+              review.status === "ready"
+                ? "border-emerald-200 bg-emerald-50"
+                : review.status === "blocked"
+                  ? "border-red-200 bg-red-50"
+                  : "border-amber-200 bg-amber-50"
+            }`}
+          >
+            <p className="text-sm font-bold text-zinc-900">
+              {review.status === "ready"
+                ? "제출 전 최종 사실 확인 단계"
+                : review.status === "blocked"
+                  ? "지금은 제출을 보류하고 보완해야 합니다"
+                  : "중요 지적을 고친 뒤 제출해야 합니다"}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-zinc-700">{review.verdict}</p>
+            {reviewNeedsRefresh && (
+              <p className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] leading-5 text-blue-800">
+                새 답변이나 자료가 추가되었습니다. 아래 수정 요청에 “새 자료를 반영해 주세요”라고 적고 누르면
+                근거를 다시 정리해 초안을 보강합니다.
+              </p>
+            )}
+
+            <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+              {review.scores.map((item) => (
+                <div key={item.key} className="rounded-lg border border-black/5 bg-white/80 px-2 py-2">
+                  <p className="text-[10px] leading-4 text-zinc-500">{item.label}</p>
+                  <p className="text-sm font-bold text-zinc-800">
+                    {item.score}/{item.max}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {review.issues.length > 0 && (
+              <div className="mt-3 space-y-2">
+                <p className="text-xs font-bold text-zinc-800">심사에서 먼저 지적될 내용</p>
+                {review.issues.map((item, index) => (
+                  <div key={`${item.section}-${index}`} className="rounded-lg border border-black/5 bg-white/85 p-2.5">
+                    <p className="text-xs font-semibold text-zinc-900">
+                      <span
+                        className={
+                          item.severity === "critical"
+                            ? "text-red-700"
+                            : item.severity === "major"
+                              ? "text-amber-700"
+                              : "text-zinc-500"
+                        }
+                      >
+                        [{item.severity === "critical" ? "치명" : item.severity === "major" ? "중요" : "보완"}]
+                      </span>{" "}
+                      {item.section}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-zinc-700">{item.issue}</p>
+                    <p className="mt-1 text-[11px] leading-4 text-zinc-600">
+                      <b>고치는 방법:</b> {item.action}
+                    </p>
+                    {item.evidenceNeeded && (
+                      <p className="mt-1 text-[11px] leading-4 text-blue-800">
+                        <b>필요 자료:</b> {item.evidenceNeeded}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {review.evidenceChecklist.length > 0 && (
+              <details className="mt-3 rounded-lg border border-black/5 bg-white/80 px-3 py-2">
+                <summary className="cursor-pointer text-xs font-semibold text-zinc-800">
+                  제출 전 준비할 증빙 {review.evidenceChecklist.length}개
+                </summary>
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] leading-4 text-zinc-600">
+                  {review.evidenceChecklist.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+
+            <div className="mt-3 rounded-lg border border-black/5 bg-white/85 p-3">
+              <p className="text-xs font-bold text-zinc-800">자료 보완·묶음 수정</p>
+              <p className="mt-1 text-[11px] leading-4 text-zinc-600">
+                첫 초안은 증거가 없어도 만들 수 있습니다. 나중에 시장조사·고객 대화·매출·계약·실행자료를
+                아래 대화 입력창으로 추가한 뒤, 이 버튼으로 다시 써달라고 요청하세요. 여러 수정 요청은 한 번에
+                적어 제출하면 1회로 처리됩니다.
+              </p>
+              <textarea
+                value={revisionNote}
+                onChange={(event) => setRevisionNote(event.target.value)}
+                rows={3}
+                placeholder="예: 새로 첨부한 고객 인터뷰 3건을 문제인식에 반영하고, 가격표를 수익모델과 예산에 함께 반영해 주세요."
+                className="mt-2 w-full resize-none rounded-lg border border-zinc-200 px-3 py-2 text-xs outline-none focus:border-blue-500"
+              />
+              <p className="mt-1 text-[10px] leading-4 text-zinc-500">
+                {revisionStatus?.deliveredAt
+                  ? `최종본 이후 묶음 수정 ${revisionStatus.remaining}/${revisionStatus.max}회 남음${revisionStatus.expiresAt ? ` · ${revisionStatus.expiresAt.slice(0, 10)}까지` : ""}`
+                  : "첫 최종 Word를 받기 전의 근거 보완은 포함된 수정 3회에서 차감하지 않습니다."}
+              </p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <button
+                  onClick={() => onRevise(revisionNote)}
+                  disabled={revising || reviewing || (review.issues.length === 0 && !revisionNote.trim()) || revisionStatus?.remaining === 0}
+                  className="rounded-xl bg-zinc-900 px-3 py-2.5 text-xs font-bold text-white hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  {revising
+                    ? "묶음 수정 반영 중…"
+                    : reviewNeedsRefresh
+                      ? "새 자료 반영해 초안 다시 만들기"
+                      : "지적·요청 한 번에 반영하기"}
+                </button>
+              <button
+                onClick={onReview}
+                disabled={reviewing || revising}
+                className="rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-xs font-bold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                다시 모의심사하기
+              </button>
+              </div>
+            </div>
+          </div>
+        ) : !drafting && !revising ? (
+          <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-800">
+            모의심사가 아직 완료되지 않았습니다. Word 저장 전에 초안을 다시 심사해 주세요.
+            <button
+              onClick={onReview}
+              className="mt-2 w-full rounded-lg bg-red-700 py-2 text-xs font-bold text-white hover:bg-red-800"
+            >
+              초안 다시 심사하기
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {draft.sections.some(section => !section.content.trim() || section.content.includes("자동 작성이 완료되지 않았습니다")) && !drafting && (
+        <button onClick={() => onRevise("")} className="mt-3 w-full rounded-xl bg-blue-600 p-3 text-sm font-bold text-white">작성되지 않은 항목 다시 만들기</button>
       )}
+      <div className={`mt-4 rounded-xl border p-3 ${submissionReady ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}>
+        <p className="text-sm font-bold text-zinc-900">제출 전 필수 확인</p>
+        {!submissionReady && (
+          <p className="mt-1 text-xs leading-5 text-red-800">
+            현재 문서는 보완 중인 검토용 초안입니다. 지금 상태의 Word를 내려받아 검토할 수 있으며,
+            보완 필요·증빙 필요·근거 충돌을 해결하고 다시 심사하면 제출용 최종본으로 바뀝니다.
+          </p>
+        )}
+        <div className="mt-2 space-y-2">
+          <label className="flex items-start gap-2 text-xs leading-5 text-zinc-700">
+            <input
+              type="checkbox"
+              disabled={!reviewedDraftReady}
+              checked={acknowledgements.reviewedIssues}
+              onChange={(event) => setAcknowledgements((current) => ({ ...current, reviewedIssues: event.target.checked }))}
+              className="mt-1"
+            />
+            <span>화면에 표시된 심사 지적과 근거·경쟁정보 확인 결과를 끝까지 읽었습니다.</span>
+          </label>
+          <label className="flex items-start gap-2 text-xs leading-5 text-zinc-700">
+            <input
+              type="checkbox"
+              disabled={!reviewedDraftReady}
+              checked={acknowledgements.factsConfirmed}
+              onChange={(event) => setAcknowledgements((current) => ({ ...current, factsConfirmed: event.target.checked }))}
+              className="mt-1"
+            />
+            <span>
+              {submissionReady
+                ? "사업계획서의 수치·실적·계약·고객·일정이 실제 자료와 일치함을 직접 확인했습니다."
+                : "아직 확인하지 못한 수치·실적·계약·고객·일정은 검토용 초안에 확인 필요 또는 증거 보충 안내로 표시돼 있음을 확인했습니다."}
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-xs leading-5 text-zinc-700">
+            <input
+              type="checkbox"
+              disabled={!reviewedDraftReady}
+              checked={acknowledgements.outcomeUnderstood}
+              onChange={(event) => setAcknowledgements((current) => ({ ...current, outcomeUnderstood: event.target.checked }))}
+              className="mt-1"
+            />
+            <span>{PLAN_OUTCOME_NOTICE}</span>
+          </label>
+          <label className="flex items-start gap-2 text-xs leading-5 text-zinc-700">
+            <input
+              type="checkbox"
+              disabled={!reviewedDraftReady}
+              checked={acknowledgements.revisionPolicyUnderstood}
+              onChange={(event) => setAcknowledgements((current) => ({ ...current, revisionPolicyUnderstood: event.target.checked }))}
+              className="mt-1"
+            />
+            <span>{PLAN_REVISION_NOTICE}</span>
+          </label>
+        </div>
+        <button
+          onClick={() => onDownload(acknowledgements)}
+          disabled={!canDownload}
+          className="mt-3 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {drafting || reviewing || revising
+            ? "최종 점검이 끝나면 저장할 수 있어요…"
+            : !reviewedDraftReady
+              ? "모의심사 후 Word를 받을 수 있어요"
+              : !allAcknowledged
+                ? "필수 확인 4개를 읽고 체크해 주세요"
+                : submissionReady
+                  ? "⬇️ 제출용 최종 Word(.docx) 받기"
+                  : "⬇️ 현재 내용으로 검토용 Word(.docx) 받기"}
+        </button>
+      </div>
 
       {/* ── 완성 키트 (2026-07-12) — 자가 채점 섹션 뒤 위치 예정, 채점 기능 연결 전까지 초안 하단 ── */}
       {!drafting && (
         <div className="mt-5 space-y-3 border-t border-zinc-100 pt-4">
           <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-4">
-            <p className="text-sm font-bold text-zinc-800">🔍 담당자 관점 제출 전 확인 도구</p>
-            {/* 선언문 — 통계·증빙 안내보다 먼저: 초안은 이미 완성됐음을 못박는다 (2026-07-13) */}
-            <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
-              ✅ 사업계획서 초안 작성은 <b>완료</b>되었습니다. 아래는 초안을 다시 작성하는 도구가
-              아니라, 이후 새 자료·확인 자료가 준비됐을 때 담당자 관점으로 다시 확인하는{" "}
-              <b>제출 전 확인 도구</b>입니다.
+            <p className="text-sm font-bold text-zinc-800">선택: 다른 AI로 한 번 더 교차검토</p>
+            <p className="mt-2 rounded-lg bg-zinc-100 px-3 py-2 text-xs leading-5 text-zinc-700">
+              현재 모의심사 완료 여부는 위 결과를 확인해 주세요. 아래 프롬프트는 새 자료가 생겼거나
+              ChatGPT·Gemini·Claude의 다른 시각으로 한 번 더 확인하고 싶을 때만 사용하세요.
             </p>
             <p className="mt-2 text-xs leading-5 text-zinc-600">
               작성 과정에서 아직 확보 못 한 통계·성과 수치·계약서·매출 자료가 발견될 수 있습니다.
@@ -3826,14 +4546,14 @@ function ReviewModal({
           <div className="py-8 text-center">
             <div className="text-3xl">🙏</div>
             <p className="mt-3 text-sm font-semibold text-zinc-800">
-              후기 감사해요! <b>수정 1회 무료</b>로 도와드릴게요.
+              후기 감사합니다. 포함된 묶음 수정은 후기와 관계없이 이용할 수 있어요.
             </p>
           </div>
         ) : (
           <>
             <h3 className="text-base font-bold text-zinc-900">🎉 초안이 완성됐어요!</h3>
             <p className="mt-1 text-xs leading-5 text-zinc-500">
-              30초만 후기 남겨주시면 <b>수정 1회 무료</b> 드려요.
+              사용 경험을 30초만 들려주세요. 수정 권한과 무관한 선택 후기입니다.
             </p>
 
             {/* 별점 */}
@@ -3911,7 +4631,7 @@ function ReviewModal({
                 disabled={busy}
                 className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {busy ? "보내는 중…" : "후기 보내고 혜택 받기"}
+                {busy ? "보내는 중…" : "후기 보내기"}
               </button>
             </div>
           </>

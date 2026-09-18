@@ -1,0 +1,86 @@
+{
+  "recordedAt": "2026-09-17T15:13:30.000Z",
+  "status": "preview_promotion_gates_verified",
+  "candidateCommit": "d4f7dd2",
+  "previewUrl": "https://ddakfit-operations-preview.vercel.app/operations",
+  "finalHealthyDeployment": {
+    "id": "dpl_2rR3tBQYCr22yuoYG5JsiAoD52Vw",
+    "url": "https://20260607-2gd7880ub-jinjoos-projects.vercel.app",
+    "recoveryRequestId": "dd9b70d1-3cbc-44a8-8506-2baef76ce821",
+    "httpStatus": 200,
+    "revision": 2
+  },
+  "productionDeployed": false,
+  "gitRemotePushed": false,
+  "authorization": {
+    "deploymentId": "dpl_GeA7ZdnHZkuy5DovHhAySsCe4meo",
+    "scenario": "authenticated Google user with empty ADMIN_EMAILS",
+    "httpStatus": 403,
+    "phase": "auth",
+    "requestId": "a9084cb9-e8d8-4943-b8c7-a9f2edca4efb",
+    "storageReached": false,
+    "externalAlertSent": false
+  },
+  "restoreDrill": {
+    "scope": "synthetic preview scope only",
+    "sourceRevision": 2,
+    "sourceAuditCount": 2,
+    "sourceStateSha256": "0e4b3489fd7dc264b3d1f8c33b010c40ff4c01d76fcd3cfd15382cf9fa0b544b",
+    "restoredStateSha256": "0e4b3489fd7dc264b3d1f8c33b010c40ff4c01d76fcd3cfd15382cf9fa0b544b",
+    "restoreMs": 51,
+    "nextRevision": 3,
+    "staleConflict": true,
+    "finalAuditCount": 3,
+    "actorMatches": true,
+    "anonRpcExecute": false,
+    "authenticatedPrivateSchemaUsage": false,
+    "authenticatedPrivateTableSelect": false,
+    "managedFullProjectRestore": false,
+    "scheduledOffsiteBackupConfigured": false
+  },
+  "externalAlert": {
+    "deploymentId": "dpl_UapQZh7Z851ZHBHFKN2skN6fpghs",
+    "failureInjection": "missing synthetic Preview storage capability",
+    "httpStatus": 503,
+    "phase": "read",
+    "requestId": "c4286239-713a-428e-a6ba-ab9407e2afdd",
+    "deliveryOutcome": "sent",
+    "receiver": "existing private BCC Slack channel",
+    "receivedAt": "2026-09-17T15:11:44.050Z",
+    "sameRequestIdObserved": true,
+    "fourHundredAlertSuppressed": true
+  },
+  "oauthRedirect": {
+    "issueFound": true,
+    "rootCause": "Preview embed callback missing from Supabase redirect allowlist",
+    "addedRedirect": "https://ddakfit-operations-preview.vercel.app/embed",
+    "oldSessionSignedOut": true,
+    "newLoginReturnedToPreview": true,
+    "postFixAdminGetStatus": 200
+  },
+  "tests": {
+    "fullReleasePassed": 219,
+    "fullReleaseFailed": 0,
+    "alertRelatedPassed": 61,
+    "alertRelatedFailed": 0,
+    "eslint": "pass",
+    "vercelBuildAndTypeScript": "pass"
+  },
+  "knownLimits": {
+    "authClientAbortMs": 2000,
+    "transientAuthTimeoutObserved": true,
+    "rpcClientAbortMs": 3000,
+    "casLockTimeoutMs": 500,
+    "alertTimeoutMs": 2000,
+    "alertRetries": 0,
+    "durableAlertQueue": false,
+    "supabasePlan": "free"
+  },
+  "remainingProductionGates": [
+    "Automated scheduled offsite database backup and recurring isolated restore drill",
+    "Durable external alerting or independent monitor",
+    "Auth timeout metrics and alerting",
+    "Fresh production-domain deployment and regression verification"
+  ],
+  "secretsRecorded": false
+}

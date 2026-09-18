@@ -219,7 +219,7 @@ export function EvidenceSheetCard({
               → <b>{plainGap(g)}</b>
             </li>
           ))}
-          {FIXED_GAPS.map((g) => (
+          {(sheet.strengths.length > 0 ? FIXED_GAPS : ["고객에게 최근 겪은 불편을 물어보고 답변을 기록하기", "만들기 전에 서비스 설명을 보여주고 반응을 확인할 방법 정하기", "실행 일정과 필요한 비용을 확인해 계획으로 구분하기"]).map((g) => (
             <li key={g} className="text-sm leading-6 text-amber-900">
               → {plainGap(g)}
             </li>
@@ -228,7 +228,7 @@ export function EvidenceSheetCard({
       </div>
 
       <blockquote className="mt-2.5 rounded-xl bg-white px-3.5 py-3 text-[13px] leading-5 text-zinc-700">
-        {SHEET_CLOSING}
+        {sheet.strengths.length > 0 ? SHEET_CLOSING : "아직 확인된 실적은 없습니다. 지금 말할 수 있는 경험과 아이디어로 첫 문서를 만들고, 고객에게 확인할 일은 앞으로의 계획으로 구분합니다. 신청 가능 여부는 공고의 자격요건을 따로 확인해야 합니다."}
       </blockquote>
 
       {/* 무료 구간 종료 경계 — 여기서는 아직 결제를 요구하지 않는다 */}

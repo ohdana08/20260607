@@ -1,0 +1,153 @@
+{
+  "version": 1,
+  "mode": "before",
+  "recordedAt": "2026-09-17T02:49:21.602Z",
+  "environment": {
+    "node": "v24.14.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M4 Pro"
+  },
+  "limits": [
+    "Single-host actual-function benchmark, not deployed HTTP or real DB/AI performance.",
+    "Auth uses fixed 20 ms synthetic transport. Supabase SDK uses synthetic transport and rows.",
+    "Heap sampled after iterations is not total allocation or peak RSS. CPU includes harness overhead.",
+    "No browser measurement. Event-loop delay includes batches and yields; it is not request latency."
+  ],
+  "matching": [
+    {
+      "rows": 300,
+      "fixtureDigest": "f55e5106218bf95b87d1a85465398418e21ab2ba55a4ed4ec6b203456334b7f1",
+      "iterations": 90,
+      "p50Ms": 1.816,
+      "p95Ms": 2.587,
+      "totalCpuMs": 154.678,
+      "wallMs": 142.798,
+      "sampledHeapGrowthBytes": 8456224,
+      "retainedHeapDeltaBytes": 43200,
+      "eventLoopDelayMaxMs": 17.596,
+      "outputDigest": "989470b9d08325aae4958a890555d41d12d4554a764f3164af0d9d07618d6947"
+    },
+    {
+      "rows": 3000,
+      "fixtureDigest": "b2eaa9aa37b01afe6e4bd4172542396d65978a9465edc38ed594cd9cc7a137f5",
+      "iterations": 90,
+      "p50Ms": 17.891,
+      "p95Ms": 23.854,
+      "totalCpuMs": 1397.145,
+      "wallMs": 1369.285,
+      "sampledHeapGrowthBytes": 37912840,
+      "retainedHeapDeltaBytes": 19552,
+      "eventLoopDelayMaxMs": 188.744,
+      "outputDigest": "80f22d34b79701bf4015b148f39f041d2bc02ada7bee5da818dcbc61b2accd8d"
+    },
+    {
+      "rows": 10000,
+      "fixtureDigest": "a58685336f0f9d8b174041226d1c13f6809188189e106e6681c0df2ad7fa1563",
+      "iterations": 90,
+      "p50Ms": 59.763,
+      "p95Ms": 78.36,
+      "totalCpuMs": 4642.435,
+      "wallMs": 4565.911,
+      "sampledHeapGrowthBytes": 73666848,
+      "retainedHeapDeltaBytes": -88224,
+      "eventLoopDelayMaxMs": 535.298,
+      "outputDigest": "ebd7fce24752fed396aebed56ce03eed05982625849fdfc06d2bce1dcbc73cb0"
+    }
+  ],
+  "regionRegexConstructions": {
+    "moduleInitialization": 0,
+    "per3000RowRequest": 66008
+  },
+  "auth": {
+    "iterations": 40,
+    "p50Ms": 43.227,
+    "p95Ms": 44.056,
+    "totalCpuMs": 75.464,
+    "wallMs": 1730.108,
+    "sampledHeapGrowthBytes": 1706752,
+    "retainedHeapDeltaBytes": 14960,
+    "eventLoopDelayMaxMs": 12.354,
+    "outputDigest": "02119b9e4200e9c775469a7f2f71263dcb10643068fb31c4b6e7faac65e7d585",
+    "totalRequestsIncludingWarmup": 45,
+    "authNetworkCalls": 90,
+    "paidRecordReads": 45,
+    "syntheticNetworkDelayMs": 20
+  },
+  "catalog": {
+    "inputRows": 3000,
+    "queryCount": 1,
+    "select": "*",
+    "responseBytes": 1941716,
+    "outputDigest": "0a4d35219e80cb1dbbc9a51b4e57f1967c15b89bb57df1700fcbdd1d09bb6fcb",
+    "sdkAndSyntheticTransportMs": 14.476
+  },
+  "cachePromotion": {
+    "acquire-race": {
+      "reads": 3,
+      "readsAtPromotion": 2,
+      "readsAfterPromotion": 1,
+      "loads": 0,
+      "releases": 1,
+      "first": {
+        "version": 1
+      }
+    },
+    "wait-for-owner": {
+      "reads": 3,
+      "readsAtPromotion": 2,
+      "readsAfterPromotion": 1,
+      "loads": 0,
+      "releases": 0,
+      "first": {
+        "version": 1
+      }
+    }
+  },
+  "deduplication": {
+    "iterations": 50,
+    "p50Ms": 1.158,
+    "p95Ms": 1.543,
+    "totalCpuMs": 70.758,
+    "wallMs": 61.075,
+    "sampledHeapGrowthBytes": 66426680,
+    "retainedHeapDeltaBytes": 21800,
+    "eventLoopDelayMaxMs": 13.754,
+    "outputDigest": "b2eaa9aa37b01afe6e4bd4172542396d65978a9465edc38ed594cd9cc7a137f5"
+  },
+  "snapshotClone": {
+    "iterations": 50,
+    "p50Ms": 1.787,
+    "p95Ms": 2.022,
+    "totalCpuMs": 94.607,
+    "wallMs": 90.758,
+    "sampledHeapGrowthBytes": 65403464,
+    "retainedHeapDeltaBytes": 13816,
+    "eventLoopDelayMaxMs": 19.284,
+    "outputDigest": "b2eaa9aa37b01afe6e4bd4172542396d65978a9465edc38ed594cd9cc7a137f5"
+  },
+  "conversationSerialization": {
+    "bytes": 1053141,
+    "iterations": 50,
+    "p50Ms": 0.325,
+    "p95Ms": 0.362,
+    "totalCpuMs": 19.91,
+    "wallMs": 16.612,
+    "sampledHeapGrowthBytes": 45375760,
+    "retainedHeapDeltaBytes": 15088,
+    "eventLoopDelayMaxMs": 11.469,
+    "outputDigest": "16ac8e9c27362651bdcb0cf5ffb03aec7b785c94a1891875798e1882a59e1994",
+    "browserStorageMeasured": false
+  },
+  "pdfRaster": {
+    "iterations": 15,
+    "p50Ms": 10.907,
+    "p95Ms": 12.573,
+    "totalCpuMs": 169.124,
+    "wallMs": 165.747,
+    "sampledHeapGrowthBytes": 62448,
+    "retainedHeapDeltaBytes": 5464,
+    "eventLoopDelayMaxMs": 110.232,
+    "outputDigest": "3ee3f5214a4179cb731fc44a08a8eaa961e958e2657a0f82a4a83894482e563f"
+  }
+}

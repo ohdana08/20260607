@@ -1,6 +1,8 @@
 import { Redis } from "@upstash/redis";
 import { isMasterCode } from "./access";
 import { getGoogleUser } from "@/lib/auth/googleUser";
+import { PAID_KEY, updateEntitlement } from "./paymentState";
+export { PAID_KEY, ORDER_USED_KEY, VALID_ORDER_KEY } from "./paymentState";
 
 // ── 유료 전환 파이프 (2026-07-09 ③ 결정: 셀프서비스 주문번호 인증) ─────────
 // 코드 체계(ACCESS_CODES)를 대체한다. 흐름:
@@ -19,11 +21,8 @@ function getRedis(): Redis | null {
   return redis;
 }
 
-export const PAID_KEY = (userId: string) => `gp:paid:${userId}`;
-export const ORDER_USED_KEY = (orderNo: string) => `gp:orderused:${orderNo}`;
 export const ORDER_TRIES_KEY = (userId: string) => `gp:ordertries:${userId}`;
 // 그로블 웹훅이 등록하는 "실결제 주문번호 원장" — 여기 있어야만 인증 통과 (실제 결제 검증)
-export const VALID_ORDER_KEY = (orderNo: string) => `gp:validorder:${orderNo}`;
 export const GROBLE_RAW_EVENTS = "gp:groble_raw"; // 최근 웹훅 원본 (스펙 확인/디버깅용)
 
 export interface ValidOrder {
@@ -50,6 +49,7 @@ export function isQaOrder(orderNo: string): boolean {
 export interface AuthedUser {
   id: string;
   email: string;
+  isAdmin: boolean;
 }
 
 // Authorization: Bearer <supabase JWT> 를 통합 회원 시스템에 물어봐 검증한다.
@@ -64,22 +64,16 @@ export interface PaidRecord {
   verifiedAt: string;
   isQa?: boolean; // QA 우회로 인증된 테스트 세션 — 실주문과 구분
   // 이용권 소진(2026-07-13): 첫 초안 생성 시점에 해당 공고에 바인딩.
-  // 같은 공고는 계속 허용(인터뷰 이어가기·docx 재다운로드·수정 1회 무료), 다른 공고는 추가 결제.
+  // 같은 공고는 계속 허용(인터뷰·docx 재다운로드·포함된 묶음 수정), 다른 공고는 추가 결제.
   usedProgramId?: string;
   usedAt?: string;
 }
 
 // 이용권 소진 — 첫 draft 호출 시 공고 1건에 바인딩 (이미 바인딩돼 있으면 유지)
-export async function markCreditUsed(userId: string, programId: string): Promise<void> {
+export async function markCreditUsed(userId: string, programId: string, expectedOrderNo?: string): Promise<boolean> {
   const r = getRedis();
-  if (!r || !programId) return;
-  const paid = await r.get<PaidRecord>(PAID_KEY(userId));
-  if (!paid || paid.usedProgramId) return; // 미결제 또는 이미 바인딩됨
-  await r.set(PAID_KEY(userId), {
-    ...paid,
-    usedProgramId: programId,
-    usedAt: new Date().toISOString(),
-  });
+  if (!r || !programId) return false;
+  return updateEntitlement(r, PAID_KEY(userId), expectedOrderNo, "bind", programId);
 }
 
 export async function getPaidRecord(userId: string): Promise<PaidRecord | null> {
@@ -89,7 +83,7 @@ export async function getPaidRecord(userId: string): Promise<PaidRecord | null> 
 }
 
 export type DraftAccess =
-  | { ok: true; user?: AuthedUser }
+  | { ok: true; user?: AuthedUser; admin: boolean; orderNo?: string }
   | { ok: false; reason: "login_required" | "payment_required" | "credit_used" };
 
 // 초안(유료) 기능 관문 — 다음 중 하나면 통과:
@@ -101,15 +95,18 @@ export async function checkDraftAccess(
   code?: unknown,
   programId?: string,
 ): Promise<DraftAccess> {
-  if (isMasterCode(code)) return { ok: true };
+  if (isMasterCode(code)) return { ok: true, admin: true };
   const user = await getAuthedUser(req);
   if (!user) return { ok: false, reason: "login_required" };
+  // 관리자 계정은 운영 검증용 마스터 코드와 동일하게 주문·공고 바인딩 없이 통과한다.
+  // 사용자 정보를 함께 돌려줘야 관리자 전용 저장공간에 근거팩·심사·발표자료가 이어진다.
+  if (user.isAdmin) return { ok: true, user, admin: true };
   const paid = await getPaidRecord(user.id);
   if (!paid) return { ok: false, reason: "payment_required" };
   if (paid.usedProgramId && programId && paid.usedProgramId !== programId) {
     return { ok: false, reason: "credit_used" };
   }
-  return { ok: true, user };
+  return { ok: true, user, admin: false, orderNo: paid.orderNo };
 }
 
 export function paymentRequiredResponse(

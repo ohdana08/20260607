@@ -1,1 +1,14 @@
 test-fixtures/
+.local/
+.tmp/
+.env*
+.codex/
+.agents/
+docs/
+tests/
+infra/
+*.pem
+*.key
+*.p12
+*.pfx
+*.tsbuildinfo

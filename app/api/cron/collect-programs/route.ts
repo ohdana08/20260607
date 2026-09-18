@@ -1,6 +1,5 @@
-import { NextRequest } from "next/server";
-import { COLLECTABLE_SOURCES, collectSource } from "@/lib/data/collect";
-import { upsertAndDiff } from "@/lib/supabase/programs";
+import type { NextRequest } from "next/server";
+import { runCollection } from "@/lib/data/collectionRun";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,28 +12,5 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const runAt = new Date();
-  const results = await Promise.allSettled(
-    COLLECTABLE_SOURCES.map(async (source) => upsertAndDiff(source, await collectSource(source), runAt)),
-  );
-
-  const failures = results.flatMap((result, index) =>
-    result.status === "rejected"
-      ? [{ source: COLLECTABLE_SOURCES[index], error: String(result.reason) }]
-      : [],
-  );
-  const summaries = results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
-
-  console.log("[collect-programs] summaries", summaries);
-
-  if (failures.length > 0) {
-    console.error("[collect-programs] partial failure", failures);
-  }
-
-  return Response.json({
-    ok: failures.length === 0,
-    runAt: runAt.toISOString(),
-    summaries,
-    failures,
-  });
+  return Response.json(await runCollection());
 }

@@ -1,4 +1,4 @@
-import type { ChatMsg } from "@/lib/llm/provider";
+import type { ChatMsg } from "@/lib/llm/types";
 
 const TRUSTED_DOMAINS = [
   "k-startup.go.kr",
