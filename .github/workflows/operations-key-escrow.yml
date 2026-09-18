@@ -9,11 +9,9 @@ permissions:
 
 jobs:
   escrow:
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.head_ref == 'codex/ddakfit-operations-20260917' &&
-      github.base_ref == 'main' &&
-      github.event.label.name == 'operations-key-escrow-approved'
+    # One-time recovery validation completed in run 35297028060. Keep the
+    # immutable workflow definition as evidence, but permanently close reruns.
+    if: ${{ false }}
     environment: operations-backup
     runs-on: ubuntu-24.04
     timeout-minutes: 5
