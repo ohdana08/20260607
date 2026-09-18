@@ -4,7 +4,15 @@ Implemented on 2026-09-18. This is a logical backup of **one operations scope**,
 
 ## Status and actual evidence
 
-The scripts and workflow are implemented. **The GitHub environment/secrets and opt-in variable have not been configured, no remote artifact was uploaded, and scheduled offsite backup is not active.** A local file copy does not establish GitHub availability, retention, download permissions or external notification delivery.
+The scripts and workflow are implemented. The protected GitHub environment, secrets and opt-in variable are configured. An isolated same-repository PR run uploaded the encrypted snapshot, downloaded it into a different runner directory, verified it and restored it into fresh PostgreSQL 17. **Scheduled offsite backup is not active until the reviewed workflow reaches the default branch.** The independent missing-run monitor and independent key escrow remain activation gates.
+
+Hosted evidence from [GitHub Actions run 35289467761](https://github.com/ohdana08/20260607/actions/runs/35289467761), completed 2026-09-18:
+
+- `operations-backup-35289467761-1` stored the 15,166-byte encrypted snapshot and bounded export report; `operations-backup-verified-35289467761-1` stored the verification and isolated-restore reports. Both artifacts were available for an independent authenticated download after the run and had 30-day expiry metadata.
+- The downloaded archive matched the exported backup ID and digest, decrypted successfully and was 2,235 ms old when verified against the six-hour RPO target.
+- Fresh PostgreSQL 17 restore passed canonical source/restored hash equality, revision/audit `2/2` to `3/3`, stale-CAS rejection, anonymous RPC denial, authenticated private-table denial and disposable database cleanup.
+- `restoreMs=165` and `isolatedDrillMs=456` for the small synthetic scope. Production was not restored and full-service RTO was not measured.
+- The one-time `pull_request` trigger was removed after the run. The final workflow accepts only its six-hour schedule and explicit manual dispatch.
 
 Root independently ran the local PostgreSQL 17 integration after the final subprocess environment allowlist and local TLS fixes:
 
