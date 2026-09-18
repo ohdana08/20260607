@@ -1,0 +1,49 @@
+name: Operations backup key escrow
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/operations-key-escrow.yml'
+      - 'infra/operations/ops-escrow-public.pem'
+
+permissions:
+  contents: read
+
+jobs:
+  escrow:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'codex/ddakfit-operations-20260917'
+    environment: operations-backup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Encrypt the current backup key for independent recovery
+        shell: bash
+        env:
+          OPS_BACKUP_KEY_BASE64: ${{ secrets.OPS_BACKUP_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$OPS_BACKUP_KEY_BASE64"
+          mkdir -p "$RUNNER_TEMP/operations-key-escrow"
+          printf '%s' "$OPS_BACKUP_KEY_BASE64" |
+            openssl pkeyutl -encrypt -pubin \
+              -inkey infra/operations/ops-escrow-public.pem \
+              -pkeyopt rsa_padding_mode:oaep \
+              -pkeyopt rsa_oaep_md:sha256 \
+              -out "$RUNNER_TEMP/operations-key-escrow/backup-key.rsa-oaep"
+          test -s "$RUNNER_TEMP/operations-key-escrow/backup-key.rsa-oaep"
+          test "$(stat -c '%a' "$RUNNER_TEMP/operations-key-escrow/backup-key.rsa-oaep")" = 600
+      - name: Upload encrypted escrow copy
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: operations-key-escrow-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/operations-key-escrow/backup-key.rsa-oaep
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
