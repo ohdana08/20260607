@@ -796,13 +796,13 @@ assert.equal(
 );
 const previousMasterCodes = process.env.MASTER_CODES;
 process.env.MASTER_CODES = "REVIEW-ONLY-MASTER";
-assert.equal(
-  await paidGoogleLoginGate(
-    new Request("https://example.com/api/plan/readiness"),
-    "REVIEW-ONLY-MASTER",
-  ),
-  null,
-  "등록된 운영자 마스터 코드는 Google 세션 없이 유료 심사 흐름을 점검할 수 있어야 함",
+const masterBypass = await paidGoogleLoginGate(
+  new Request("https://example.com/api/plan/readiness"),
+  "REVIEW-ONLY-MASTER",
+);
+assert.ok(
+  masterBypass instanceof Response && masterBypass.status === 401,
+  "마스터 코드만으로는 Google 세션 없이 유료 흐름에 들어갈 수 없어야 함 (2026-11-09 우회 제거)",
 );
 if (previousMasterCodes === undefined) delete process.env.MASTER_CODES;
 else process.env.MASTER_CODES = previousMasterCodes;

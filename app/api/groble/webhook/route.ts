@@ -1,9 +1,9 @@
 import { Redis } from "@upstash/redis";
-import { isMasterCode } from "@/lib/plan/access";
 import {
   GROBLE_RAW_EVENTS,
   ORDER_NO_RE,
   VALID_ORDER_KEY,
+  getAuthedUser,
   type ValidOrder,
 } from "@/lib/plan/paidAccess";
 import { cancelOrder, registerOrder } from "@/lib/plan/paymentState";
@@ -213,18 +213,18 @@ export async function POST(req: Request) {
   return Response.json({ ok: true, orderNo, action: "registered" });
 }
 
-// GET — 운영자 확인용 (마스터코드 또는 웹훅 키):
-//   ?code=<마스터코드>              → 최근 웹훅 원본 10건
-//   ?code=<마스터코드>&register=<18~19자리> → 주문번호 수동 등록 (웹훅 유실·과거 결제 대조 후)
-//   ?key=<웹훅키>                   → 원본 조회만 가능 (파서 디버깅용, 수동 등록은 마스터코드만)
+// GET — 운영자 확인용 (Google 로그인 관리자 또는 웹훅 키). 마스터코드(?code=)는 2026-11-09 제거.
+//   관리자 로그인 세션                → 최근 웹훅 원본 10건
+//   관리자 로그인 세션 + ?register=<18~19자리> → 주문번호 수동 등록 (웹훅 유실·과거 결제 대조 후)
+//   ?key=<웹훅키>                     → 원본 조회만 가능 (파서 디버깅용, 수동 등록은 관리자만)
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const master = isMasterCode(url.searchParams.get("code"));
-  if (!master && !keyOk(req)) {
+  const admin = (await getAuthedUser(req))?.isAdmin === true;
+  if (!admin && !keyOk(req)) {
     return Response.json({ error: "forbidden" }, { status: 403 });
   }
-  if (!master && url.searchParams.get("register")) {
-    return Response.json({ error: "manual register requires master code" }, { status: 403 });
+  if (!admin && url.searchParams.get("register")) {
+    return Response.json({ error: "manual register requires admin login" }, { status: 403 });
   }
   const r = getRedis();
   if (!r) return Response.json({ error: "storage unavailable" }, { status: 503 });

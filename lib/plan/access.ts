@@ -13,18 +13,9 @@ export function isValidCode(code: unknown): boolean {
   return valid.includes(entered);
 }
 
-// 마스터 코드: 사업에 묶이지 않고 무제한 사용 가능한 운영자 전용 코드.
-// Vercel 환경변수 MASTER_CODES 에 콤마로 구분해 넣는다.
-export function isMasterCode(code: unknown): boolean {
-  if (typeof code !== "string") return false;
-  const entered = code.trim().toUpperCase();
-  if (!entered) return false;
-  const list = (process.env.MASTER_CODES ?? "")
-    .split(",")
-    .map((c) => c.trim().toUpperCase())
-    .filter(Boolean);
-  return list.includes(entered);
-}
+// 운영자 마스터 코드(MASTER_CODES) 우회는 2026-11-09 제거 — Codex Security High.
+// URL(?code=)로 전달되는 값 하나로 로그인·결제를 건너뛰는 구조였다.
+// 운영자 점검은 Google 로그인 + ADMIN_EMAILS 계정(isAdmin)으로만 한다.
 
 // ── 코드 ↔ 지원사업 1:1 바인딩 (Upstash) ─────────────────────────────────
 // 코드는 "처음 사용한 지원사업 하나"에만 묶인다. 그 사업계획서는 계속 수정 가능하지만,
@@ -44,8 +35,6 @@ export async function checkCodeForProgram(
   code: unknown,
   programId: unknown,
 ): Promise<CodeCheck> {
-  // 마스터 코드는 항상 통과 + 사업에 묶지 않음 (운영자 테스트용)
-  if (isMasterCode(code)) return { ok: true };
   if (!isValidCode(code)) return { ok: false, reason: "invalid" };
   const r = getRedis();
   // Redis 없거나 사업 식별자 없으면 바인딩 생략(유효성만으로 통과 — 안전 폴백)

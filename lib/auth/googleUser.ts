@@ -1,6 +1,5 @@
 import { AUTH_ANON_KEY, AUTH_URL } from "./config.ts";
 import { isLocalReviewMatchRequest } from "./localReview.ts";
-import { isMasterCode } from "../plan/access.ts";
 
 export interface GoogleUser {
   id: string;
@@ -148,9 +147,9 @@ export async function googleLoginGate(req: Request): Promise<Response | null> {
   );
 }
 
-// 운영자 마스터 코드는 원래 결제·공고 바인딩 없이 유료 흐름을 점검하는 수단이다.
-// 유료 라우트가 로그인 검사를 먼저 실행해 이 경로를 막지 않도록, 등록된 마스터 코드만 예외 처리한다.
-export async function paidGoogleLoginGate(req: Request, code: unknown): Promise<Response | null> {
-  if (isMasterCode(code)) return null;
+// 유료 라우트 로그인 관문. 마스터 코드 예외는 2026-11-09 제거(Codex Security High) —
+// 운영자 점검도 Google 로그인 + 관리자 계정으로 한다. 시그니처는 호출부 호환을 위해 유지.
+export async function paidGoogleLoginGate(req: Request, _code?: unknown): Promise<Response | null> {
+  void _code;
   return googleLoginGate(req);
 }

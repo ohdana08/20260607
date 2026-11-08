@@ -609,10 +609,7 @@ export default function Chat() {
   // 첫 진입: UTM 캡처(/embed 직접 유입 시 URL에서 읽어 sessionStorage 보관)
   useEffect(() => {
     captureUtm();
-    const params = new URLSearchParams(window.location.search);
-    // 운영자 테스트용: ?code=마스터코드 로 접속하면 결제 없이 초안 관문 통과
-    const mc = params.get("code");
-    if (mc) setCode(mc);
+    // ?code=마스터코드 URL 우회는 2026-11-09 제거 — 운영자 점검은 관리자 계정 로그인으로.
     // 그로블 결제 완료 화면의 '도우미로 돌아가기'로 복귀하면 주문번호 입력창만 바로 연다.
     const fromGroble = isReturningFromPayment({
       search: window.location.search,

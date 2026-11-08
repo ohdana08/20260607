@@ -1,5 +1,4 @@
 import { Redis } from "@upstash/redis";
-import { isMasterCode } from "./access";
 import { getGoogleUser } from "@/lib/auth/googleUser";
 import { PAID_KEY, updateEntitlement } from "./paymentState";
 export { PAID_KEY, ORDER_USED_KEY, VALID_ORDER_KEY } from "./paymentState";
@@ -87,18 +86,17 @@ export type DraftAccess =
   | { ok: false; reason: "login_required" | "payment_required" | "credit_used" };
 
 // 초안(유료) 기능 관문 — 다음 중 하나면 통과:
-//   1) 마스터 코드 (운영자 테스트용, 기존과 동일)
+//   1) 로그인한 관리자 계정(ADMIN_EMAILS / app_metadata) — 마스터 코드 우회는 2026-11-09 제거
 //   2) 로그인 + 주문번호 인증 완료(is_paid) + 이용권 미소진 또는 같은 공고 (2026-07-13)
 // 가격 정책: 이용권 1건 = 사업계획서 초안 1건. 다른 공고는 추가 결제 필요.
 export async function checkDraftAccess(
   req: Request,
-  code?: unknown,
+  _code?: unknown,
   programId?: string,
 ): Promise<DraftAccess> {
-  if (isMasterCode(code)) return { ok: true, admin: true };
   const user = await getAuthedUser(req);
   if (!user) return { ok: false, reason: "login_required" };
-  // 관리자 계정은 운영 검증용 마스터 코드와 동일하게 주문·공고 바인딩 없이 통과한다.
+  // 관리자 계정은 주문·공고 바인딩 없이 통과한다(운영 검증용).
   // 사용자 정보를 함께 돌려줘야 관리자 전용 저장공간에 근거팩·심사·발표자료가 이어진다.
   if (user.isAdmin) return { ok: true, user, admin: true };
   const paid = await getPaidRecord(user.id);

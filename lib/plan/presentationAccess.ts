@@ -1,5 +1,4 @@
 import { Redis } from "@upstash/redis";
-import { isMasterCode } from "./access";
 import { getAuthedUser, getPaidRecord, type AuthedUser } from "./paidAccess";
 import { PRESENTATION_PAID_KEY, updateEntitlement } from "./paymentState";
 export { PRESENTATION_PAID_KEY } from "./paymentState";
@@ -95,10 +94,9 @@ export type PresentationAccess =
 
 export async function checkPresentationAccess(
   req: Request,
-  code?: unknown,
+  _code?: unknown,
   programId?: string,
 ): Promise<PresentationAccess> {
-  if (isMasterCode(code)) return { ok: true, admin: true };
   const user = await getAuthedUser(req);
   if (!user) return { ok: false, reason: "login_required" };
   if (user.isAdmin) return { ok: true, user, admin: true };

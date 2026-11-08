@@ -9,7 +9,6 @@ import {
 } from "@/lib/config";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
-import { isMasterCode } from "@/lib/plan/access";
 import {
   getAuthedUser,
   getPaidRecord,
@@ -46,24 +45,6 @@ function bundleConfigured(): boolean {
 }
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  if (isMasterCode(url.searchParams.get("code"))) {
-    return Response.json({
-      paid: true,
-      loggedIn: false,
-      configured: productConfigured(),
-      bundleConfigured: bundleConfigured(),
-      source: "qa",
-      revision: {
-        max: 2,
-        used: 0,
-        remaining: 2,
-        deliveredAt: null,
-        expiresAt: null,
-        expired: false,
-      },
-    });
-  }
   const user = await getAuthedUser(req);
   if (!user) {
     return Response.json({
