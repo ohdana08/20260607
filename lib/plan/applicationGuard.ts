@@ -36,12 +36,17 @@ export function decideDraftApplication(
     applicationKindReason: input.applicationKindReason,
   };
   const result = classifyApplicationKind(program);
-  if (documentConfirmed && result.requiresBusinessPlan !== false) {
+  // 2026-11-08: 사용자가 안내문·작성 양식·기존 초안을 직접 올렸으면 그 문서가 AI 제출유형 판정보다 우선한다.
+  // (AI가 공고를 간단 신청으로 추정해 false를 내도, 실제 양식을 가진 사용자의 결제·작성을 막지 않는다.)
+  if (documentConfirmed) {
     return {
       ok: true,
       applicationKind: "business-plan",
       requiresBusinessPlan: true,
-      reason: "업로드한 작성 양식 또는 이미 생성된 사업계획서 목차에서 제출 문서를 확인했습니다.",
+      reason:
+        result.requiresBusinessPlan === false
+          ? "AI 판정은 간단 신청이었지만, 업로드한 안내문·작성 양식을 우선해 사업계획서 제출로 처리합니다."
+          : "업로드한 작성 양식 또는 이미 생성된 사업계획서 목차에서 제출 문서를 확인했습니다.",
     };
   }
   return {

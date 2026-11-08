@@ -44,6 +44,7 @@ export type GaEvent =
   | "view_diagnosis_result" // 진단 결과 화면(맛보기) 도달
   | "view_diagnosis_report" // (구) 진단 리포트 도달 — 호환 유지
   | "click_pay" // 유료 초안 버튼 클릭 (price 파라미터는 lib/config.ts의 판매가 사용)
+  | "pay_blocked" // 결제 버튼을 눌렀으나 제출유형 미확인·간단신청 판정으로 안내만 표시 (2026-11-08)
   | "complete_payment" // 구 호출 호환: plan_session_start로 교정, 결제 아님
   | "complete_draft" // 유료 초안 생성 완료
   | "review_prompt_shown" // 후기 팝업 노출

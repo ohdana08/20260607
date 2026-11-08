@@ -1866,12 +1866,28 @@ export default function Chat() {
   // 결제 트리거 — PRICE_LABEL 가격 버튼. 초안 미리보기를 확인한 뒤에만 도달한다. (// TODO: PG 연동 자리)
   // 이메일은 진단 전 게이트에서 이미 받았으므로 결제 단계에선 추가 가입을 받지 않는다.
   async function clickPay() {
-    if (!selectedProgram || selectedProgram.requiresBusinessPlan !== true) {
-      alert(
-        selectedProgram?.requiresBusinessPlan === false
-          ? "이 지원은 긴 사업계획서가 필요하지 않아요. 공식 안내문에서 바로 신청해 주세요."
-          : "긴 사업계획서가 필요한 지원인지 무료 확인부터 해주세요.",
-      );
+    // 2026-11-08: AI 제출유형 판정(requiresBusinessPlan)이 false/null이어도 사용자가 안내문·작성 양식을
+    // 직접 올렸으면 그 문서를 우선한다(서버 관문 decideDraftApplication과 동일 기준). 차단이 필요할 때도
+    // alert()로 화면을 멈추지 않고 대화창 안내로 대체한다.
+    const documentConfirmed = Boolean(docSummary || formToc.length);
+    if (!selectedProgram || (selectedProgram.requiresBusinessPlan !== true && !documentConfirmed)) {
+      track("pay_blocked", {
+        program: selectedProgram?.title ?? "",
+        reason: selectedProgram?.requiresBusinessPlan === false ? "simple-application" : "unknown-kind",
+      });
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content:
+            selectedProgram?.requiresBusinessPlan === false
+              ? "지금까지 확인한 내용으로는 이 지원은 긴 사업계획서 없이 신청하는 유형으로 보여요. 그래도 사업계획서 양식을 제출해야 한다면, 공고의 안내문이나 작성 양식 파일을 올려 주세요. 그 문서를 기준으로 바로 이어서 진행할 수 있어요."
+              : "긴 사업계획서가 실제 제출서류인지 아직 확인되지 않았어요. 공고 안내문이나 작성 양식 파일을 올려 주시면 바로 확인하고 이어서 진행할게요.",
+        },
+      ]);
+      setTimeout(() => {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+      }, 100);
       return;
     }
     track("click_pay", { price: PRICE_KRW });
