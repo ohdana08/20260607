@@ -1,9 +1,33 @@
-// GA4 측정 헬퍼 — 모든 핵심 퍼널 이벤트를 한 곳에서 발화한다.
-// 측정 ID는 공개돼도 되는 값이므로 NEXT_PUBLIC_* 로 둔다. (비밀 아님)
-// GTM이 깔려 있으면 dataLayer로, GA4(gtag)가 직접 깔려 있으면 gtag로 보낸다.
-// 둘 다 없으면(로컬 등) 조용히 무시한다.
+// G-5TN5XW0T2J는 홈페이지·블로그와 공유하는 기존 BCC 스트림이다.
+// ddakfit 식별자와 hostname으로 분리하며 두 전송 경로를 동시에 사용하지 않는다.
+import { captureUtm, getAttribution, readUtm } from "./utm";
+import { GROBLE_CHECKOUT_URL, GROBLE_PRESENTATION_CHECKOUT_URL, GROBLE_BUNDLE_CHECKOUT_URL } from "./config";
+
+function checkoutItemId(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || !["groble.im", "www.groble.im"].includes(url.hostname)) return "";
+    return /^\/payment\/([A-Za-z0-9_-]+)$/.exec(url.pathname)?.[1] ?? "";
+  } catch { return ""; }
+}
+
+// Public URLs are available in the client; server-only product env is not.
+export const CHECKOUT_ITEM_IDS: Readonly<Record<"word" | "presentation" | "word_presentation_bundle", string>> = {
+  word: checkoutItemId(GROBLE_CHECKOUT_URL),
+  presentation: checkoutItemId(GROBLE_PRESENTATION_CHECKOUT_URL),
+  word_presentation_bundle: checkoutItemId(GROBLE_BUNDLE_CHECKOUT_URL),
+};
 
 export type GaEvent =
+  | "page_view"
+  | "auth_gate_view"
+  | "login_start"
+  | "login"
+  | "login_error"
+  | "plan_session_start"
+  | "paywall_view"
+  | "begin_checkout" // 구 호출 호환: checkout_link_click로 교정. 결제창 내부 시작과 구분.
+  | "checkout_link_click"
   // 앞단(이메일 캡처) 퍼널
   | "view_landing" // 랜딩 진입
   | "submit_email" // 이메일 캡처 완료
@@ -20,13 +44,13 @@ export type GaEvent =
   | "view_diagnosis_result" // 진단 결과 화면(맛보기) 도달
   | "view_diagnosis_report" // (구) 진단 리포트 도달 — 호환 유지
   | "click_pay" // 유료 초안 버튼 클릭 (price 파라미터는 lib/config.ts의 판매가 사용)
-  | "complete_payment" // 결제 완료 (// TODO: PG연동 후)
+  | "complete_payment" // 구 호출 호환: plan_session_start로 교정, 결제 아님
   | "complete_draft" // 유료 초안 생성 완료
   | "review_prompt_shown" // 후기 팝업 노출
   | "review_submitted" // 후기 작성 완료
   | "review_public_consent" // 후기 공개 동의
-  // 유료 전환 파이프(2026-07-09 ③ 결정, G-5TN5XW0T2J 속성에서 측정)
-  | "sign_up" // 진입 회원가입 완료 (가입 전환율)
+  // 유료 전환 파이프 — 공유 BCC 스트림의 ddakfit 트래픽
+  | "sign_up" // 구 호출 호환: login_start로 교정, 가입 성공 아님
   | "groble_click" // 그로블 결제 링크 버튼 클릭
   | "order_verified" // 주문번호 인증 완료 (is_paid 전환)
   // 합격 가능성 진단(2026-07-10 확정 설계)
@@ -73,23 +97,186 @@ export type GaEvent =
   | "modoo_official_apply_click"; // 공식 온라인 지원서 이동
 
 type GtagWindow = Window & {
-  dataLayer?: Record<string, unknown>[];
+  dataLayer?: unknown[];
   gtag?: (...args: unknown[]) => void;
+  ddakfitGaIds?: Set<string>;
+  ddakfitAnalyticsIdentity?: "pending" | "guest" | "member" | "excluded";
 };
 
-export function track(event: GaEvent, params: Record<string, unknown> = {}): void {
-  if (typeof window === "undefined") return;
-  const w = window as GtagWindow;
+export const BCC_GA_ID = "G-5TN5XW0T2J";
+export function measurementIds(primary = process.env.NEXT_PUBLIC_GA_ID): string[] {
+  const id = primary || BCC_GA_ID;
+  return /^G-[A-Z0-9]+$/.test(id) ? [id] : [];
+}
+
+// In-memory only; store already-filtered snapshots, never caller-owned/raw params.
+const pendingEvents: Array<{ event: GaEvent; params: Record<string, unknown> }> = [];
+const PENDING_LIMIT = 20;
+const PENDING_EVENTS = new Set<GaEvent>([
+  "scope_intro_view", "plain_flow_step_view", "auth_gate_view", "chat_started",
+  "diagnosis_start", "plain_flow_answer",
+]);
+
+function analyticsEnvironmentAllowed(): boolean {
+  if (typeof window === "undefined") return false;
+  if (process.env.NODE_ENV !== "production") return false;
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== "production") return false;
+  if (process.env.NEXT_PUBLIC_VERCEL_ENV && process.env.NEXT_PUBLIC_VERCEL_ENV !== "production") return false;
+  if (window.location.hostname !== "ddakfit.bccconsulting.kr") return false;
+  if (window.location.pathname === "/operations" || window.location.pathname.startsWith("/operations/")) return false;
+  if ((window as GtagWindow).ddakfitAnalyticsIdentity === "excluded") return false;
   try {
-    // GTM 경유 (권장) — GTM 안에서 GA4 이벤트로 전달하도록 트리거 구성
-    if (Array.isArray(w.dataLayer)) {
-      w.dataLayer.push({ event, ...params });
+    const q = new URLSearchParams(window.location.search);
+    if (["qa", "admin", "code", "review", "localReview"].some(k => q.has(k))) {
+      sessionStorage.setItem("gp_analytics_excluded", "1");
+      return false;
     }
-    // gtag(GA4)가 직접 있으면 함께 발화 (GTM 미구성 시 안전망)
-    if (typeof w.gtag === "function") {
-      w.gtag("event", event, params);
+    return sessionStorage.getItem("gp_analytics_excluded") !== "1";
+  } catch { return false; }
+}
+
+export function analyticsAllowed(): boolean {
+  if (!analyticsEnvironmentAllowed()) return false;
+  const identity = (window as GtagWindow).ddakfitAnalyticsIdentity;
+  if (identity === "pending") return false;
+  if (window.location.pathname === "/embed" || window.location.pathname.startsWith("/embed/")) {
+    return identity === "member" || identity === "guest";
+  }
+  return true;
+}
+
+function notifyAnalyticsState(): void {
+  try { window.dispatchEvent?.(new Event("ddakfit-analytics-state")); } catch { /* analytics must not block auth */ }
+}
+
+export function excludeAnalytics(): void {
+  pendingEvents.length = 0;
+  try { sessionStorage.setItem("gp_analytics_excluded", "1"); } catch { /* storage blocked */ }
+  if (typeof window !== "undefined") {
+    (window as GtagWindow).ddakfitAnalyticsIdentity = "excluded";
+    notifyAnalyticsState();
+  }
+}
+
+export function setAnalyticsIdentity(identity: "pending" | "guest" | "member" | "excluded"): void {
+  if (typeof window === "undefined") return;
+  if (identity === "excluded") { excludeAnalytics(); return; }
+  const w = window as GtagWindow;
+  if (w.ddakfitAnalyticsIdentity === "excluded") { pendingEvents.length = 0; return; }
+  if (identity === "pending" && w.ddakfitAnalyticsIdentity !== "pending") pendingEvents.length = 0;
+  w.ddakfitAnalyticsIdentity = identity;
+  if (identity === "member" || identity === "guest") {
+    // Drain before notification so a re-entrant render cannot replay twice.
+    const queued = pendingEvents.splice(0);
+    if (analyticsAllowed()) for (const entry of queued) emitEvent(entry.event, entry.params);
+  }
+  notifyAnalyticsState();
+}
+
+export function safePageLocation(): string {
+  const url = new URL(window.location.pathname, window.location.origin);
+  const utm = readUtm(new URLSearchParams(window.location.search));
+  for (const [key, value] of Object.entries(utm)) url.searchParams.set(`utm_${key}`, value);
+  return url.toString();
+}
+
+export function initializeAnalytics(): boolean {
+  if (!analyticsAllowed()) return false;
+  const ids = measurementIds();
+  if (!ids.length) return false;
+  const w = window as GtagWindow;
+  w.dataLayer ??= [];
+  // Keep Google's canonical command queue shape until gtag.js downloads.
+  // eslint-disable-next-line prefer-rest-params
+  w.gtag ??= function () { w.dataLayer!.push(arguments); };
+  if (!w.ddakfitGaIds) {
+    w.ddakfitGaIds = new Set();
+    w.gtag("js", new Date());
+  }
+  for (const id of ids) {
+    if (w.ddakfitGaIds.has(id)) continue;
+    w.gtag("config", id, { send_page_view: false, page_location: safePageLocation(), page_referrer: "", page_title: "ddakfit", site_id: "ddakfit", app_id: "ddakfit" });
+    w.ddakfitGaIds.add(id);
+  }
+  return true;
+}
+
+function safeParams(params: Record<string, unknown>): Record<string, unknown> {
+  const clean: Record<string, unknown> = {};
+  for (const key of ["count", "file_count", "rating", "price", "faq_index"]) {
+    const v = params[key];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1e8) clean[key] = v;
+  }
+  if (typeof params.more === "boolean") clean.more = params.more;
+  const enums: Record<string, string[]> = {
+    method: ["google"], product: ["word", "presentation", "word_presentation_bundle"],
+    path: ["find", "direct"], mode: ["button"],
+    location: ["nav", "hero", "mobile", "pricing_free", "pricing_paid", "pricing_bundle", "final", "top_notice", "draft_result"],
+    step: ["scope", "path", "chosen", "find-years", "find-region", "find-type", "find-sector", "find-desc", "find-results", "notice", "form", "form-pick", "diagnosis", "result", "handoff", "preview", "business_start", "region", "needed_help", "next_goal", "business_description"],
+    value: ["provided", "skipped"], demo_type: ["early", "pre", "b2g"],
+    stage: ["oauth", "finder", "diagnosis", "draft", "checkout"], error_code: ["oauth_failed", "network", "unavailable"],
+  };
+  for (const [key, values] of Object.entries(enums)) if (typeof params[key] === "string" && values.includes(params[key] as string)) clean[key] = params[key];
+  return clean;
+}
+
+export function track(event: GaEvent, params: Record<string, unknown> = {}): void {
+  if ((event as string) === "purchase" || (event as string) === "refund") return;
+  try {
+    if (!analyticsEnvironmentAllowed()) { pendingEvents.length = 0; return; }
+    if (!analyticsAllowed() && !PENDING_EVENTS.has(event)) return;
+    captureUtm();
+    const attribution = getAttribution();
+    const clean = safeParams(params);
+    if (event === "begin_checkout" || event === "checkout_link_click") {
+      if (!clean.product || typeof clean.price !== "number" || clean.price <= 0) return;
+      clean.currency = "KRW";
+      clean.value = clean.price;
+      const itemId = CHECKOUT_ITEM_IDS[clean.product as keyof typeof CHECKOUT_ITEM_IDS];
+      if (!itemId) return; // Unconfigured products must not invent a purchase item ID.
+      clean.items = [{ item_id: itemId, price: clean.price, quantity: 1 }];
     }
+    for (const kind of ["first", "latest"] as const) {
+      for (const [key, value] of Object.entries(attribution[kind])) clean[`${kind}_${key}`] = value;
+    }
+    const payload = { ...clean, site_id: "ddakfit", app_id: "ddakfit", send_to: measurementIds().join(","),
+      page_location: safePageLocation(), page_referrer: "", page_title: "ddakfit", transport_type: "beacon" };
+    if (!analyticsAllowed()) {
+      if (pendingEvents.length < PENDING_LIMIT) pendingEvents.push({ event, params: payload });
+      return;
+    }
+    emitEvent(event, payload);
   } catch {
     /* 측정 실패는 기능에 영향 주지 않음 */
   }
+}
+
+function emitEvent(event: GaEvent, payload: Record<string, unknown>): void {
+  try {
+    if (!initializeAnalytics()) return;
+    const name = event === "sign_up" ? "login_start" : event === "complete_payment" ? "plan_session_start" : event === "checkout_start" ? "paywall_view" : event === "begin_checkout" ? "checkout_link_click" : event;
+    // Queue gtag commands only. Never also push a GTM custom-event object.
+    (window as GtagWindow).gtag!("event", name, payload);
+  } catch { /* queued analytics failures must not interrupt authentication */ }
+}
+
+const LOGIN_INTENT_KEY = "gp_login_intent_v1";
+export function recordLoginStart(): void {
+  try { sessionStorage.setItem(LOGIN_INTENT_KEY, String(Date.now())); } catch { /* ignore */ }
+  track("login_start", { method: "google" });
+}
+
+export function recordLoginSuccess(googleSession: boolean): void {
+  if (!googleSession) return;
+  try {
+    const started = Number(sessionStorage.getItem(LOGIN_INTENT_KEY));
+    sessionStorage.removeItem(LOGIN_INTENT_KEY);
+    if (!started || Date.now() - started < 0 || Date.now() - started > 10 * 60 * 1000) return;
+    track("login", { method: "google" });
+  } catch { /* no intent means no inferred success */ }
+}
+
+export function trackCheckout(product: "word" | "presentation" | "word_presentation_bundle", price: number): void {
+  if (!Number.isFinite(price) || price <= 0) return;
+  track("checkout_link_click", { product, price });
 }

@@ -26,7 +26,8 @@ import {
   PLAN_OUTCOME_NOTICE,
   PLAN_REVISION_NOTICE,
 } from "@/lib/plan/productPolicy";
-import { track } from "@/lib/ga";
+import { track, trackCheckout, excludeAnalytics } from "@/lib/ga";
+import { openAttributedCheckout } from "@/lib/analytics/checkoutClient";
 import { captureUtm, getLeadSource } from "@/lib/utm";
 import {
   CHECKOUT_STARTED_KEY,
@@ -1673,14 +1674,14 @@ export default function Chat() {
 
   // 추천을 거치지 않고, 사용자가 가진 공고문/양식으로 바로 시작 → 위저드 '공고 입력'부터
   function startDirect() {
-    track("plan_writing_started", { program: "직접 올린 안내문·작성 파일" });
+    track("plan_writing_started", { path: "direct" });
     makeCustomProgram();
     setWizardStart("notice");
   }
 
   // ① (무료) 추천에서 공고 선택 → 위저드 '공고 입력'부터 (2026-07-12 단계형 전환)
   function chooseProgram(p: Program) {
-    track("plan_writing_started", { program: p.title ?? "" });
+    track("plan_writing_started", { path: "find" });
     setSelectedProgram(p);
     persistProgram(p);
     setMode("fitcheck");
@@ -1796,7 +1797,7 @@ export default function Chat() {
     setMode("diagnose");
     resetEvidence();
     if (!evMap) void loadEvidenceMap();
-    track("start_diagnosis", { program: selectedProgram?.title ?? "" });
+    track("start_diagnosis");
     setMessages((m) => [...m, { role: "assistant", content: DIAGNOSE_INTRO }]);
   }
 
@@ -1821,9 +1822,7 @@ export default function Chat() {
       { role: "user", content: `[신청 준비 확인] 한 달 평균 판매 금액: ${revenue} / 지금까지 해낸 일: ${items.join(", ")}` },
     ]);
     track("evidence_check", {
-      items: items.join(","),
       count: realItems.length,
-      revenue,
     });
 
     if (isPreStage(items)) {
@@ -1850,7 +1849,7 @@ export default function Chat() {
       const sheet = buildSheet(evMap ?? [], items);
       setEvResult({ kind: "sheet", sheet });
       setKitSheet(sheet); // 완성 키트용 — 결제 후에도 유지
-      track("view_diagnosis_result", { program: selectedProgram?.title ?? "" });
+      track("view_diagnosis_result");
     }
     setTimeout(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -1860,7 +1859,7 @@ export default function Chat() {
   // 무료 결과 → 초안 미리보기 (2026-07-11 디자인수정 3순위)
   // 결제 전에 목차·예시 문장을 먼저 보여준다. 여기서는 아직 결제를 요구하지 않는다.
   function openPreview() {
-    track("draft_preview_click", { program: selectedProgram?.title ?? "" });
+    track("draft_preview_click");
     setPreviewOpen(true);
     setTimeout(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -1878,8 +1877,7 @@ export default function Chat() {
       );
       return;
     }
-    track("click_pay", { program: selectedProgram?.title ?? "", price: PRICE_KRW });
-    track("checkout_start", { program: selectedProgram?.title ?? "", price: PRICE_KRW });
+    track("click_pay", { price: PRICE_KRW });
     // 이미 결제 확인(is_paid)된 계정: 이용권 소진 상태를 확인하고 진입 (2026-07-13)
     // 이용권 1건 = 초안 1건 — 다른 공고에 이미 사용했으면 추가 결제(paywall)로 라우팅.
     if (paid && selectedProgram) {
@@ -1888,6 +1886,7 @@ export default function Chat() {
         const d = (await res.json().catch(() => ({}))) as { usedProgramId?: string | null };
         if (d?.usedProgramId && d.usedProgramId !== selectedProgram.id) {
           setNeedsRepurchase(true); // 이 공고는 소진된 이용권으로는 못 씀 — 새 주문번호 입력폼 노출
+          track("paywall_view", { price: PRICE_KRW });
           setMode("paywall");
           return;
         }
@@ -1897,6 +1896,7 @@ export default function Chat() {
       await enterPlanMode(selectedProgram);
       return;
     }
+    track("paywall_view", { price: PRICE_KRW });
     setMode("paywall");
   }
 
@@ -1908,8 +1908,8 @@ export default function Chat() {
     if (planKickoffRef.current === kickoffKey) return;
     planKickoffRef.current = kickoffKey;
 
-    // 결제 완료 측정 — 현재는 코드 검증 통과 시점. (// TODO: PG 연동 후 실제 결제 완료로 교체)
-    if (!admin) track("complete_payment", { program: p.title ?? "", price: PRICE_KRW });
+    // 작성 세션 진입이지 구매가 아니다. 구매는 서버의 확인된 실결제에서만 전송한다.
+    if (!admin) track("plan_session_start");
     setWizardStart(null); // 위저드 종료 → 결제 후 작성은 챗에서 이어간다
     try {
       sessionStorage.removeItem(PLAN_OUTPUT_KEY);
@@ -2055,6 +2055,7 @@ export default function Chat() {
         /* ignore */
       }
       // GA4 퍼널: 재구매 갱신과 최초 전환은 다른 이벤트로 구분 (QA 테스트 세션은 둘 다 측정 제외)
+      if (data.isQa) excludeAnalytics();
       if (!data.isQa) {
         if (data.renewed) track("repurchase_verified", { price: PRICE_KRW });
         else track("order_verified", { price: PRICE_KRW });
@@ -2317,7 +2318,7 @@ export default function Chat() {
           setMessages(prev => [...prev, { role: "assistant", content: repaired?.error || "자동 보완을 완료하지 못했습니다. 작성된 본문과 심사 결과를 보존했으니 아래에서 다시 보완할 수 있어요." }]);
         }
       }
-      track("complete_draft", { program: selectedProgram.title });
+      track("complete_draft");
       if (!reviewDone) {
         track("review_prompt_shown");
         setReviewOpen(true);
@@ -2952,7 +2953,7 @@ export default function Chat() {
               sheet={evResult.sheet}
               onPay={clickPay}
               onBack={() => setPreviewOpen(false)}
-              onView={() => track("draft_preview_view", { program: selectedProgram?.title ?? "" })}
+              onView={() => track("draft_preview_view")}
             />
           ) : (
             <EvidenceSheetCard sheet={evResult.sheet} onPreview={openPreview} />
@@ -3096,7 +3097,7 @@ export default function Chat() {
                       href={l.href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      onClick={() => track("open_official_link", { name: l.label })}
+                      onClick={() => track("open_official_link")}
                       className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-blue-700 hover:bg-blue-50"
                     >
                       {l.label} ↗
@@ -3783,7 +3784,9 @@ function Paywall({
     }
     setCheckoutOpened(true);
     // GA4 퍼널: 그로블 결제 링크 클릭 (③ 결정 — 전환 트리거 측정)
-    track("groble_click", { program: program?.title ?? "", price: PRICE_KRW });
+    track("groble_click", { price: PRICE_KRW });
+    trackCheckout("word", PRICE_KRW);
+    void openAttributedCheckout(e, authedHeaders);
   }
 
   function clickBundle(e: MouseEvent<HTMLAnchorElement>) {
@@ -3798,10 +3801,11 @@ function Paywall({
     }
     setCheckoutOpened(true);
     track("groble_click", {
-      program: program?.title ?? "",
       price: BUNDLE_PRICE_KRW,
       product: "word_presentation_bundle",
     });
+    trackCheckout("word_presentation_bundle", BUNDLE_PRICE_KRW);
+    void openAttributedCheckout(e, authedHeaders);
   }
 
   if (paid || done) {

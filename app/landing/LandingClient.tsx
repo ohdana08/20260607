@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { track } from "@/lib/ga";
+import { track, trackCheckout } from "@/lib/ga";
+import { openAttributedCheckout } from "@/lib/analytics/checkoutClient";
+import { authedHeaders } from "@/components/auth/AuthGate";
 import { captureUtm } from "@/lib/utm";
 import { isReturningFromPayment } from "@/lib/paymentReturn";
 import {
@@ -194,7 +196,7 @@ export default function LandingClient() {
   function toggleFaq(i: number) {
     const next = openFaq === i ? null : i;
     setOpenFaq(next);
-    if (next !== null) track("faq_open", { question: FAQS[i].q });
+    if (next !== null) track("faq_open", { faq_index: i });
   }
 
   return (
@@ -682,7 +684,11 @@ export default function LandingClient() {
                   href={PAID_CHECKOUT_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={() => track("cta_paid_checkout", { location: "pricing_paid" })}
+                  onClick={(event) => {
+                    track("cta_paid_checkout", { location: "pricing_paid" });
+                    trackCheckout("word", PRICE_KRW);
+                    void openAttributedCheckout(event, authedHeaders);
+                  }}
                 >
                   근거 기반 사업계획서 만들기 · {PRICE_LABEL}
                 </a>
@@ -692,11 +698,11 @@ export default function LandingClient() {
                     href={GROBLE_BUNDLE_CHECKOUT_URL}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => track("cta_paid_checkout", {
-                      location: "pricing_bundle",
-                      price: BUNDLE_PRICE_KRW,
-                      product: "word_presentation_bundle",
-                    })}
+                    onClick={(event) => {
+                      track("cta_paid_checkout", { location: "pricing_bundle", price: BUNDLE_PRICE_KRW, product: "word_presentation_bundle" });
+                      trackCheckout("word_presentation_bundle", BUNDLE_PRICE_KRW);
+                      void openAttributedCheckout(event, authedHeaders);
+                    }}
                   >
                     Word + 발표자료 묶음 · {BUNDLE_PRICE_LABEL}
                   </a>

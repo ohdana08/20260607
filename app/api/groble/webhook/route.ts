@@ -15,9 +15,10 @@ export const dynamic = "force-dynamic";
 // 그로블 Pro → 설정 → 웹훅에 아래 URL을 등록한다:
 //   https://ddakfit.bccconsulting.kr/api/groble/webhook?key=<GROBLE_WEBHOOK_KEY>
 // 지원 이벤트: 일반결제 완료 / 일반결제 취소 요청 / 정기결제 완료 / 정기결제 해지 신청
-// 그로블이 서명을 제공하지 않으므로 URL 안의 비밀 key 로 위조를 차단한다.
+// 기존 권한 계약은 URL 비밀 key 검사를 유지한다. 현재 Groble 공식 문서는
+// HMAC 서명을 제공하며, 새 analytics 경로는 이를 추가로 검증한다.
 //
-// 페이로드 필드 스펙이 비공개라 방어적으로 파싱한다:
+// 기존 호환 파서는 아래 방어적 경로를 보존한다(analytics는 공개 공식 스키마로 엄격 검증):
 //   1) 흔한 필드명 후보에서 주문번호를 찾고
 //   2) 없으면 페이로드 전체에서 18~19자리 숫자 패턴을 찾는다
 //   3) 원본은 gp:groble_raw 에 최근 100건 보관 (스펙 확인·디버깅용)
@@ -123,6 +124,9 @@ export async function POST(req: Request) {
   if (!r) return Response.json({ error: "storage unavailable" }, { status: 503 });
 
   let payload: unknown = null;
+  // Analytics validates Groble HMAC against these exact bytes. The existing
+  // entitlement/key/forward behavior below is deliberately left unchanged.
+  const rawBody = new Uint8Array(await req.clone().arrayBuffer());
   try {
     payload = await req.json();
   } catch {
@@ -191,6 +195,20 @@ export async function POST(req: Request) {
   } catch {
     console.error(JSON.stringify({ event: "payment_forward", result: "failed" }));
     return Response.json({ error: "downstream unavailable" }, { status: 502 });
+  }
+  try {
+    // Analytics stays opt-in: even populated secrets must not activate it
+    // alongside unverified native Groble GA4 or affect the entitlement pipeline.
+    const analytics = process.env.GA4_PURCHASE_MODE !== "server_exclusive"
+      ? { status: "disabled", retry: false }
+      : process.env.GA4_MP_API_SECRET && process.env.GROBLE_WEBHOOK_SIGNING_SECRET
+        ? await (await import("@/lib/analytics/server")).reportPurchase({ payload, rawBody, headers: req.headers, redis: r })
+        : { status: "unconfigured", retry: false };
+    console.info(JSON.stringify({ event: "analytics_purchase", result: analytics.status, site_id: "ddakfit" }));
+    if (analytics.retry) return Response.json({ error: "analytics retry pending" }, { status: 503 });
+  } catch {
+    console.error(JSON.stringify({ event: "analytics_purchase", result: "retry", site_id: "ddakfit" }));
+    return Response.json({ error: "analytics retry pending" }, { status: 503 });
   }
   return Response.json({ ok: true, orderNo, action: "registered" });
 }

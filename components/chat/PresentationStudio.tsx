@@ -7,7 +7,8 @@ import {
   PRESENTATION_PRICE_KRW,
   PRESENTATION_PRICE_LABEL,
 } from "@/lib/config";
-import { track } from "@/lib/ga";
+import { track, trackCheckout, excludeAnalytics } from "@/lib/ga";
+import { openAttributedCheckout } from "@/lib/analytics/checkoutClient";
 import type { Program } from "@/lib/match/types";
 import type { PlanDocxSection } from "@/lib/plan/documentTypes";
 import {
@@ -266,7 +267,8 @@ export default function PresentationStudio({
       });
       const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string; isQa?: boolean } | null;
       if (!res.ok || !data?.ok) throw new Error(data?.error ?? "발표자료 결제를 확인하지 못했어요.");
-      track("presentation_order_verified", { price: PRESENTATION_PRICE_KRW });
+      if (data.isQa) excludeAnalytics();
+      if (!data.isQa) track("presentation_order_verified", { price: PRESENTATION_PRICE_KRW });
       setOrderNo("");
       await refreshOrderStatus();
     } catch (caught) {
@@ -307,7 +309,7 @@ export default function PresentationStudio({
     setStarted(true);
     setBusy(true);
     setError("");
-    track("presentation_interview_start", { program: program.title });
+    track("presentation_interview_start");
     try {
       await requestTurn(
         [{
@@ -368,7 +370,7 @@ export default function PresentationStudio({
     if ((!progress && !revisionMode) || generating) return;
     setGenerating(true);
     setError("");
-    track("presentation_outline_generate", { program: program.title });
+    track("presentation_outline_generate");
     try {
       const res = await fetch("/api/plan/presentation/generate", {
         method: "POST",
@@ -436,9 +438,7 @@ export default function PresentationStudio({
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-      track(format === "pptx" ? "presentation_pptx_download" : "presentation_pdf_download", {
-        program: program.title,
-      });
+      track(format === "pptx" ? "presentation_pptx_download" : "presentation_pdf_download");
       await refreshOrderStatus();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "발표자료 파일을 만들지 못했어요.");
@@ -459,7 +459,7 @@ export default function PresentationStudio({
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-    track("presentation_brief_download", { program: program.title });
+    track("presentation_brief_download");
   }
 
   if (!orderStatus) {
@@ -529,7 +529,9 @@ export default function PresentationStudio({
                 event.preventDefault();
                 return;
               }
-              track("presentation_checkout_click", { price: PRESENTATION_PRICE_KRW, program: program.title });
+              track("presentation_checkout_click", { price: PRESENTATION_PRICE_KRW });
+              trackCheckout("presentation", PRESENTATION_PRICE_KRW);
+              void openAttributedCheckout(event, authedHeaders);
             }}
             className={purchaseConsent
               ? "mt-3 block rounded-xl bg-violet-700 py-3.5 text-center text-sm font-bold text-white hover:bg-violet-800"

@@ -6,12 +6,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { createClient, type SupabaseClient, type Session } from "@supabase/supabase-js";
 import { AUTH_URL, AUTH_ANON_KEY } from "@/lib/auth/config";
-import { track } from "@/lib/ga";
+import { track, recordLoginStart, recordLoginSuccess, setAnalyticsIdentity } from "@/lib/ga";
 
 // 딱지원핏의 안내 랜딩은 공개하되 실제 도우미(/embed)는 Google 로그인이 필수다.
 // BCC 홈페이지와 같은 Supabase 프로젝트를 사용하므로 기존 결제·수강 계정과 연결된다.
@@ -92,20 +93,31 @@ export default function AuthGate({
   const [session, setSession] = useState<Session | null>(null);
   const [paid, setPaid] = useState(false);
   const [admin, setAdmin] = useState(false);
+  const identityTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     const sb = authClient();
+    function acceptSession(current: Session | null) {
+      const google = isGoogleSession(current);
+      const nextToken = google ? current.access_token : null;
+      if (allowLocalReview) setAnalyticsIdentity("excluded");
+      else if (!google) setAnalyticsIdentity("guest");
+      else if (identityTokenRef.current !== nextToken) setAnalyticsIdentity("pending");
+      identityTokenRef.current = nextToken;
+      setSession(google ? current : null);
+    }
     sb.auth.getSession().then(async ({ data }) => {
       const current = data.session ?? null;
       if (current && !isGoogleSession(current)) await sb.auth.signOut();
-      setSession(isGoogleSession(current) ? current : null);
+      acceptSession(current);
       setReady(true);
     });
     const { data: sub } = sb.auth.onAuthStateChange((_e, s) => {
-      setSession(isGoogleSession(s) ? s : null);
+      // Repeated SIGNED_IN/INITIAL_SESSION notifications for one token are idempotent.
+      acceptSession(s);
     });
     return () => sub.subscription.unsubscribe();
-  }, []);
+  }, [allowLocalReview]);
 
   // 로그인되면 결제 확인 상태를 서버에서 1회 조회
   useEffect(() => {
@@ -117,17 +129,30 @@ export default function AuthGate({
       });
       return;
     }
+    let active = true;
     fetch("/api/order/verify", { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error("auth_classification_unavailable");
+        return r.json();
+      })
       .then((d) => {
+        if (!active) return;
+        // Authorization state comes from verify, never from successful analytics.
         setPaid(Boolean(d?.paid));
         setAdmin(Boolean(d?.admin));
+        if (d?.admin || d?.isQa) setAnalyticsIdentity("excluded");
+        else {
+          setAnalyticsIdentity("member");
+          recordLoginSuccess(true); // session state only accepts confirmed Google sessions
+        }
       })
       .catch(() => {});
+    return () => { active = false; };
   }, [session?.access_token]);
 
   const signOut = useCallback(async () => {
     await authClient().auth.signOut();
+    setAnalyticsIdentity("guest");
     setSession(null);
     setPaid(false);
     setAdmin(false);
@@ -179,11 +204,12 @@ export function AuthModal({ onClose }: { onClose: () => void; onDone?: () => voi
 function AuthCard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  useEffect(() => { track("auth_gate_view"); }, []);
 
   async function signInWithGoogle() {
     setBusy(true);
     setError("");
-    track("sign_up", { method: "google" });
+    recordLoginStart();
     const redirectTo = `${window.location.origin}${window.location.pathname}${window.location.search}`;
     const { error: oauthError } = await authClient().auth.signInWithOAuth({
       provider: "google",
@@ -193,6 +219,7 @@ function AuthCard() {
       },
     });
     if (oauthError) {
+      track("login_error", { stage: "oauth", error_code: "oauth_failed" });
       setError("Google 로그인 창을 열지 못했어요. 잠시 후 다시 시도해 주세요.");
       setBusy(false);
     }

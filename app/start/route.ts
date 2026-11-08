@@ -11,7 +11,10 @@ export function GET(request: NextRequest) {
   const destination = new URL("/landing", request.url);
 
   Object.entries(TRACKING_PARAMS).forEach(([key, value]) => {
-    destination.searchParams.set(key, value);
+    // Functional redirect preserves provided attribution; GA applies its own filter.
+    // An existing empty/rejected value is not a missing Threads campaign.
+    destination.searchParams.set(key, request.nextUrl.searchParams.has(key)
+      ? request.nextUrl.searchParams.get(key)! : value);
   });
 
   request.nextUrl.searchParams.forEach((value, key) => {
