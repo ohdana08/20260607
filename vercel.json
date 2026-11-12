@@ -1,13 +1,27 @@
 {
   "functions": {
     "app/api/queues/operations-alert/route.ts": {
-      "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "operations-alerts-v1", "retryAfterSeconds": 30 }]
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "operations-alerts-v1",
+          "retryAfterSeconds": 30
+        }
+      ]
     }
   },
   "crons": [
     {
       "path": "/api/cron/collect-programs",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/push-daily",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/push-weekly",
+      "schedule": "0 0 * * 1"
     }
   ]
 }

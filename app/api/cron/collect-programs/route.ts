@@ -3,7 +3,7 @@ import { runCollection } from "@/lib/data/collectionRun";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 // Vercel Cron and the one-off release check both authenticate with CRON_SECRET.
 export async function GET(req: NextRequest) {

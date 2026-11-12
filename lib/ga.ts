@@ -19,6 +19,12 @@ export const CHECKOUT_ITEM_IDS: Readonly<Record<"word" | "presentation" | "word_
 };
 
 export type GaEvent =
+  | "entry_conditions_submit"
+  | "entry_results_view"
+  | "push_optin"
+  | "push_optout"
+  | "pwa_install_prompt"
+  | "pwa_install_complete"
   | "page_view"
   | "auth_gate_view"
   | "login_start"
@@ -215,7 +221,7 @@ function safeParams(params: Record<string, unknown>): Record<string, unknown> {
     location: ["nav", "hero", "mobile", "pricing_free", "pricing_paid", "pricing_bundle", "final", "top_notice", "draft_result"],
     step: ["scope", "path", "chosen", "find-years", "find-region", "find-type", "find-sector", "find-desc", "find-results", "notice", "form", "form-pick", "diagnosis", "result", "handoff", "preview", "business_start", "region", "needed_help", "next_goal", "business_description"],
     value: ["provided", "skipped"], demo_type: ["early", "pre", "b2g"],
-    stage: ["oauth", "finder", "diagnosis", "draft", "checkout"], error_code: ["oauth_failed", "network", "unavailable"],
+    stage: ["available", "shown", "oauth", "finder", "diagnosis", "draft", "checkout"], error_code: ["oauth_failed", "network", "unavailable"],
   };
   for (const [key, values] of Object.entries(enums)) if (typeof params[key] === "string" && values.includes(params[key] as string)) clean[key] = params[key];
   return clean;

@@ -20,6 +20,15 @@ export async function runCollection(runAt = new Date()) {
     log("collection_source_started", { source, stage });
     try {
       const items = await collectSource(source);
+      // Opt-in only. Read the existing ID baseline before persistence so enabling
+      // this feature cannot summarize the historical catalogue on every run.
+      let newEntryPrograms: typeof items = [];
+      if (process.env.ENTRY_SUMMARY_ENABLED === "true") {
+        try {
+          const { findNewEntryPrograms } = await import("@/lib/entry/summarizeNew");
+          newEntryPrograms = await findNewEntryPrograms(items);
+        } catch { log("entry_summary_baseline_unavailable", { source }, true); }
+      }
       stage = "persist";
       log("collection_source_persisting", { source, stage, collected: items.length, durationMs: Date.now() - sourceStarted });
       const summary = await upsertAndDiff(source, items, runAt);
@@ -27,6 +36,12 @@ export async function runCollection(runAt = new Date()) {
         source, outcome: items.length ? "success" : "empty", durationMs: Date.now() - sourceStarted,
         seen: summary.seen, new: summary.new, closed: summary.closed, deadlineChanged: summary.deadlineChanged,
       });
+      if (newEntryPrograms.length) {
+        try {
+          const { summarizeNewEntryPrograms } = await import("@/lib/entry/summarizeNew");
+          await summarizeNewEntryPrograms(newEntryPrograms);
+        } catch { log("entry_summary_unavailable", { source }, true); }
+      }
       return summary;
     } catch (error) {
       log("collection_source_failed", { source, stage, durationMs: Date.now() - sourceStarted, ...collectionErrorFields(error) }, true);

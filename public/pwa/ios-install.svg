@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="190" viewBox="0 0 620 190" role="img" aria-label="1 공유 버튼, 2 홈 화면에 추가, 3 추가한 딱지원핏 아이콘 열기">
+<rect width="620" height="190" rx="20" fill="#edf3f0"/>
+<g font-family="system-ui,sans-serif" text-anchor="middle" fill="#163b32">
+<rect x="45" y="26" width="105" height="98" rx="14" fill="white"/><path d="M80 69v28h35V69M97 82V44m-13 14 13-14 13 14" fill="none" stroke="#163b32" stroke-width="4"/>
+<text x="97" y="153" font-size="17">① 공유</text><text x="200" y="85" font-size="28">→</text>
+<rect x="253" y="26" width="105" height="98" rx="14" fill="white"/><rect x="286" y="51" width="39" height="43" rx="5" fill="none" stroke="#163b32" stroke-width="3"/><path d="M306 61v24m-12-12h24" stroke="#163b32" stroke-width="3"/>
+<text x="305" y="153" font-size="17">② 홈 화면에 추가</text><text x="410" y="85" font-size="28">→</text>
+<rect x="465" y="26" width="105" height="98" rx="14" fill="#163b32"/><text x="517" y="86" font-size="29" font-weight="700" fill="white">BCC</text>
+<text x="517" y="153" font-size="17">③ 아이콘 열기</text></g></svg>
