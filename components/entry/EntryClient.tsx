@@ -102,7 +102,7 @@ export default function EntryClient() {
         {error && conditions && <button className="entry-secondary" disabled={busy} onClick={() => void loadResults(conditions)}>다시 불러오기</button>}
       </section> : <section className="entry-results">
         <p className="entry-eyebrow">조건 확인 완료</p><h1 ref={heading} tabIndex={-1}>{results.length ? "이 공고부터 확인해 보세요" : "지금은 맞는 공고가 없어요"}</h1>
-        <p className="entry-lede">{results.length ? `조건에 맞는 공고 ${total}건 중 ${results.length}건이에요.` : "새 공고가 들어오면 다시 찾아드릴게요."}</p>
+        <p className="entry-lede">{results.length ? `조건에 맞는 공고 ${total}건 중 ${results.length}건이에요.` : conditions?.business === "pre" ? "지금 예비창업자가 받을 수 있는 지원금 공고는 모집 중인 게 없어요. 큰 창업 지원금은 보통 연초에 열려요. 알림을 켜 두시면 열리는 날 바로 알려 드릴게요." : "지금 모집 중인 지원금 공고가 없어요. 알림을 켜 두시면 새 공고가 열리는 날 알려 드릴게요."}</p>
         <p className="entry-caution">네 가지 조건으로 찾은 후보예요. 최종 신청 자격과 지원금은 원문에서 확인해 주세요.</p>
         <div className="entry-cards">{results.map(card => <NoticeCard key={card.id} card={card} />)}</div>
         <button className="entry-text-button" onClick={() => { setResults(null); setStep(0); setAlerts(false); }}>조건 다시 고르기</button>

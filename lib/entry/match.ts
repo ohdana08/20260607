@@ -56,7 +56,7 @@ function yearsMatches(text: string, business: EntryConditions["business"]): bool
 }
 function industryMatches(text: string, industry: EntryConditions["industry"]): boolean {
   const mentioned = Object.entries(INDUSTRY).filter(([, re]) => re.test(text)).map(([key]) => key);
-  if (!mentioned.length) return !/농업|어업|농어|축산|관광|콘텐츠|문화예술|게임|바이오|건설|의료/.test(text);
+  if (!mentioned.length) return !/농업|어업|농어|축산|비료|농가|농업인|어업인|임업|관광|콘텐츠|문화예술|게임|바이오|건설|의료/.test(text);
   return mentioned.includes(industry);
 }
 /** Conservative candidates, not a certification of all notice-specific eligibility.
