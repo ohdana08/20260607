@@ -78,5 +78,28 @@ export function matchEntryPrograms(programs: Program[], conditions: EntryConditi
     if (/여성|장애인|재창업|재기|폐업|사회적기업|협동조합|소셜벤처|투자유치|수출\s*실적|인증\s*(기업|필수)|특허\s*보유/.test(text)) return false;
     if (!regionMatches(p, conditions) || !ageMatches(text, conditions.age) || !yearsMatches(p.target, conditions.business) || !industryMatches(text, conditions.industry)) return false;
     seen.add(p.id); return true;
-  }).sort((a, b) => (a.applyEnd ?? "9999").localeCompare(b.applyEnd ?? "9999") || a.id.localeCompare(b.id));
+  }).map((p) => ({ p, score: entryRelevance(p, conditions, today) }))
+    .sort((a, b) => b.score - a.score || (a.p.applyEnd ?? "9999").localeCompare(b.p.applyEnd ?? "9999") || a.p.id.localeCompare(b.p.id))
+    .map(({ p }) => p);
+}
+function addDays(day: string, n: number): string {
+  const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10);
+}
+/** Ranking only (eligibility filtering above is unchanged): show notices a customer
+ * can still prepare for and that speak to their situation before generic ones. */
+export function entryRelevance(p: Program, c: EntryConditions, today: string): number {
+  const text = `${p.title} ${p.target}`;
+  let score = 0;
+  if (REGION_ALIASES[c.region].some((name) => p.region.includes(name) || p.title.includes(name))) score += 3;
+  if (INDUSTRY[c.industry].test(text)) score += 2;
+  if (c.business === "pre" && /예비\s*창업/.test(text)) score += 2;
+  if (c.business === "under_3" && /창업|초기/.test(text)) score += 2;
+  if (c.business !== "pre" && /소상공인/.test(text) && c.industry !== "tech") score += 1;
+  if (c.industry !== "tech" && /연구개발|기술개발|R&D|기술사업화|대상과제/i.test(p.title)) score -= 3;
+  // A local agency notice under a national source label is probably for that city.
+  const local = p.title.match(/([가-힣]{2,4})(시|군|구)\s*(산업진흥원|창업|청년|소상공인|경제진흥)/);
+  if (local && !REGION_ALIASES[c.region].some((name) => p.title.includes(name))) score -= 3;
+  const deadline = entryDate(p.applyEnd);
+  if (deadline && deadline <= addDays(today, 2)) score -= 4; // too late to prepare an application
+  return score;
 }
