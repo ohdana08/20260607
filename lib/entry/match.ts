@@ -75,12 +75,21 @@ export function matchEntryPrograms(programs: Program[], conditions: EntryConditi
     // Four coarse answers cannot resolve nested exceptions or negative lists.
     // Omit such notices rather than turn an excluded industry into a match.
     if (/제외|불가|지원\s*불가|신청\s*불가/.test(text)) return false;
+    // Owner decision 2026-11-16: money only (grants, subsidies, loans, vouchers, cost support),
+    // not classes, seminars, office space, mentoring, consulting or certification.
+    if (!isFundingNotice(p)) return false;
     if (/여성|장애인|재창업|재기|폐업|사회적기업|협동조합|소셜벤처|투자유치|수출\s*실적|인증\s*(기업|필수)|특허\s*보유/.test(text)) return false;
     if (!regionMatches(p, conditions) || !ageMatches(text, conditions.age) || !yearsMatches(p.target, conditions.business) || !industryMatches(text, conditions.industry)) return false;
     seen.add(p.id); return true;
   }).map((p) => ({ p, score: entryRelevance(p, conditions, today) }))
     .sort((a, b) => b.score - a.score || (a.p.applyEnd ?? "9999").localeCompare(b.p.applyEnd ?? "9999") || a.p.id.localeCompare(b.p.id))
     .map(({ p }) => p);
+}
+const NOT_FUNDING = /교육|강좌|강의|세미나|과정|스쿨|아카데미|설명회|특강|워크숍|워크샵|포럼|캠프|입주|보육|멘토링|컨설팅|코칭|인증|포상|시상|공모전|경진대회|채용|박람회\s*참관|행사|네트워킹|데모데이|IR\s*피칭|모의|체험/;
+const FUNDING = /지원금|보조금|자금|융자|대출|보증|이차보전|사업화|바우처|지원사업|경비\s*지원|비용\s*지원|사업비|출연|투자|최대\s*[\d,.]+\s*(만|억)\s*원|[\d,.]+\s*(만|억)\s*원/;
+export function isFundingNotice(p: Program): boolean {
+  if (NOT_FUNDING.test(p.title)) return false;
+  return FUNDING.test(`${p.title} ${p.summary} ${p.target}`);
 }
 function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10);
