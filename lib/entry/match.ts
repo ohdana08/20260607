@@ -99,6 +99,9 @@ export function entryRelevance(p: Program, c: EntryConditions, today: string): n
   // A local agency notice under a national source label is probably for that city.
   const local = p.title.match(/([가-힣]{2,4})(시|군|구)\s*(산업진흥원|창업|청년|소상공인|경제진흥)/);
   if (local && !REGION_ALIASES[c.region].some((name) => p.title.includes(name))) score -= 3;
+  // A title naming only other regions (e.g. "서울 창신 …" for a 대구 customer) is likely local elsewhere.
+  const mine = REGION_ALIASES[c.region];
+  if (!mine.some((name) => p.title.includes(name)) && Object.entries(REGION_ALIASES).some(([region, names]) => region !== c.region && names.some((name) => p.title.includes(name)))) score -= 3;
   const deadline = entryDate(p.applyEnd);
   if (deadline && deadline <= addDays(today, 2)) score -= 4; // too late to prepare an application
   return score;
