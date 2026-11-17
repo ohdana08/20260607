@@ -7,15 +7,18 @@ const TRACKING_PARAMS = {
 };
 
 export function GET(request: NextRequest) {
-  const destination = new URL("/landing", request.url);
+  const destination = new URL("https://bccconsulting.kr/ddakfit/");
 
   Object.entries(TRACKING_PARAMS).forEach(([key, value]) => {
     destination.searchParams.set(key, value);
   });
 
-  request.nextUrl.searchParams.forEach((value, key) => {
-    if (!key.startsWith("utm_")) destination.searchParams.set(key, value);
-  });
+  // Forward only explicit QA flags; never carry arbitrary data across domains.
+  for (const key of ["qa", "bcc_analytics_debug"]) {
+    if (request.nextUrl.searchParams.get(key) === "1") {
+      destination.searchParams.set(key, "1");
+    }
+  }
 
   return NextResponse.redirect(destination, 302);
 }
