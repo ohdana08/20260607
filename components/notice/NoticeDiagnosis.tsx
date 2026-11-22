@@ -151,10 +151,10 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
             <button disabled={!!busy}>공고 가져오기 →</button>
           </form>
           <details>
-            <summary>K-Startup에서 링크 가져오는 법</summary>
+            <summary>영상으로 보기 · 지역별 사이트에서 공고 찾아 가져오기</summary>
             <video
-              aria-label="공고 링크 복사 예시"
-              src="/notice/link-guide.mp4"
+              aria-label="공고를 찾아 첨부파일을 확인하고 딱지원핏으로 가져오는 방법"
+              src="/notice/notice-walkthrough.mp4"
               controls
               playsInline
               preload="none"
