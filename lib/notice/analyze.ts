@@ -194,6 +194,7 @@ export async function diagnose(
   const result = await client.json<{ priority: string; rows: Row[] }>({
     system:
       instructions +
+      (files.length ? "" : " 신청자가 첨부한 파일이 0개입니다. 모든 행에서 file과 quote는 반드시 빈 문자열이어야 합니다. 공고 원문은 질문의 배경이며 신청자 증빙으로 인용할 수 없습니다. status는 본인 답변만 있음 또는 확인 필요로 작성하세요.") +
       ' 공고의 각 질문과 본인 답변, 실제 첨부 본문을 대조하세요. questionIndex가 있는 자료는 같은 id의 질문에서만 사용하고, 나머지는 공통 자료로 사용하세요. 미첨부를 미보유로 해석하지 마세요. 조건과 상충하는 답변, 단순 자기진술, 실제 근거, 부족한 자료를 구분하세요. 각 항목에 무엇을 어디서 찾을지 포함하세요. 파일명이 아닌 문서 본문에서 확인된 원문만 인용하세요. JSON {"priority":"지금 먼저 할 일","rows":[{"id":0,"status":"자료 근거 있음 또는 확인 필요 또는 본인 답변만 있음","reason":"답변과 공고를 비교한 이유","file":"실제 파일명 또는 빈 문자열","quote":"실제 자료의 짧은 연속 원문 또는 빈 문자열","next":"구체적인 다음 행동"}]}. 질문마다 한 행씩.',
     messages: [
       {
