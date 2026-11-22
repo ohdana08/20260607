@@ -32,6 +32,20 @@ function concreteQuestions(source: string, quote: string): Question[] {
   function add(prompt: string, options: string[], example: string) {
     questions.push({ source, quote, prompt, options: [...options, "잘 모르겠어요"], example });
   }
+  if (/수상/.test(quote) && /지원\s*사업\s*선정/.test(quote))
+    add("이 사업으로 상을 받거나 지원사업에 선정된 적이 있나요?", ["상을 받았어요", "지원사업에 선정됐어요", "둘 다 있어요", "둘 다 없어요"], "작년에 창업 경진대회에서 상을 받았어요.");
+  if (/기술·제품·서비스 출시/.test(quote))
+    add("사람들이 실제로 써 볼 수 있도록 제품이나 서비스를 출시한 적이 있나요?", ["출시했어요", "준비 중이에요", "아직 없어요"], "지난달부터 고객이 제품을 주문할 수 있게 됐어요.");
+  if (/공급·수주계약/.test(quote))
+    add("다른 회사와 제품이나 서비스를 공급하기로 계약을 맺었나요?", ["계약을 맺었어요", "논의 중이에요", "아직 없어요"], "첫 납품을 앞두고 계약서에 서명했어요.");
+  if (/본 지원사업에 이미 선정된 기업/.test(quote))
+    add("예전에 바로 이 지원사업에 선정된 적이 있나요?", ["있어요", "없어요"], "다른 지원사업에 선정된 적은 있어요.");
+  if (/객관적인 사실확인이 어려운/.test(quote))
+    add("신청서에 쓸 내용을 확인할 수 있는 자료가 있나요?", ["자료가 있어요", "일부만 있어요", "아직 없어요"], "선정됐다는 메일을 가지고 있어요.");
+  if (/지원사업 신청서\s*1부/.test(quote))
+    add("이 공고에 낼 신청서를 어디까지 작성했나요?", ["다 썼어요", "쓰는 중이에요", "아직 시작 전이에요"], "신청서 양식을 받아 회사 이름까지 적었어요.");
+  if (/개인정보 수집·이용 동의서\s*1부/.test(quote))
+    add("이 공고에 낼 개인정보 수집·이용 동의서를 작성했나요?", ["작성했어요", "아직이에요"], "신청서와 함께 낼 동의서 양식을 받아 뒀어요.");
   const years = quote.match(/(\d+)\s*년\s*이내/);
   if (/예비\s*창업자/.test(quote) && /창업\s*기업/.test(quote) && years) {
     add("신청하려는 사업은 지금 어느 단계인가요?",
@@ -59,6 +73,10 @@ function concreteQuestions(source: string, quote: string): Question[] {
   return questions;
 }
 
+function distinctQuestions(questions: Question[]) {
+  return questions.filter((q, i) => questions.findIndex(other => other.prompt === q.prompt) === i).slice(0, 10);
+}
+
 function clauseQuestions(sources: Source[]): Group[] {
   const primary = sources[0];
   const eligibility = primary.text.match(/(?:^|\n)\s*신청대상\s*\n([\s\S]*?)(?=\n\s*(?:제외대상|제출서류|신청 시 요청)|$)/)?.[1] || "";
@@ -74,15 +92,15 @@ function clauseQuestions(sources: Source[]): Group[] {
       for (const q of concreteQuestions(src.name, line.trim())) {
         if (!questions.some(existing => existing.prompt === q.prompt)) questions.push(q);
       }
-      if (questions.length >= 6) break;
+      if (questions.length >= 10) break;
     }
-    if (questions.length >= 6) break;
+    if (questions.length >= 10) break;
   }
   if (!questions.length)
     throw new Error(
       "읽은 본문에서 구체적인 신청 조건을 찾지 못했습니다. 상세 공고 링크를 확인해 주세요.",
     );
-  return [{ name: "공고 조건", questions }];
+  return [{ name: "공고 조건", questions: distinctQuestions(questions) }];
 }
 
 export async function makeQuestions(sources: Source[]): Promise<Group[]> {
@@ -91,7 +109,7 @@ export async function makeQuestions(sources: Source[]): Promise<Group[]> {
   const groups = await client.json<Group[]>({
     system:
       instructions +
-      ' 공고 본문과 붙임에서 세부사업별 질문을 만드세요. 트랙이 없으면 한 그룹. 대상·필수서류·사업근거를 우선하고 서로 다른 조건은 분리하세요. 질문은 쉬운 한국어, 준비 상태 버튼으로 답할 수 있도록 물으세요. example은 이 공고의 해당 조건과 질문에 맞는 가상의 신청자가 현재 상황을 덧붙이는 자연스러운 한 문장(80자 이내)입니다. 진행한 일과 남은 일을 구체적으로 구분하고 공고에 없는 의무나 기한을 만들지 마세요. 빈 신청서의 예시를 필수 조건으로 오인하지 마세요. JSON 배열 [{"name":"세부사업명","questions":[{"prompt":"질문","example":"선택 입력 예시","source":"정확한 파일명 또는 공고 본문","quote":"출처에서 그대로 복사한 짧은 한 구절"}]}]. 그룹당 2~5문항. 각 질문에 options 배열을 넣고 질문에 맞는 짧은 선택지와 잘 모르겠어요를 포함하세요. 사업을 처음 시작하는 사람이 자기 상황, 날짜, 보유 서류 하나를 바로 답할 수 있게 쓰세요. 지원 대상이 여러 갈래면 그 상황들을 선택지로 제시하세요. 기관의 검토·선정·발표 순서는 건너뛰세요. 원문에 대해 무엇을 준비했는지 묻거나 필수가 아닌 서류를 요구하지 마세요.',
+      ' 공고 본문과 붙임에서 세부사업별 질문을 만드세요. 트랙이 없으면 한 그룹. 대상·필수서류·사업근거를 우선하고 서로 다른 조건은 분리하세요. 질문은 쉬운 한국어, 준비 상태 버튼으로 답할 수 있도록 물으세요. example은 이 공고의 해당 조건과 질문에 맞는 가상의 신청자가 현재 상황을 덧붙이는 자연스러운 한 문장(80자 이내)입니다. 진행한 일과 남은 일을 구체적으로 구분하고 공고에 없는 의무나 기한을 만들지 마세요. 빈 신청서의 예시를 필수 조건으로 오인하지 마세요. JSON 배열 [{"name":"세부사업명","questions":[{"prompt":"질문","example":"선택 입력 예시","source":"정확한 파일명 또는 공고 본문","quote":"출처에서 그대로 복사한 짧은 한 구절"}]}]. 그룹마다 신청 대상, 기존 참여 등 제외 조건, 실제로 한 일, 그 일을 확인할 자료, 제출 서류를 원문에 있는 범위에서 빠짐없이 점검하세요. 중요 조건이 많으면 최대 10문항. 진실성 서약이나 가치판단을 묻지 마세요. 기사화 가능성이나 경쟁력을 스스로 평가하게 하지 말고 실제 수상, 계약, 출시 등 관찰 가능한 경험으로 풀어주세요. 예시로 열거된 성과는 대안입니다. 하나가 없어도 결격으로 해석하지 마세요. 각 질문에 options 배열을 넣고 질문에 맞는 짧은 선택지와 잘 모르겠어요를 포함하세요. 사업을 처음 시작하는 사람이 자기 상황, 날짜, 보유 서류 하나를 바로 답할 수 있게 쓰세요. 지원 대상이 여러 갈래면 그 상황들을 선택지로 제시하세요. 기관의 검토·선정·발표 순서는 건너뛰세요. 원문에 대해 무엇을 준비했는지 묻거나 필수가 아닌 서류를 요구하지 마세요.',
     messages: [{ role: "user", content: JSON.stringify(excerpt(sources)) }],
     schema: {},
     maxTokens: 4000,
@@ -112,15 +130,26 @@ export async function makeQuestions(sources: Source[]): Promise<Group[]> {
         )
         .flatMap(q => {
           if (organizerProcedure(q.quote)) return [];
+          const specific = concreteQuestions(q.source, q.quote);
+          if (specific.length) return specific;
           if (Array.isArray(q.options) && q.options.length >= 2 && q.options.length <= 6 &&
               q.options.every(option => validString(option) && option.length <= 60) &&
-              !/준비한 내용|무엇인가요|어떻게|어디까지|→/.test(q.prompt)) return [q];
+              !/준비한 내용|어떻게|어디까지|기사화|허위|과장된|사실에 근거|경쟁력이|부합|→/.test(q.prompt)) return [q];
           return concreteQuestions(q.source, q.quote);
         })
         .filter((q, i, all) => all.findIndex(item => item.prompt === q.prompt) === i)
-        .slice(0, 6);
+        .slice(0, 10);
       if (questions.length) checked.push({ name: group.name, questions });
     }
+  // Supplement single-program results with verifiable clauses missed by the model.
+  if (checked.length === 1 && Array.isArray(groups) && groups.length === 1) {
+    const hasTracks = /신청대상[\s\S]*?\n\s*[*·-][^\n:：]+[:：][^\n]+\n\s*[*·-][^\n:：]+[:：]/.test(sources[0].text.split("제외대상")[0]);
+    if (!hasTracks) {
+      const grounded = sources.flatMap(src => src.text.split("\n").flatMap(line =>
+        line.length <= 1200 ? concreteQuestions(src.name, line.trim()) : []));
+      checked[0].questions = distinctQuestions([...grounded, ...checked[0].questions]);
+    }
+  }
   return checked.length ? checked : clauseQuestions(sources);
 }
 
@@ -185,7 +214,7 @@ export async function diagnose(
   }
   if (!files.length) {
     const advice = await client.json<{ steps: { id: number; next: string }[] }>({
-      system: instructions + ' 신청자의 답변을 보고 각 질문마다 다음에 확인할 일을 쉬운 말 한 문장으로 안내하세요. 제출된 자료는 없습니다. 파일 내용이나 신청 자격을 확인했다고 말하지 마세요. JSON {"steps":[{"id":0,"next":"다음에 할 일"}]}',
+      system: instructions + ' 열거한 성과는 대안이므로 각각을 필수 조건처럼 다루지 마세요. 답변만으로 자격 확정이나 증빙 확인을 하지 마세요. 신청자의 답변을 보고 각 질문마다 다음에 확인할 일을 쉬운 말 한 문장으로 안내하세요. 제출된 자료는 없습니다. 파일 내용이나 신청 자격을 확인했다고 말하지 마세요. JSON {"steps":[{"id":0,"next":"다음에 할 일"}]}',
       messages: [{ role: "user", content: JSON.stringify({ title, group, questions: questions.map((q, id) => ({ id, question: q.prompt, condition: q.quote, answer: answers[id] })) }) }],
       schema: {},
       maxTokens: 2000,
@@ -208,7 +237,7 @@ export async function diagnose(
   const result = await client.json<{ priority: string; rows: Row[] }>({
     system:
       instructions +
-      ' 공고의 각 질문과 본인 답변, 실제 첨부 본문을 대조하세요. questionIndex가 있는 자료는 같은 id의 질문에서만 사용하고, 나머지는 공통 자료로 사용하세요. 미첨부를 미보유로 해석하지 마세요. 조건과 상충하는 답변, 단순 자기진술, 실제 근거, 부족한 자료를 구분하세요. 각 항목에 무엇을 어디서 찾을지 포함하세요. 파일명이 아닌 문서 본문에서 확인된 원문만 인용하세요. JSON {"priority":"지금 먼저 할 일","rows":[{"id":0,"status":"자료 근거 있음 또는 확인 필요 또는 본인 답변만 있음","reason":"답변과 공고를 비교한 이유","file":"실제 파일명 또는 빈 문자열","quote":"실제 자료의 짧은 연속 원문 또는 빈 문자열","next":"구체적인 다음 행동"}]}. 질문마다 한 행씩.',
+      ' 성과 예시는 대안이므로 한 가지 성과가 없다는 이유로 부적격이라 하지 마세요. 공고의 각 질문과 본인 답변, 실제 첨부 본문을 대조하세요. questionIndex가 있는 자료는 같은 id의 질문에서만 사용하고, 나머지는 공통 자료로 사용하세요. 미첨부를 미보유로 해석하지 마세요. 조건과 상충하는 답변, 단순 자기진술, 실제 근거, 부족한 자료를 구분하세요. 각 항목에 무엇을 어디서 찾을지 포함하세요. 파일명이 아닌 문서 본문에서 확인된 원문만 인용하세요. JSON {"priority":"지금 먼저 할 일","rows":[{"id":0,"status":"자료 근거 있음 또는 확인 필요 또는 본인 답변만 있음","reason":"답변과 공고를 비교한 이유","file":"실제 파일명 또는 빈 문자열","quote":"실제 자료의 짧은 연속 원문 또는 빈 문자열","next":"구체적인 다음 행동"}]}. 질문마다 한 행씩.',
     messages: [
       {
         role: "user",

@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       !string(group, 250) ||
       !Array.isArray(questions) ||
       !questions.length ||
-      questions.length > 6 ||
+      questions.length > 10 ||
       !questions.every(
         (q: Question) =>
           q &&
