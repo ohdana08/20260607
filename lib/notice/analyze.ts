@@ -183,6 +183,20 @@ export async function diagnose(
       findings,
     };
   }
+  if (!files.length) {
+    const advice = await client.json<{ steps: { id: number; next: string }[] }>({
+      system: instructions + ' 신청자의 답변을 보고 각 질문마다 다음에 확인할 일을 쉬운 말 한 문장으로 안내하세요. 제출된 자료는 없습니다. 파일 내용이나 신청 자격을 확인했다고 말하지 마세요. JSON {"steps":[{"id":0,"next":"다음에 할 일"}]}',
+      messages: [{ role: "user", content: JSON.stringify({ title, group, questions: questions.map((q, id) => ({ id, question: q.prompt, condition: q.quote, answer: answers[id] })) }) }],
+      schema: {},
+      maxTokens: 2000,
+    });
+    const findings = questions.map((q, i) => {
+      const step = Array.isArray(advice?.steps) && advice.steps.find(item => item?.id === i);
+      if (!step || !validString(step.next)) throw new Error("질문별 안내를 읽지 못했어요. 다시 시도해 주세요.");
+      return { question: q.prompt, status: "본인 답변만 있음", reason: "내 답변 · " + answers[i], evidence: "", next: step.next };
+    });
+    return { priority: findings[0].next, findings };
+  }
   type Row = {
     id: number;
     status: string;
@@ -194,7 +208,6 @@ export async function diagnose(
   const result = await client.json<{ priority: string; rows: Row[] }>({
     system:
       instructions +
-      (files.length ? "" : " 신청자가 첨부한 파일이 0개입니다. 모든 행에서 file과 quote는 반드시 빈 문자열이어야 합니다. 공고 원문은 질문의 배경이며 신청자 증빙으로 인용할 수 없습니다. status는 본인 답변만 있음 또는 확인 필요로 작성하세요.") +
       ' 공고의 각 질문과 본인 답변, 실제 첨부 본문을 대조하세요. questionIndex가 있는 자료는 같은 id의 질문에서만 사용하고, 나머지는 공통 자료로 사용하세요. 미첨부를 미보유로 해석하지 마세요. 조건과 상충하는 답변, 단순 자기진술, 실제 근거, 부족한 자료를 구분하세요. 각 항목에 무엇을 어디서 찾을지 포함하세요. 파일명이 아닌 문서 본문에서 확인된 원문만 인용하세요. JSON {"priority":"지금 먼저 할 일","rows":[{"id":0,"status":"자료 근거 있음 또는 확인 필요 또는 본인 답변만 있음","reason":"답변과 공고를 비교한 이유","file":"실제 파일명 또는 빈 문자열","quote":"실제 자료의 짧은 연속 원문 또는 빈 문자열","next":"구체적인 다음 행동"}]}. 질문마다 한 행씩.',
     messages: [
       {
