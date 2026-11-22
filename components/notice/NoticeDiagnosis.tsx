@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
 import { authedHeaders } from "@/components/auth/AuthGate";
-import type { Notice, Diagnosis, Source } from "@/lib/notice/types";
+import type { Notice, Diagnosis, EvidenceFile, Source } from "@/lib/notice/types";
+import { questionExample } from "@/lib/notice/questionExample";
 import "./notice.css";
 
 async function request<T>(
@@ -27,6 +28,8 @@ async function request<T>(
     );
   return data;
 }
+type Reply = { status?: string; note?: string };
+type Attachment = EvidenceFile & { group?: number };
 type Props = {
   initialUrl: string;
   onPlan: (notice: Notice, notes: string) => void;
@@ -36,13 +39,15 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
     [notice, setNotice] = useState<Notice | null>(null);
   const [step, setStep] = useState(0),
     [group, setGroup] = useState(0);
-  const [responses, setResponses] = useState<Record<number, string[]>>({}),
-    [files, setFiles] = useState<Source[]>([]);
+  const [responses, setResponses] = useState<Record<number, Reply[]>>({}),
+    [files, setFiles] = useState<Attachment[]>([]);
   const [report, setReport] = useState<Diagnosis | null>(null),
     [busy, setBusy] = useState(""),
     [error, setError] = useState("");
   const active = notice?.groups[group],
-    answers = responses[group] || [];
+    replies = responses[group] || [];
+  const activeFiles = files.filter(f => f.group === undefined || f.group === group);
+  const answers = active?.questions.map((_, i) => [replies[i]?.status, replies[i]?.note?.trim()].filter(Boolean).join(" · ") || (activeFiles.some(f => f.questionIndex === i) ? "첨부 자료로 답변합니다." : "")) || [];
   async function run(label: string, fn: () => Promise<void>) {
     setError("");
     setBusy(label);
@@ -70,10 +75,13 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
       setStep(1);
     });
   }
-  async function upload(list: File[]) {
+  async function upload(list: File[], questionIndex?: number) {
     if (!list.length) return;
     await run("첨부파일 본문을 읽고 있어요…", async () => {
-      if (files.length + list.length > 12)
+      const fileGroup = questionIndex === undefined ? undefined : group;
+      const sameSlot = (f: Attachment) => f.group === fileGroup && f.questionIndex === questionIndex;
+      const addedNames = new Set(list.map(f => f.name).filter(name => !files.some(f => sameSlot(f) && f.name === name)));
+      if (files.length + addedNames.size > 12)
         throw new Error("파일은 최대 12개까지 올릴 수 있습니다.");
       const errors: string[] = [];
       for (const f of list) {
@@ -83,8 +91,8 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
           form.set("file", f);
           const parsed = await request<Source>(form);
           setFiles((current) => [
-            ...current.filter((s) => s.name !== parsed.name),
-            parsed,
+            ...current.filter((s) => !sameSlot(s) || s.name !== parsed.name),
+            { ...parsed, group: fileGroup, questionIndex },
           ]);
           setReport(null);
         } catch (e) {
@@ -105,17 +113,49 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
         group: active.name,
         questions: active.questions,
         answers,
-        files,
+        files: activeFiles.map(({name, text, questionIndex}) => ({name, text, questionIndex})),
       });
       setReport(result);
       setStep(2);
     });
   }
-  function answer(i: number, value: string) {
-    const next = [...answers];
-    next[i] = value;
+  function answer(i: number, change: Reply) {
+    const next = [...replies];
+    next[i] = { ...next[i], ...change };
     setResponses({ ...responses, [group]: next });
     setReport(null);
+  }
+  function attachmentField(questionIndex?: number) {
+    return <>
+            <label>
+              {questionIndex === undefined ? "공통 자료 첨부" : "이 질문에 파일 첨부"} <small>선택 · 파일당 3MB, 전체 최대 12개</small>
+              <input
+                type="file"
+                multiple
+                accept=".pdf,.docx,.hwpx,.hwp,.txt,.md,.jpg,.jpeg,.png,.webp"
+                onChange={(e) => {
+                  const list = Array.from(e.target.files || []);
+                  e.target.value = "";
+                  void upload(list, questionIndex);
+                }}
+              />
+            </label>
+            {activeFiles.filter(f => f.questionIndex === questionIndex).map((f) => (
+              <details key={f.name}>
+                <summary>{f.name} · 본문 읽음</summary>
+                <p>{f.text.slice(0, 400)}</p>
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    setFiles(files.filter((s) => s !== f));
+                    setReport(null);
+                  }}
+                >
+                  첨부 제외
+                </button>
+              </details>
+            ))}
+    </>;
   }
   return (
     <article className="notice-flow">
@@ -198,30 +238,25 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
             )}
             {active.questions.map((q, i) => (
               <div className="notice-question" key={group + "-" + i}>
-                <label>
-                  {q.prompt}
-                  <textarea
-                    rows={2}
-                    maxLength={2000}
-                    value={answers[i] || ""}
-                    placeholder="현재 상황을 적어주세요"
-                    onChange={(e) => answer(i, e.target.value)}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => answer(i, "아직 준비하지 못했어요.")}
-                >
-                  아직 준비 전
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => answer(i, "잘 모르겠어요.")}
-                >
-                  잘 모르겠어요
-                </button>
+                <h2 id={`question-${i}`}>{q.prompt}</h2>
+                <div role="group" aria-labelledby={`question-${i}`}>
+                  {["아직 준비 전", "있어요", "잘 모르겠어요"].map(status => (
+                    <button key={status} type="button" className="secondary"
+                      aria-pressed={replies[i]?.status === status}
+                      onClick={() => answer(i, { status })}>{status}</button>
+                  ))}
+                </div>
+                <details>
+                  <summary>추가로 알려줄 내용이 있어요</summary>
+                  <input type="text" aria-label={q.prompt + " 추가 설명"} maxLength={1900}
+                    value={replies[i]?.note || ""} aria-describedby={`note-help-${i}`}
+                    onChange={e => answer(i, { note: e.target.value })}/>
+                  <small className="notice-note-help" id={`note-help-${i}`}>
+                    이미 해둔 일이나 기다리는 일을 알려주시면, 다음에 할 일을 더 구체적으로 안내해 드려요.
+                    <br/>예를 들면 “{questionExample(q)}”
+                  </small>
+                </details>
+                {attachmentField(i)}
                 <details>
                   <summary>질문의 근거</summary>
                   <p>
@@ -230,34 +265,7 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
                 </details>
               </div>
             ))}
-            <label>
-              내 사업 자료 첨부 <small>선택 · 파일당 3MB, 최대 12개</small>
-              <input
-                type="file"
-                multiple
-                accept=".pdf,.docx,.hwpx,.hwp,.txt,.md,.jpg,.jpeg,.png,.webp"
-                onChange={(e) => {
-                  const list = Array.from(e.target.files || []);
-                  e.target.value = "";
-                  void upload(list);
-                }}
-              />
-            </label>
-            {files.map((f) => (
-              <details key={f.name}>
-                <summary>{f.name} · 본문 읽음</summary>
-                <p>{f.text.slice(0, 400)}</p>
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    setFiles(files.filter((s) => s.name !== f.name));
-                    setReport(null);
-                  }}
-                >
-                  첨부 제외
-                </button>
-              </details>
-            ))}
+            {attachmentField()}
             <button
               className="secondary"
               onClick={() => {
@@ -271,7 +279,7 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
               disabled={active.questions.some((_, i) => !answers[i]?.trim())}
               onClick={() => void analyze()}
             >
-              {files.length ? "이 자료로 진단받기" : "자료 없이 진단받기"}
+              {activeFiles.length ? "이 자료로 진단받기" : "자료 없이 진단받기"}
             </button>
           </fieldset>
         </>

@@ -4,7 +4,7 @@ import { checkRateLimit, tooManyRequests } from "@/lib/ratelimit";
 import { readNotice } from "@/lib/notice/read";
 import { documentText } from "@/lib/notice/documents";
 import { makeQuestions, diagnose } from "@/lib/notice/analyze";
-import type { Question, Source } from "@/lib/notice/types";
+import type { Question, EvidenceFile } from "@/lib/notice/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -62,7 +62,8 @@ export async function POST(req: Request) {
       !Array.isArray(files) ||
       files.length > 12 ||
       !files.every(
-        (f: Source) => f && string(f.name, 512) && string(f.text, 24000),
+        (f: EvidenceFile) => f && string(f.name, 512) && string(f.text, 24000) &&
+          (f.questionIndex === undefined || (Number.isInteger(f.questionIndex) && f.questionIndex >= 0 && f.questionIndex < questions.length)),
       )
     )
       return bad("답변이나 자료를 확인해 주세요.");

@@ -1,5 +1,6 @@
 export type Source = { name: string; text: string };
-export type Question = { prompt: string; source: string; quote: string };
+export type EvidenceFile = Source & { questionIndex?: number };
+export type Question = { example?: string; prompt: string; source: string; quote: string };
 export type Group = { name: string; questions: Question[] };
 export type Notice = {
   title: string;

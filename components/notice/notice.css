@@ -91,3 +91,14 @@
 .notice-flow [role="alert"] {
   color: #942e1f;
 }
+
+.notice-flow button.secondary[aria-pressed="true"] {
+  background: #18523e;
+  color: white;
+}
+.notice-note-help {
+  display: block;
+  color: #435e53;
+  font-size: 0.94rem;
+  line-height: 1.55;
+}
