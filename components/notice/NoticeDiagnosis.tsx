@@ -160,7 +160,7 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
   return (
     <article className="notice-flow">
       <ol aria-label="공고 진단 진행 단계">
-        {["공고 가져오기", "내 준비 상태 확인하기", "진단 결과 보기"].map(
+        {["공고 가져오기", "신청 자격 확인하기", "진단 결과 보기"].map(
           (s, i) => (
             <li key={s} aria-current={step === i ? "step" : undefined}>
               {s}
@@ -208,7 +208,7 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
       )}
       {step === 1 && notice && active && (
         <>
-          <h1>내 준비 상태 확인하기</h1>
+          <h1>신청 자격 확인하기</h1>
           <a href={notice.url} target="_blank" rel="noreferrer">
             {notice.title} ↗
           </a>
@@ -294,7 +294,7 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
           <p>
             {notice.title} · {active.name}
           </p>
-          <h2>먼저 할 일</h2>
+          <h2>내 답변으로 본 신청 자격</h2>
           <p>{report.priority}</p>
           {report.findings.map((r, i) => (
             <section className="notice-question" key={i}>
