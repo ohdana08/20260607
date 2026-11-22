@@ -71,6 +71,7 @@ import {
   plainSupportOption,
 } from "@/lib/plain-language";
 
+const NoticeDiagnosis = dynamic(() => import("@/components/notice/NoticeDiagnosis"));
 const PresentationStudio = dynamic(() => import("@/components/chat/PresentationStudio"), {
   loading: () => (
     <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
@@ -649,7 +650,7 @@ export default function Chat() {
   // 첫 진입: 튜토리얼 1회 자동 실행
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (localStorage.getItem("tour_seen_v1")) return;
+    if (validFitPanel(new URLSearchParams(window.location.search).get("journey")) || localStorage.getItem("tour_seen_v1")) return;
     const t = setTimeout(() => {
       try {
         startTour();
@@ -677,7 +678,7 @@ export default function Chat() {
         if (url.protocol === "https:" && !url.username && !url.password) noticeUrl = url.href;
       } catch { /* malformed link */ }
     }
-    const requestedStart = inJourney && (noticeUrl || !recent) ? "direct" : params.get("start");
+    const requestedStart = inJourney && (!recent || (noticeUrl && params.get("journey") !== "diagnosis")) ? "direct" : params.get("start");
     const startsNewFlow = requestedStart === "find" || requestedStart === "direct";
     if (requestedStart === "direct") {
       setMessages([{ role: "assistant", content: GREETING }]);
@@ -1658,7 +1659,7 @@ export default function Chat() {
   }
 
   // '직접 올린 공고' 프로그램 세팅 — 위저드 도움 방식 2(정한 공고 진단)의 공통 준비
-  function makeCustomProgram(noticeUrl = "") {
+  function makeCustomProgram(noticeUrl = "", title = "직접 올린 안내문·작성 파일") {
     try {
       sessionStorage.removeItem(PLAN_OUTPUT_KEY);
     } catch {
@@ -1666,7 +1667,7 @@ export default function Chat() {
     }
     const custom: Program = {
       id: `custom:${genId()}`,
-      title: "직접 올린 안내문·작성 파일",
+      title,
       summary: "",
       target: "",
       supportField: "",
@@ -2530,8 +2531,7 @@ export default function Chat() {
           />
         );
   const preparePlan = fitPanel === "plan" && mode !== "plan" && mode !== "paywall" && !payOpen;
-  const diagnosisSummary = fitPanel === "diagnosis" && mode === "plan";
-  const hideChat = preparePlan || diagnosisSummary || fitPanel === "presentation";
+  const hideChat = preparePlan || fitPanel === "diagnosis" || fitPanel === "presentation";
   const templateReady = Boolean(selectedProgram && (docSummary || formToc.length || selectedProgram.requiresBusinessPlan));
   async function readTemplate(files: FileList | null) {
     if (!files?.length) return;
@@ -2558,7 +2558,20 @@ export default function Chat() {
       <p role="status">{templateError || (uploadingTemplate ? "자료를 읽고 있습니다…" : wizAnalysis.text)}</p>
       {templateReady && <button onClick={() => void clickPay()}>이용권 확인하고 작성하기 →</button>}
     </section>}
-    {diagnosisSummary && <section className="fit-work"><h2>공고 진단</h2><p>{selectedProgram?.title}</p><p>{wizAnalysis.text || docSummary || "이 공고의 사업계획서를 작성 중입니다."}</p><button onClick={() => openFitPanel("plan")}>사업계획서 이어쓰기 →</button></section>}
+    {fitPanel && <section hidden={fitPanel !== "diagnosis"}>
+      <NoticeDiagnosis initialUrl={new URLSearchParams(window.location.search).get("noticeUrl") || ""}
+        onPlan={(notice,notes)=>{
+          if (mode === "plan" && selectedProgram?.url !== notice.url && !window.confirm("이 공고로 새 작성 작업을 시작할까요?")) return;
+          if (!selectedProgram || selectedProgram.url !== notice.url) makeCustomProgram(notice.url, notice.title);
+          else if (selectedProgram.title !== notice.title) {
+            const updated = {...selectedProgram, title: notice.title};
+            setSelectedProgram(updated);
+            persistProgram(updated);
+          }
+          setMessages(previous=>previous.some(message=>message.content===notes) ? previous : [...previous,{role:"user",content:notes}]);
+          openFitPanel("plan");
+        }}/>
+    </section>}
     <main style={{display: hideChat ? "none" : undefined}} className={`relative flex h-[100dvh] flex-col overflow-hidden bg-white ${fitPanel ? "fit-chat" : ""}`}>
       <header className="border-b border-zinc-100 px-5 py-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">

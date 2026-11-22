@@ -10,8 +10,8 @@ const TRUSTED_DOMAINS = [
   "smtech.go.kr",
 ] as const;
 
-function isTrustedUrl(value: URL): boolean {
-  if (value.protocol !== "https:") return false;
+export function isTrustedUrl(value: URL): boolean {
+  if (value.protocol !== "https:" || value.username || value.password || value.port) return false;
   const hostname = value.hostname.toLowerCase();
   return TRUSTED_DOMAINS.some(
     (domain) => hostname === domain || hostname.endsWith(`.${domain}`),

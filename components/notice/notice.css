@@ -1,0 +1,93 @@
+.notice-flow {
+  max-width: 53rem;
+  margin: auto;
+  padding: clamp(1rem, 4vw, 2.5rem);
+  color: #173b32;
+  font-size: 1.125rem;
+  line-height: 1.6;
+  word-break: keep-all;
+}
+.notice-flow ol {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0;
+  margin: 0 0 2rem;
+  list-style: none;
+}
+.notice-flow li {
+  flex: 1;
+  text-align: center;
+  border-bottom: 3px solid #ccd9d1;
+  font-size: 1rem;
+  padding: 0.4rem;
+}
+.notice-flow li[aria-current] {
+  border-color: #186749;
+  font-weight: bold;
+}
+.notice-flow h1 {
+  font-size: clamp(1.75rem, 4vw, 2.4rem);
+  font-weight: 750;
+  line-height: 1.25;
+  margin: 0 0 1rem;
+}
+.notice-flow h2,
+.notice-flow label {
+  font-size: 1.17rem;
+  font-weight: 650;
+  display: block;
+}
+.notice-flow p {
+  white-space: pre-line;
+  margin: 0.7rem 0;
+}
+.notice-flow input,
+.notice-flow select,
+.notice-flow textarea {
+  display: block;
+  width: 100%;
+  padding: 0.7rem;
+  margin: 0.4rem 0;
+  border: 1px solid #879e92;
+  border-radius: 0.5rem;
+  font: inherit;
+  font-weight: 400;
+}
+.notice-flow button {
+  border: 1px solid #18523e;
+  background: #18523e;
+  color: white;
+  padding: 0.6rem 0.9rem;
+  margin: 0.4rem 0.35rem 0.4rem 0;
+  border-radius: 0.6rem;
+  font-weight: 650;
+}
+.notice-flow button.secondary {
+  background: white;
+  color: #18523e;
+}
+.notice-flow button:disabled {
+  opacity: 0.5;
+}
+.notice-flow details {
+  margin: 1rem 0;
+}
+.notice-flow summary {
+  cursor: pointer;
+  text-decoration: underline;
+}
+.notice-flow video {
+  width: 100%;
+  border-radius: 0.6rem;
+}
+.notice-question {
+  border-top: 1px solid #d5ded6;
+  padding: 1rem 0;
+}
+.notice-flow blockquote {
+  padding: 0.8rem;
+  background: #eff6ef;
+}
+.notice-flow [role="alert"] {
+  color: #942e1f;
+}
