@@ -188,7 +188,11 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
                 onChange={(e) => setUrl(e.target.value)}
               />
             </label>
-            <button disabled={!!busy}>공고 가져오기 →</button>
+            <button disabled={!!busy} aria-busy={!!busy}>
+              {busy && <span className="notice-spinner" aria-hidden="true" />}
+              {busy ? "공고 읽는 중" : "공고 가져오기 →"}
+            </button>
+            {busy && <p role="status">{busy}</p>}
           </form>
           <details>
             <summary>영상으로 보기 · 지역별 사이트에서 공고 찾아 가져오기</summary>
@@ -338,7 +342,7 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
           </button>
         </>
       )}
-      {busy && <p role="status">{busy}</p>}
+      {step !== 0 && busy && <p role="status">{busy}</p>}
       {error && <p role="alert">{error}</p>}
     </article>
   );

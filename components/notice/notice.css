@@ -102,3 +102,25 @@
   font-size: 0.94rem;
   line-height: 1.55;
 }
+
+.notice-flow button[aria-busy="true"] {
+  opacity: 1;
+  cursor: progress;
+}
+.notice-spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-inline-end: .5em;
+  vertical-align: -.12em;
+  border: 2px solid currentColor;
+  border-inline-end-color: transparent;
+  border-radius: 50%;
+  animation: notice-spin .85s linear infinite;
+}
+@keyframes notice-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notice-spinner { animation: none; }
+}
