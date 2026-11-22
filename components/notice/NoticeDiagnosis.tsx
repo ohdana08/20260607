@@ -240,7 +240,7 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
               <div className="notice-question" key={group + "-" + i}>
                 <h2 id={`question-${i}`}>{q.prompt}</h2>
                 <div role="group" aria-labelledby={`question-${i}`}>
-                  {["아직 준비 전", "있어요", "잘 모르겠어요"].map(status => (
+                  {(q.options ?? ["아직 준비 전", "있어요", "잘 모르겠어요"]).map(status => (
                     <button key={status} type="button" className="secondary"
                       aria-pressed={replies[i]?.status === status}
                       onClick={() => answer(i, { status })}>{status}</button>
@@ -253,7 +253,7 @@ export default function NoticeDiagnosis({ initialUrl, onPlan }: Props) {
                     onChange={e => answer(i, { note: e.target.value })}/>
                   <small className="notice-note-help" id={`note-help-${i}`}>
                     이미 해둔 일이나 기다리는 일을 알려주시면, 다음에 할 일을 더 구체적으로 안내해 드려요.
-                    <br/>예를 들면 “{questionExample(q)}”
+                    {questionExample(q) && <><br/>예를 들면 “{questionExample(q)}”</>}
                   </small>
                 </details>
                 {attachmentField(i)}

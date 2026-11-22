@@ -8,5 +8,5 @@ export function questionExample(q: Question): string {
   if (/매출/.test(wording)) return "전체 매출은 정리했고, 이 사업과 관련된 매출만 따로 집계 중이에요.";
   if (/추천/.test(q.prompt)) return "운영사와 추천을 논의했고, 공식 접수 여부는 답변을 기다리고 있어요.";
   if (/투자/.test(q.prompt)) return "투자계약은 체결했고, 입금 확인 자료를 기다리고 있어요.";
-  return `공고의 ‘${q.quote}’ 항목은 담당자에게 확인을 요청했어요.`;
+  return "";
 }
