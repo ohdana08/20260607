@@ -360,7 +360,31 @@ function genId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+const fitPanels = ["diagnosis", "plan", "presentation"] as const;
+type FitPanel = typeof fitPanels[number];
+function validFitPanel(value: unknown): value is FitPanel {
+  return fitPanels.some(panel => panel === value);
+}
+const fitOrigins = ["https://bccconsulting.kr", "https://www.bccconsulting.kr"];
 export default function Chat() {
+  const [fitPanel, setFitPanel] = useState<FitPanel | null>(null);
+  const [uploadingTemplate, setUploadingTemplate] = useState(false);
+  const [templateError, setTemplateError] = useState("");
+  useEffect(() => {
+    const initial = new URLSearchParams(location.search).get("journey");
+    if (!validFitPanel(initial)) return;
+    setFitPanel(initial);
+    function receive(event: MessageEvent) {
+      if (event.source === window.parent && fitOrigins.includes(event.origin) && event.data?.type === "fit-panel" && validFitPanel(event.data.panel)) setFitPanel(event.data.panel);
+    }
+    window.addEventListener("message", receive);
+    for (const origin of fitOrigins) window.parent.postMessage({type: "fit-ready"}, origin);
+    return () => window.removeEventListener("message", receive);
+  }, []);
+  function openFitPanel(panel: FitPanel) {
+    setFitPanel(panel);
+    if (window.parent !== window) for (const origin of fitOrigins) window.parent.postMessage({type: "fit-navigate", panel}, origin);
+  }
   // 유료 전환 파이프(2026-07-09): 로그인 세션 + 결제 확인(is_paid) 상태.
   // ⚠️ 토큰은 컨텍스트 값을 저장해 쓰지 말 것 — 만료 버그(§11) 재발.
   //    모든 인증 요청은 authedHeaders()로 요청 직전에 신선한 토큰을 받는다.
@@ -643,12 +667,23 @@ export default function Chat() {
     const list = loadConvos();
     setConvos(list);
     const recent = list.find((c) => c.messages.some((m) => m.role === "user"));
-    const requestedStart = new URLSearchParams(window.location.search).get("start");
+    const params = new URLSearchParams(window.location.search);
+    const inJourney = validFitPanel(params.get("journey"));
+    const rawNotice = params.get("noticeUrl");
+    let noticeUrl = "";
+    if (inJourney && rawNotice && rawNotice.length <= 4096) {
+      try {
+        const url = new URL(rawNotice);
+        if (url.protocol === "https:" && !url.username && !url.password) noticeUrl = url.href;
+      } catch { /* malformed link */ }
+    }
+    const requestedStart = inJourney && (noticeUrl || !recent) ? "direct" : params.get("start");
     const startsNewFlow = requestedStart === "find" || requestedStart === "direct";
     if (requestedStart === "direct") {
       setMessages([{ role: "assistant", content: GREETING }]);
       setConvoId(genId());
-      startDirect();
+      makeCustomProgram(noticeUrl);
+      setWizardStart("notice");
     } else if (requestedStart === "find") {
       setMessages([{ role: "assistant", content: GREETING }]);
       setConvoId(genId());
@@ -1623,7 +1658,7 @@ export default function Chat() {
   }
 
   // '직접 올린 공고' 프로그램 세팅 — 위저드 도움 방식 2(정한 공고 진단)의 공통 준비
-  function makeCustomProgram() {
+  function makeCustomProgram(noticeUrl = "") {
     try {
       sessionStorage.removeItem(PLAN_OUTPUT_KEY);
     } catch {
@@ -1637,7 +1672,7 @@ export default function Chat() {
       supportField: "",
       region: "",
       applyEnd: null,
-      url: "",
+      url: noticeUrl,
       formUrl: null,
       source: "sample",
     };
@@ -1920,6 +1955,7 @@ export default function Chat() {
     const kickoffKey = `${convoId}:${p.id}`;
     if (planKickoffRef.current === kickoffKey) return;
     planKickoffRef.current = kickoffKey;
+    if (fitPanel) openFitPanel("plan");
 
     // 작성 세션 진입이지 구매가 아니다. 구매는 서버의 확인된 실결제에서만 전송한다.
     if (!admin) track("plan_session_start");
@@ -2481,8 +2517,49 @@ export default function Chat() {
     }
   }
 
+  const studio = draft && selectedProgram && evidencePack && strategyPack && planReview && !reviewNeedsRefresh && !drafting && !reviewingDraft && !revisingDraft && (
+          <PresentationStudio
+            program={selectedProgram}
+            sections={draft.sections}
+            evidence={evidencePack}
+            strategy={strategyPack}
+            sourceConversation={planTextMessages()}
+            provider={provider}
+            code={code}
+            convertFiles={convertFiles}
+          />
+        );
+  const preparePlan = fitPanel === "plan" && mode !== "plan" && mode !== "paywall" && !payOpen;
+  const diagnosisSummary = fitPanel === "diagnosis" && mode === "plan";
+  const hideChat = preparePlan || diagnosisSummary || fitPanel === "presentation";
+  const templateReady = Boolean(selectedProgram && (docSummary || formToc.length || selectedProgram.requiresBusinessPlan));
+  async function readTemplate(files: FileList | null) {
+    if (!files?.length) return;
+    setUploadingTemplate(true);
+    setTemplateError("");
+    try {
+      const payload = await convertFiles(files);
+      if (!payload.docs.length && !payload.pdfs.length && !payload.imgs.length) throw new Error();
+      if (!selectedProgram) makeCustomProgram();
+      await wizardAnalyze(payload, "사업계획서 작성에 사용할 공고와 양식입니다.");
+    } catch {
+      setTemplateError("파일을 읽지 못했습니다. 공고문이나 작성 양식을 다시 선택해 주세요.");
+    } finally { setUploadingTemplate(false); }
+  }
   return (
-    <main className="relative flex h-[100dvh] flex-col overflow-hidden bg-white">
+    <>
+    {fitPanel && <section hidden={fitPanel !== "presentation"} className="fit-work">
+      {studio || <><h2>IR 발표자료 만들기</h2><p>검토를 마친 사업계획서를 열면 그 내용을 발표자료로 구성할 수 있어요.</p><button onClick={() => openFitPanel("plan")}>사업계획서 열기 →</button></>}
+    </section>}
+    {preparePlan && <section className="fit-work"><h2>사업계획서 작성하기</h2>
+      <p>지원할 공고의 안내문이나 사업계획서 양식을 올려 주세요.</p>
+      {selectedProgram?.url && <a href={selectedProgram.url} target="_blank" rel="noopener noreferrer">선택한 공고 보기 ↗</a>}
+      <label>공고문·작성 양식<input type="file" multiple disabled={uploadingTemplate || wizAnalysis.busy} onChange={e => void readTemplate(e.target.files)} /></label>
+      <p role="status">{templateError || (uploadingTemplate ? "자료를 읽고 있습니다…" : wizAnalysis.text)}</p>
+      {templateReady && <button onClick={() => void clickPay()}>이용권 확인하고 작성하기 →</button>}
+    </section>}
+    {diagnosisSummary && <section className="fit-work"><h2>공고 진단</h2><p>{selectedProgram?.title}</p><p>{wizAnalysis.text || docSummary || "이 공고의 사업계획서를 작성 중입니다."}</p><button onClick={() => openFitPanel("plan")}>사업계획서 이어쓰기 →</button></section>}
+    <main style={{display: hideChat ? "none" : undefined}} className={`relative flex h-[100dvh] flex-col overflow-hidden bg-white ${fitPanel ? "fit-chat" : ""}`}>
       <header className="border-b border-zinc-100 px-5 py-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-2">
@@ -3000,18 +3077,7 @@ export default function Chat() {
             }}
           />
         )}
-        {draft && selectedProgram && evidencePack && strategyPack && planReview && !reviewNeedsRefresh && !drafting && !reviewingDraft && !revisingDraft && (
-          <PresentationStudio
-            program={selectedProgram}
-            sections={draft.sections}
-            evidence={evidencePack}
-            strategy={strategyPack}
-            sourceConversation={planTextMessages()}
-            provider={provider}
-            code={code}
-            convertFiles={convertFiles}
-          />
-        )}
+        {!fitPanel && studio}
       </div>
       </div>
       )}
@@ -3362,6 +3428,7 @@ export default function Chat() {
         </div>
       )}
     </main>
+    </>
   );
 }
 

@@ -182,6 +182,9 @@ export default function AuthGate({
   if (!session && !allowLocalReview) {
     return <AuthCard />;
   }
+  if (session && new URLSearchParams(window.location.search).has("journeyLogin")) {
+    return <div className="p-8 text-lg">로그인했습니다. 딱지원핏을 열어 둔 탭에서 계속하세요.</div>;
+  }
   return <Ctx.Provider value={ctx}>{children}</Ctx.Provider>;
 }
 
@@ -207,6 +210,10 @@ function AuthCard() {
   useEffect(() => { track("auth_gate_view"); }, []);
 
   async function signInWithGoogle() {
+    if (window.parent !== window && new URLSearchParams(window.location.search).has("journey")) {
+      window.open("/embed?journeyLogin=1", "_blank", "noopener");
+      return;
+    }
     setBusy(true);
     setError("");
     recordLoginStart();

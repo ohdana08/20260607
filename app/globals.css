@@ -10,3 +10,10 @@ html,
 body {
   font-family: var(--font-sans);
 }
+
+.fit-work { max-width: 54rem; margin: auto; padding: 2rem 1.25rem; font-size: 1.125rem; line-height: 1.65; }
+.fit-work h2 { font-size: 1.65rem; font-weight: 750; }
+.fit-work p, .fit-work label { display: block; margin: 1rem 0; white-space: pre-line; }
+.fit-work input[type=file] { display: block; margin-top: .5rem; }
+.fit-work > button { padding: .6rem 1rem; border-radius: .65rem; background: #184d40; color: white; }
+.fit-chat :is(.text-sm, textarea, input:not([type=checkbox])) { font-size: 1rem; }

@@ -4,7 +4,7 @@ import type { NextConfig } from "next";
 // https://ohdana08.github.io/bcc-homepage/#tools via an <iframe> pointing at /embed.
 // Only that origin may frame us; every other path forbids framing entirely.
 const HOMEPAGE_ORIGIN = "https://ohdana08.github.io";
-const EMBED_CSP = `frame-ancestors 'self' ${HOMEPAGE_ORIGIN};`;
+const EMBED_CSP = `frame-ancestors 'self' ${HOMEPAGE_ORIGIN} https://bccconsulting.kr https://www.bccconsulting.kr;`;
 const DEFAULT_CSP = "frame-ancestors 'none';";
 
 const nextConfig: NextConfig = {
